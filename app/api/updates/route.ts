@@ -443,11 +443,11 @@ export async function GET() {
       refreshSeconds: 60,
       officialAlert: {
         issuedAt: "2026-07-29T13:58:00Z",
-        lastManuallyVerifiedAt: "2026-07-29T19:00:00Z",
+        lastManuallyVerifiedAt: "2026-07-29T20:33:00Z",
         status: "no-cancellation-in-manual-record",
         manual: true,
         action:
-          "Move to Plomari beach and continue toward Agios Isidoros; follow authorities on the ground.",
+          "Move toward Plomari beach in the direction of Agios Isidoros; follow authorities on the ground.",
         sourceUrl: "https://x.com/112Greece/status/2082468150189167080",
       },
       fireServiceIncident:
