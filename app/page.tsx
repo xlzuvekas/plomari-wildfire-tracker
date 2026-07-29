@@ -15,12 +15,14 @@ type Language = "en" | "el";
 type LayerKey =
   | "official"
   | "satellite"
+  | "satelliteRaster"
   | "local"
   | "wind"
   | "smokeObserved"
   | "smoke"
   | "simulation";
 type BaseMode = "dark" | "satellite" | "terrain";
+type ThermalWindow = "latest" | "6h" | "24h";
 
 type WindVector = {
   speedKmh: number;
@@ -75,43 +77,98 @@ type IntelItem = {
   confidence: Confidence;
   sourceUrl?: string;
   sourceLabel?: string;
-};
-
-type ThermalDetection = {
-  id: string;
-  point: LatLngTuple;
-  sensor: string;
-  pass: string;
-  confidence: string;
-  frp: number;
-  footprint: string;
+  category?: LiveUpdateItem["category"];
+  severity?: LiveUpdateItem["severity"];
+  actionRequired?: boolean;
+  live?: boolean;
+  archived?: boolean;
 };
 
 type LiveThermalDetection = {
   id: string;
+  passId: string;
   lat: number;
   lon: number;
   sensor: string;
   satellite: string;
+  product: string;
+  version: string | null;
   observedAt: string;
+  ageMinutes: number;
   confidence: string;
+  confidenceCode: "h" | "n" | "l" | "u";
   frpMw: number | null;
   scanKm: number | null;
   trackKm: number | null;
   daynight: string | null;
+  distanceFromIncidentKm: number;
+  bearingFromIncidentDeg: number;
+  scope: "incident" | "regional";
 };
 
 type ThermalPayload = {
-  generatedAt: string;
-  mode: "firms-area-api" | "gibs-wms-fallback";
+  schemaVersion: 2;
+  status: "ok" | "partial" | "unconfigured" | "upstream-error";
+  requestStartedAt: string;
+  retrievedAt: string;
+  query: {
+    bounds: { west: number; south: number; east: number; north: number };
+    incidentCenter: { lat: number; lon: number };
+    incidentRadiusKm: number;
+    from: string;
+    to: string;
+    maxAgeHours: number;
+  };
+  credential: {
+    env: "FIRMS_MAP_KEY";
+    configured: boolean;
+  };
   latestObservedAt: string | null;
-  detections: LiveThermalDetection[];
-  errors: string[];
-  source: {
+  latestIncidentObservedAt: string | null;
+  observationAgeMinutes: number | null;
+  complete: boolean;
+  datasets: Array<{
+    id: string;
     label: string;
+    status: "ok" | "error" | "unconfigured";
+    records: number;
+    latestObservedAt: string | null;
+    errorCode: string | null;
+  }>;
+  summary: {
+    incidentRecords: number;
+    regionalRecords: number;
+    passCount: number;
+    byConfidence: { h: number; n: number; l: number; u: number };
+  };
+  passes: Array<{
+    id: string;
+    platform: string;
+    satellite: string;
+    product: string;
+    observedAt: string;
+    ageMinutes: number;
+    recordCount: number;
+    incidentRecordCount: number;
+    byConfidence: { h: number; n: number; l: number; u: number };
+    maxFrpMw: number | null;
+    medianFrpMw: number | null;
+    dayNight: string | null;
+  }>;
+  detections: LiveThermalDetection[];
+  errors: Array<{
+    code: string | null;
+    dataset: string | null;
+    message: string;
+  }>;
+  source: {
+    name: string;
     docs: string;
-    refreshMinutes: number;
-    typicalLatencyHours: number;
+    semantics: string;
+    appPollSeconds: number;
+    upstreamRefreshMinutes: number;
+    globalNrtLatencyMaxHours: number;
+    observationCadenceNote: string;
   };
 };
 
@@ -119,23 +176,47 @@ type LiveUpdateItem = {
   id: string;
   title: string;
   summary: string;
+  summaryEn?: string;
+  summaryEl?: string;
   url: string;
   sourceId: string;
   sourceLabel: string;
-  sourceKind: "local-reporting" | "official-context";
+  sourceKind:
+    | "official-alert"
+    | "official-status"
+    | "official-context"
+    | "local-reporting"
+    | "public-broadcaster";
+  sourceTier: "official" | "publisher";
   publishedAt: string | null;
   modifiedAt: string | null;
   timeQuality: "exact" | "date-only" | "feed-order-only";
   latestUpdateLabel: string | null;
+  ageMinutes: number | null;
+  category:
+    | "evacuation"
+    | "readiness"
+    | "road"
+    | "smoke"
+    | "rekindling"
+    | "containment"
+    | "response"
+    | "incident";
+  severity: "critical" | "high" | "medium" | "low";
+  actionRequired: boolean;
 };
 
 type UpdatesPayload = {
-  generatedAt: string;
+  schemaVersion: 2;
+  requestStartedAt: string;
+  retrievedAt: string;
   localTimeZone: "Europe/Athens";
   refreshSeconds: number;
   officialAlert: {
     issuedAt: string;
     lastManuallyVerifiedAt: string;
+    lastAutomaticallyCheckedAt: string | null;
+    automaticOfficialFeedConfigured: boolean;
     status: string;
     manual: true;
     action: string;
@@ -155,14 +236,33 @@ type UpdatesPayload = {
     id: string;
     label: string;
     url: string;
-    kind: "local-reporting" | "official-context";
+    kind:
+      | "official-alert"
+      | "official-status"
+      | "official-context"
+      | "local-reporting"
+      | "public-broadcaster";
+    tier: "official" | "publisher";
     timeQuality: string;
     fetchedAt: string | null;
     channelUpdatedAt: string | null;
-    status: "ok" | "error";
+    latestItemAt: string | null;
+    status: "ok" | "error" | "unconfigured";
+    itemCount: number;
+    errorCode: string | null;
   }>;
+  sourceSummary: {
+    total: number;
+    online: number;
+    failed: number;
+    unconfigured: number;
+  };
   items: LiveUpdateItem[];
-  errors: string[];
+  errors: Array<{
+    sourceId: string;
+    code: string | null;
+    message: string;
+  }>;
 };
 
 const INCIDENT: LatLngTuple = [38.989013, 26.382489];
@@ -201,144 +301,6 @@ const LANDFILL_FOOTPRINT: LatLngTuple[] = [
   [38.9895777, 26.3815427],
 ];
 
-const THERMAL_DETECTIONS: ThermalDetection[] = [
-  {
-    id: "snpp-1",
-    point: [38.99092, 26.38489],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 5.08,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-2",
-    point: [38.9858, 26.37997],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 19.92,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-3",
-    point: [38.98624, 26.38598],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 19.92,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-4",
-    point: [38.98112, 26.38098],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 19.92,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-5",
-    point: [38.98936, 26.38072],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 11.7,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-6",
-    point: [38.98982, 26.38652],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 24.48,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-7",
-    point: [38.98468, 26.38161],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "Nominal",
-    frp: 10.97,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "snpp-8",
-    point: [38.98516, 26.38771],
-    sensor: "Suomi-NPP VIIRS",
-    pass: "14:57",
-    confidence: "High",
-    frp: 17.66,
-    footprint: "0.54 × 0.51 km",
-  },
-  {
-    id: "noaa20-1",
-    point: [38.98045, 26.3883],
-    sensor: "NOAA-20 VIIRS",
-    pass: "15:17",
-    confidence: "High",
-    frp: 22.38,
-    footprint: "0.60 × 0.70 km",
-  },
-  {
-    id: "noaa20-2",
-    point: [38.98028, 26.38137],
-    sensor: "NOAA-20 VIIRS",
-    pass: "15:17",
-    confidence: "Nominal",
-    frp: 31.26,
-    footprint: "0.60 × 0.70 km",
-  },
-  {
-    id: "noaa20-3",
-    point: [38.98696, 26.38648],
-    sensor: "NOAA-20 VIIRS",
-    pass: "15:17",
-    confidence: "High",
-    frp: 22.38,
-    footprint: "0.60 × 0.70 km",
-  },
-  {
-    id: "noaa20-4",
-    point: [38.97919, 26.38359],
-    sensor: "NOAA-20 VIIRS",
-    pass: "15:17",
-    confidence: "Nominal",
-    frp: 20.63,
-    footprint: "0.60 × 0.70 km",
-  },
-  {
-    id: "noaa20-5",
-    point: [38.98586, 26.38887],
-    sensor: "NOAA-20 VIIRS",
-    pass: "15:17",
-    confidence: "High",
-    frp: 32.26,
-    footprint: "0.60 × 0.71 km",
-  },
-  {
-    id: "noaa20-6",
-    point: [38.98572, 26.38212],
-    sensor: "NOAA-20 VIIRS",
-    pass: "15:17",
-    confidence: "Nominal",
-    frp: 20.63,
-    footprint: "0.60 × 0.70 km",
-  },
-  {
-    id: "modis-1",
-    point: [38.98641, 26.3782],
-    sensor: "Aqua MODIS",
-    pass: "16:06",
-    confidence: "63%",
-    frp: 32.94,
-    footprint: "1.22 × 1.10 km",
-  },
-];
-
 const intelEn: IntelItem[] = [
   {
     id: "overnight-hotspots",
@@ -375,9 +337,9 @@ const intelEn: IntelItem[] = [
   {
     id: "evacuation",
     time: "16:58",
-    label: "Latest official 112 instruction",
+    label: "Official 112 alert issued at 16:58",
     detail:
-      "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. No official cancellation or all-clear had been found at the latest manual review.",
+      "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued at 16:58; check the incident wire and authorities for any newer instruction.",
     confidence: "official",
   },
   {
@@ -450,9 +412,9 @@ const intelEl: IntelItem[] = [
   {
     id: "evacuation",
     time: "16:58",
-    label: "Τελευταία επίσημη οδηγία 112",
+    label: "Επίσημη ειδοποίηση 112 που εκδόθηκε στις 16:58",
     detail:
-      "Όσοι βρίσκονταν στην περιοχή Πλωμαρίου κλήθηκαν να απομακρυνθούν προς την παραλία Πλωμαρίου με κατεύθυνση τον Άγιο Ισίδωρο. Κατά τον τελευταίο χειροκίνητο έλεγχο δεν είχε εντοπιστεί επίσημη άρση ή λήξη συναγερμού.",
+      "Όσοι βρίσκονταν στην περιοχή Πλωμαρίου κλήθηκαν να απομακρυνθούν προς την παραλία Πλωμαρίου με κατεύθυνση τον Άγιο Ισίδωρο. Η καταχώριση αναπαράγει την ειδοποίηση των 16:58· ελέγξτε τη ροή συμβάντος και τις Αρχές για κάθε νεότερη οδηγία.",
     confidence: "official",
   },
   {
@@ -498,7 +460,7 @@ const sourcesEn = [
   {
     label: "112 Greece",
     href: "https://x.com/112Greece/status/2082468150189167080",
-    kind: "Latest official instruction · 16:58",
+    kind: "Original official alert · 16:58",
   },
   {
     label: "Protective guidance",
@@ -556,7 +518,7 @@ const sourcesEl = [
   {
     label: "112 Ελλάδας",
     href: "https://x.com/112Greece/status/2082468150189167080",
-    kind: "Τελευταία επίσημη οδηγία · 16:58",
+    kind: "Αρχική επίσημη ειδοποίηση · 16:58",
   },
   {
     label: "Οδηγίες προστασίας",
@@ -749,6 +711,78 @@ function formatGreeceDateTime(
   }).format(parsed);
 }
 
+function ageLabel(
+  ageMinutes: number | null | undefined,
+  language: Language,
+) {
+  if (ageMinutes === null || ageMinutes === undefined) {
+    return localize(language, "age unknown", "άγνωστη ηλικία");
+  }
+  if (ageMinutes < 60) {
+    return localize(
+      language,
+      `${ageMinutes} min ago`,
+      `πριν από ${ageMinutes} λεπτά`,
+    );
+  }
+  const hours = Math.floor(ageMinutes / 60);
+  const minutes = ageMinutes % 60;
+  if (hours < 24) {
+    return localize(
+      language,
+      `${hours}h${minutes ? ` ${minutes}m` : ""} ago`,
+      `πριν από ${hours}ω${minutes ? ` ${minutes}λ` : ""}`,
+    );
+  }
+  const days = Math.floor(hours / 24);
+  return localize(
+    language,
+    `${days}d ${hours % 24}h ago`,
+    `πριν από ${days}η ${hours % 24}ω`,
+  );
+}
+
+function ageMinutesFromTimestamp(
+  value: string | null | undefined,
+  nowEpoch: number,
+) {
+  if (!value) return null;
+  const observedEpoch = new Date(value).getTime();
+  if (Number.isNaN(observedEpoch)) return null;
+  return Math.max(0, Math.floor((nowEpoch - observedEpoch) / 60_000));
+}
+
+function thermalConfidenceLabel(
+  code: LiveThermalDetection["confidenceCode"],
+  language: Language,
+) {
+  const labels = {
+    h: localize(language, "High", "Υψηλή"),
+    n: localize(language, "Nominal", "Ονομαστική"),
+    l: localize(language, "Low", "Χαμηλή"),
+    u: localize(language, "Unknown", "Άγνωστη"),
+  };
+  return labels[code];
+}
+
+function updateCategoryLabel(
+  category: LiveUpdateItem["category"] | undefined,
+  language: Language,
+) {
+  if (!category) return null;
+  const labels: Record<LiveUpdateItem["category"], [string, string]> = {
+    evacuation: ["Evacuation", "Απομάκρυνση"],
+    readiness: ["Readiness", "Ετοιμότητα"],
+    road: ["Road", "Οδικό δίκτυο"],
+    smoke: ["Smoke", "Καπνός"],
+    rekindling: ["Rekindling", "Αναζωπύρωση"],
+    containment: ["Control", "Έλεγχος"],
+    response: ["Response", "Επιχείρηση"],
+    incident: ["Incident", "Συμβάν"],
+  };
+  return localize(language, ...labels[category]);
+}
+
 function utcDate(value: number) {
   return new Date(value).toISOString().slice(0, 10);
 }
@@ -790,32 +824,46 @@ function localizeFireStatus(
   return labels[status][language];
 }
 
+function preferredLiveItemId(payload: UpdatesPayload) {
+  if (payload.fireServiceIncident) return "fire-service-live-status";
+  const latestOfficial = payload.items.find(
+    (item) => item.sourceTier === "official",
+  );
+  const latestLive = latestOfficial ?? payload.items[0];
+  return latestLive ? `feed-${latestLive.id}` : null;
+}
+
 export default function Home() {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const operationalGroup = useRef<LayerGroup | null>(null);
   const baseLayerRef = useRef<TileLayer | null>(null);
+  const lastAutoSelectedLive = useRef<string | null>(null);
 
   const [ready, setReady] = useState(false);
   const [clock, setClock] = useState("");
+  const [ageEpoch, setAgeEpoch] = useState(() => Date.now());
   const [baseMode, setBaseMode] = useState<BaseMode>("satellite");
   const [language, setLanguage] = useState<Language>("en");
   const [compact, setCompact] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [intelOpen, setIntelOpen] = useState(true);
-  const [activeIntel, setActiveIntel] = useState("overnight-hotspots");
+  const [activeIntel, setActiveIntel] = useState("");
   const [windData, setWindData] = useState<WindPayload | null>(null);
   const [windError, setWindError] = useState(false);
   const [updatesData, setUpdatesData] = useState<UpdatesPayload | null>(null);
   const [updatesError, setUpdatesError] = useState(false);
   const [thermalData, setThermalData] = useState<ThermalPayload | null>(null);
   const [thermalError, setThermalError] = useState(false);
+  const [thermalWindow, setThermalWindow] =
+    useState<ThermalWindow>("latest");
   const [satelliteEpoch, setSatelliteEpoch] = useState(() => Date.now());
   const [online, setOnline] = useState(true);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     official: true,
     satellite: true,
+    satelliteRaster: false,
     local: true,
     wind: true,
     smokeObserved: false,
@@ -837,17 +885,29 @@ export default function Home() {
     const liveItems =
       updatesData?.items.slice(0, 6).map((item) => {
         const timestamp = item.modifiedAt ?? item.publishedAt;
+        const localizedSummary =
+          language === "el"
+            ? item.summaryEl ?? item.summary
+            : item.summaryEn ?? item.summary;
         const detailPrefix =
-          item.sourceKind === "official-context"
+          item.sourceTier === "official"
             ? localize(
                 language,
-                "Official context feed; not a 112 dispatch. ",
-                "Επίσημη ροή ενημέρωσης· δεν αποτελεί ειδοποίηση 112. ",
+                item.sourceKind === "official-alert"
+                  ? "Official alert feed. "
+                  : "Official information feed; only 112 alerts are public protective instructions. ",
+                item.sourceKind === "official-alert"
+                  ? "Επίσημη ροή ειδοποιήσεων. "
+                  : "Επίσημη ροή ενημέρωσης· μόνο οι ειδοποιήσεις 112 αποτελούν δημόσιες οδηγίες προστασίας. ",
               )
             : localize(
                 language,
-                "Near-real-time local reporting; not independently confirmed. ",
-                "Σχεδόν ζωντανή τοπική ενημέρωση· δεν έχει επιβεβαιωθεί ανεξάρτητα. ",
+                item.timeQuality === "feed-order-only"
+                  ? "Publisher feed item; publication time is unavailable, so recency is not verified. "
+                  : "Near-real-time local reporting; not independently confirmed. ",
+                item.timeQuality === "feed-order-only"
+                  ? "Στοιχείο ροής εκδότη· η ώρα δημοσίευσης δεν είναι διαθέσιμη, επομένως η πρόσφατη έκδοση δεν έχει επαληθευτεί. "
+                  : "Σχεδόν ζωντανή τοπική ενημέρωση· δεν έχει επιβεβαιωθεί ανεξάρτητα. ",
               );
         return {
           id: `feed-${item.id}`,
@@ -855,13 +915,17 @@ export default function Home() {
             item.latestUpdateLabel ??
             (timestamp ? formatGreeceTime(timestamp) : "RSS"),
           label: item.title,
-          detail: `${detailPrefix}${item.summary}`,
+          detail: `${detailPrefix}${localizedSummary}`,
           confidence:
-            item.sourceKind === "official-context"
+            item.sourceTier === "official"
               ? ("official" as const)
               : ("reported" as const),
           sourceUrl: item.url,
           sourceLabel: item.sourceLabel,
+          category: item.category,
+          severity: item.severity,
+          actionRequired: item.actionRequired,
+          live: true,
         };
       }) ?? [];
 
@@ -901,14 +965,47 @@ export default function Home() {
             confidence: "official" as const,
             sourceUrl: updatesData.fireServiceIncident.sourceUrl,
             sourceLabel: "Hellenic Fire Service",
+            category: "incident" as const,
+            severity: "medium" as const,
+            actionRequired: false,
+            live: true,
           },
         ]
       : [];
 
-    return [...fireService, ...liveItems, ...staticIntel];
+    const archivedChronology = staticIntel.map((item) => ({
+      ...item,
+      archived: true,
+    }));
+
+    return [...fireService, ...liveItems, ...archivedChronology];
   }, [language, staticIntel, updatesData]);
   const active =
-    displayIntel.find((item) => item.id === activeIntel) ?? displayIntel[0];
+    displayIntel.find((item) => item.id === activeIntel) ??
+    {
+      id: "live-wire-pending",
+      time: "LIVE",
+      label: localize(
+        language,
+        updatesError
+          ? "Live-source retry in progress"
+          : updatesData
+            ? "No current live item returned"
+            : "Checking live sources",
+        updatesError
+          ? "Νέα προσπάθεια σύνδεσης με ζωντανές πηγές"
+          : updatesData
+            ? "Δεν επιστράφηκε τρέχουσα ζωντανή ενημέρωση"
+            : "Έλεγχος ζωντανών πηγών",
+      ),
+      detail: localize(
+        language,
+        "No archived chronology item is selected by default. Dated archive entries remain available in the list while current sources are checked.",
+        "Δεν επιλέγεται από προεπιλογή καταχώριση του αρχείου. Οι χρονολογημένες αρχειακές καταχωρίσεις παραμένουν διαθέσιμες στη λίστα όσο ελέγχονται οι τρέχουσες πηγές.",
+      ),
+      confidence: "reported" as const,
+      live: true,
+    };
   const fireWind =
     windData?.locations.find((location) => location.id === "fire")?.current ??
     WIND_FALLBACK;
@@ -919,31 +1016,96 @@ export default function Home() {
   );
   const windObservedTime = formatGreeceTime(fireWind.time);
   const retrievedTime = formatGreeceTime(windData?.generatedAt);
-  const thermalDetections = useMemo<LiveThermalDetection[]>(
+  const incidentThermalDetections = useMemo(
     () =>
-      thermalData?.detections.length
-        ? thermalData.detections
-        : THERMAL_DETECTIONS.map((detection) => ({
-            id: `snapshot-${detection.id}`,
-            lat: detection.point[0],
-            lon: detection.point[1],
-            sensor: detection.sensor,
-            satellite: detection.sensor,
-            observedAt: `2026-07-29T${detection.pass}:00+03:00`,
-            confidence: detection.confidence,
-            frpMw: detection.frp,
-            scanKm: Number(detection.footprint.split(" × ")[0]),
-            trackKm: Number(
-              detection.footprint.split(" × ")[1]?.split(" ")[0],
-            ),
-            daynight: null,
-          })),
+      thermalData?.detections.filter(
+        (detection) => detection.scope === "incident",
+      ) ?? [],
     [thermalData],
   );
-  const thermalLatestTime = formatGreeceTime(
-    thermalData?.latestObservedAt ?? thermalDetections[0]?.observedAt,
+  const latestIncidentPass = useMemo(
+    () =>
+      thermalData?.passes.find((pass) => pass.incidentRecordCount > 0) ?? null,
+    [thermalData],
   );
-  const updatesRetrievedTime = formatGreeceTime(updatesData?.generatedAt);
+  const thermalDetections = useMemo(() => {
+    if (thermalWindow === "latest") {
+      if (!latestIncidentPass) return [];
+      return incidentThermalDetections.filter(
+        (detection) => detection.passId === latestIncidentPass.id,
+      );
+    }
+    if (thermalWindow === "6h") {
+      return incidentThermalDetections.filter(
+        (detection) =>
+          (ageMinutesFromTimestamp(detection.observedAt, ageEpoch) ??
+            detection.ageMinutes) <= 360,
+      );
+    }
+    return incidentThermalDetections;
+  }, [ageEpoch, incidentThermalDetections, latestIncidentPass, thermalWindow]);
+  const visibleThermalPasses = useMemo(
+    () => new Set(thermalDetections.map((detection) => detection.passId)).size,
+    [thermalDetections],
+  );
+  const thermalUnavailable =
+    (!thermalData && thermalError) ||
+    thermalData?.status === "unconfigured" ||
+    thermalData?.status === "upstream-error";
+  const thermalStaleSnapshot =
+    thermalError && Boolean(thermalData) && !thermalUnavailable;
+  const thermalLoading = !thermalData && !thermalError;
+  const thermalLatestTime = formatGreeceDateTime(
+    thermalData?.latestIncidentObservedAt,
+    language,
+  );
+  const thermalLatestAge = ageLabel(
+    ageMinutesFromTimestamp(
+      thermalData?.latestIncidentObservedAt,
+      ageEpoch,
+    ) ?? thermalData?.observationAgeMinutes,
+    language,
+  );
+  const thermalRetrievedTime = formatGreeceDateTime(
+    thermalData?.retrievedAt,
+    language,
+  );
+  const updatesRetrievedTime = formatGreeceTime(updatesData?.retrievedAt);
+  const sourceHealth = updatesData?.sourceSummary;
+  const thermalLayerDetail = thermalLoading
+    ? localize(language, "Loading FIRMS point feed", "Φόρτωση σημειακής ροής FIRMS")
+    : thermalUnavailable
+      ? localize(
+          language,
+          "FIRMS point feed unavailable",
+          "Η σημειακή ροή FIRMS δεν είναι διαθέσιμη",
+        )
+      : thermalStaleSnapshot
+        ? localize(
+            language,
+            `Last response · refresh failed · ${thermalLatestAge}`,
+            `Τελευταία απόκριση · αποτυχία ανανέωσης · ${thermalLatestAge}`,
+          )
+      : thermalData?.status === "partial"
+        ? localize(
+            language,
+            `Partial FIRMS response · ${thermalLatestAge}`,
+            `Μερική απόκριση FIRMS · ${thermalLatestAge}`,
+          )
+        : localize(
+            language,
+            `NASA FIRMS · ${thermalLatestAge}`,
+            `NASA FIRMS · ${thermalLatestAge}`,
+          );
+  const thermalWindowName = {
+    latest: localize(
+      language,
+      "latest detecting pass",
+      "νεότερη διέλευση με ανιχνεύσεις",
+    ),
+    "6h": localize(language, "last 6 hours", "τελευταίες 6 ώρες"),
+    "24h": localize(language, "last 24 hours", "τελευταίες 24 ώρες"),
+  }[thermalWindow];
   const officialVerifiedTime = formatGreeceTime(
     updatesData?.officialAlert.lastManuallyVerifiedAt,
   );
@@ -977,6 +1139,12 @@ export default function Home() {
       );
     format();
     const timer = window.setInterval(format, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const refreshAge = () => setAgeEpoch(Date.now());
+    const timer = window.setInterval(refreshAge, 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -1054,6 +1222,14 @@ export default function Home() {
         if (!cancelled) {
           setUpdatesData(payload);
           setUpdatesError(false);
+          const preferred = preferredLiveItemId(payload);
+          if (
+            preferred &&
+            lastAutoSelectedLive.current !== preferred
+          ) {
+            lastAutoSelectedLive.current = preferred;
+            setActiveIntel(preferred);
+          }
         }
       } catch {
         if (!cancelled) setUpdatesError(true);
@@ -1077,7 +1253,7 @@ export default function Home() {
         const payload = (await response.json()) as ThermalPayload;
         if (!cancelled) {
           setThermalData(payload);
-          setThermalError(payload.errors.length > 0);
+          setThermalError(false);
           setSatelliteEpoch(Date.now());
         }
       } catch {
@@ -1262,8 +1438,8 @@ export default function Home() {
         .bindTooltip(
           localize(
             language,
-            "112 direction: Plomari beach → Agios Isidoros · follow authorities on the ground",
-            "Κατεύθυνση 112: παραλία Πλωμαρίου → Άγιος Ισίδωρος · ακολουθείτε τις επί τόπου οδηγίες των Αρχών",
+            "16:58 official 112 direction: Plomari beach → Agios Isidoros · historical alert, verify any newer instruction",
+            "Επίσημη κατεύθυνση 112 στις 16:58: παραλία Πλωμαρίου → Άγιος Ισίδωρος · ιστορική ειδοποίηση, ελέγξτε κάθε νεότερη οδηγία",
           ),
           { sticky: true },
         )
@@ -1274,7 +1450,7 @@ export default function Home() {
           className: "marker-shell route-arrow-shell",
           html: markerHtml(
             "arrow",
-            localize(language, "112 DIRECTION →", "ΚΑΤΕΥΘΥΝΣΗ 112 →"),
+            localize(language, "112 · 16:58 →", "112 · 16:58 →"),
           ),
           iconSize: [130, 30],
           iconAnchor: [18, 15],
@@ -1282,7 +1458,7 @@ export default function Home() {
       }).addTo(group);
     }
 
-    if (layers.satellite) {
+    if (layers.satelliteRaster) {
       const thermalDate = utcDate(satelliteEpoch);
       [
         "VIIRS_NOAA20_Thermal_Anomalies_375m_All",
@@ -1306,10 +1482,36 @@ export default function Home() {
           )
           .addTo(group);
       });
+    }
 
+    if (layers.satellite) {
       thermalDetections.forEach((detection) => {
-        const high =
-          detection.confidence === "High" || (detection.frpMw ?? 0) >= 30;
+        const style = {
+          h: {
+            color: "#ff3b24",
+            fillColor: "#ff3b24",
+            dashArray: undefined,
+            radius: 7,
+          },
+          n: {
+            color: "#ff9f1c",
+            fillColor: "#ffb23f",
+            dashArray: undefined,
+            radius: 6,
+          },
+          l: {
+            color: "#ffe16a",
+            fillColor: "#ffe16a",
+            dashArray: "4 5",
+            radius: 5,
+          },
+          u: {
+            color: "#9aa7b5",
+            fillColor: "#9aa7b5",
+            dashArray: "2 5",
+            radius: 5,
+          },
+        }[detection.confidenceCode];
         const footprint =
           detection.scanKm !== null && detection.trackKm !== null
             ? `${detection.scanKm.toFixed(2)} × ${detection.trackKm.toFixed(2)} km`
@@ -1318,22 +1520,52 @@ export default function Home() {
                 "nominal 375 m pixel",
                 "ονομαστικό εικονοστοιχείο 375 m",
               );
+        const footprintRadius =
+          Math.max(detection.scanKm ?? 0.375, detection.trackKm ?? 0.375) *
+          500;
+        L.circle([detection.lat, detection.lon], {
+          radius: footprintRadius,
+          color: style.color,
+          weight: 1,
+          fillColor: style.fillColor,
+          fillOpacity: 0.07,
+          opacity: 0.44,
+          dashArray: style.dashArray ?? "3 7",
+          interactive: false,
+        }).addTo(group);
         L.circleMarker([detection.lat, detection.lon], {
-          radius: high ? 7 : 5,
-          color: high ? "#ff3b24" : "#ff9f1c",
-          weight: high ? 2 : 1.5,
-          fillColor: high ? "#ff3b24" : "#ffb23f",
-          fillOpacity: high ? 0.72 : 0.52,
+          radius: style.radius,
+          color: style.color,
+          weight: detection.confidenceCode === "h" ? 2.2 : 1.6,
+          fillColor: style.fillColor,
+          fillOpacity: detection.confidenceCode === "l" ? 0.48 : 0.74,
+          dashArray: style.dashArray,
         })
           .bindPopup(
-            `<div class="popup-copy"><strong>${detection.sensor}</strong><br>${formatGreeceDateTime(detection.observedAt, language)} ${localize(
+            `<div class="popup-copy"><strong>${localize(
               language,
-              "Greece",
+              "SATELLITE THERMAL DETECTION",
+              "ΔΟΡΥΦΟΡΙΚΗ ΘΕΡΜΙΚΗ ΑΝΙΧΝΕΥΣΗ",
+            )}</strong><br>${detection.sensor} · ${formatGreeceDateTime(detection.observedAt, language)} ${localize(
+              language,
+              "Greece time",
               "ώρα Ελλάδας",
-            )} · ${detection.confidence}<br>FRP ${detection.frpMw?.toFixed(2) ?? "—"} MW<br><span>${footprint} · ${localize(
+            )} · ${ageLabel(
+              ageMinutesFromTimestamp(detection.observedAt, ageEpoch) ??
+                detection.ageMinutes,
               language,
-              "satellite pixel center, not a perimeter or proof of current flame",
-              "κέντρο δορυφορικού εικονοστοιχείου, όχι περίμετρος ούτε απόδειξη ενεργής φλόγας",
+            )}<br>${localize(
+              language,
+              "Detection confidence",
+              "Αξιοπιστία ανίχνευσης",
+            )}: ${thermalConfidenceLabel(detection.confidenceCode, language)}<br>FRP ${detection.frpMw?.toFixed(2) ?? "—"} MW · ${detection.distanceFromIncidentKm.toFixed(1)} km ${compass(detection.bearingFromIncidentDeg, language)} ${localize(
+              language,
+              "of incident reference",
+              "από το σημείο αναφοράς συμβάντος",
+            )}<br><span>${footprint} · ${localize(
+              language,
+              "Marker is the pixel center. The halo approximates pixel dimensions, not a fire perimeter. FRP is pixel-integrated radiative power—not flame height or total fire intensity.",
+              "Ο δείκτης είναι το κέντρο του εικονοστοιχείου. Η ζώνη προσεγγίζει τις διαστάσεις του εικονοστοιχείου, όχι περίμετρο πυρκαγιάς. Το FRP είναι η ακτινοβολούμενη ισχύς του εικονοστοιχείου—όχι ύψος φλόγας ούτε συνολική ένταση.",
             )}</span></div>`,
           )
           .addTo(group);
@@ -1341,21 +1573,6 @@ export default function Home() {
     }
 
     if (layers.local) {
-      L.polyline([AGIOS_ANTONIOS, MEGALOCHORI], {
-        color: "#ffb347",
-        weight: 2,
-        opacity: 0.86,
-        dashArray: "7 10",
-      })
-        .bindTooltip(
-          localize(
-            language,
-            "20:50 local report: scattered hotspots near Agios Antonios and in the direction of Megalochori · not a continuous fire perimeter",
-            "Τοπική αναφορά 20:50: διάσπαρτες ενεργές εστίες κοντά στον Άγιο Αντώνιο και προς το Μεγαλοχώρι · δεν αποτελεί ενιαία περίμετρο πυρκαγιάς",
-          ),
-          { sticky: true },
-        )
-        .addTo(group);
       [AGIOS_ANTONIOS, midpoint(AGIOS_ANTONIOS, MEGALOCHORI)].forEach(
         (point, index) => {
           L.circle(point, {
@@ -1369,12 +1586,16 @@ export default function Home() {
             .bindPopup(
               `<div class="popup-copy"><strong>${localize(
                 language,
-                "REPORTED HOTSPOT AREA",
-                "ΑΝΑΦΕΡΘΕΙΣΑ ΠΕΡΙΟΧΗ ΕΝΕΡΓΩΝ ΕΣΤΙΩΝ",
+                "FIELD-REPORTED AREA (APPROXIMATE)",
+                "ΠΕΡΙΟΧΗ ΑΝΑΦΟΡΑΣ ΑΠΟ ΤΟ ΠΕΔΙΟ (ΚΑΤΑ ΠΡΟΣΕΓΓΙΣΗ)",
               )}</strong><br>${localize(
                 language,
-                "Observed in local field reporting at 20:50.",
-                "Παρατηρήθηκε σε τοπική επιτόπια ενημέρωση στις 20:50.",
+                index === 0
+                  ? "One local report referenced scattered activity near Agios Antonios at 20:50."
+                  : "The same report described activity in the direction of Megalochori; this second area is a broad reference zone.",
+                index === 0
+                  ? "Μία τοπική αναφορά περιέγραψε διάσπαρτη δραστηριότητα κοντά στον Άγιο Αντώνιο στις 20:50."
+                  : "Η ίδια αναφορά περιέγραψε δραστηριότητα προς το Μεγαλοχώρι· αυτή η δεύτερη περιοχή είναι ευρεία ζώνη αναφοράς.",
               )}<br><span>${localize(
                 language,
                 "Approximate only · not an official perimeter or live flame location.",
@@ -1390,7 +1611,11 @@ export default function Home() {
           className: "marker-shell",
           html: markerHtml(
             "arrow",
-            localize(language, "HOTSPOTS · 20:50", "ΕΝΕΡΓΕΣ ΕΣΤΙΕΣ · 20:50"),
+            localize(
+              language,
+              "FIELD REPORT · 20:50",
+              "ΑΝΑΦΟΡΑ ΠΕΔΙΟΥ · 20:50",
+            ),
           ),
           iconSize: [170, 30],
           iconAnchor: [16, 15],
@@ -1580,6 +1805,7 @@ export default function Home() {
     smokeMinutes,
     satelliteEpoch,
     thermalDetections,
+    ageEpoch,
     language,
   ]);
 
@@ -1712,20 +1938,32 @@ export default function Home() {
         className="evacuation-banner"
         aria-label={localize(
           language,
-          "Official evacuation instruction",
-          "Επίσημη οδηγία απομάκρυνσης",
+          "Archived 112 instruction issued at 16:58; not a current verification",
+          "Αρχειοθετημένη οδηγία 112 που εκδόθηκε στις 16:58· όχι τρέχουσα επαλήθευση",
         )}
       >
         <div className="evacuation-code">112</div>
         <div className="evacuation-copy">
+          <span className="evacuation-archive-tag">
+            {localize(
+              language,
+              "ARCHIVED 112 · ISSUED 16:58 · NOT LIVE",
+              "ΑΡΧΕΙΟ 112 · 16:58 · ΟΧΙ ΖΩΝΤΑΝΗ ΕΝΗΜΕΡΩΣΗ",
+            )}
+          </span>
           <strong lang="el">
-            ΑΝ ΒΡΙΣΚΕΣΤΕ ΣΤΗΝ ΠΕΡΙΟΧΗ, ΑΠΟΜΑΚΡΥΝΘΕΙΤΕ ΠΡΟΣ ΤΗΝ ΠΑΡΑΛΙΑ
-            ΠΛΩΜΑΡΙΟΥ ΜΕ ΚΑΤΕΥΘΥΝΣΗ ΤΟΝ ΑΓΙΟ ΙΣΙΔΩΡΟ.
+            Η ΑΡΧΙΚΗ ΟΔΗΓΙΑ ΗΤΑΝ: ΠΑΡΑΛΙΑ ΠΛΩΜΑΡΙΟΥ → ΑΓΙΟΣ ΙΣΙΔΩΡΟΣ.
           </strong>
           <strong className="evacuation-copy__secondary" lang="en">
-            IF YOU ARE IN THE AREA, MOVE TOWARD PLOMARI BEACH IN THE DIRECTION
-            OF AGIOS ISIDOROS.
+            ORIGINAL INSTRUCTION: PLOMARI BEACH → AGIOS ISIDOROS.
           </strong>
+          <span className="evacuation-caveat evacuation-caveat--mobile">
+            {localize(
+              language,
+              "Archived instruction — not a current verification. Follow newer 112 messages.",
+              "Αρχειοθετημένη οδηγία — όχι τρέχουσα επαλήθευση. Ακολουθείτε νεότερα μηνύματα 112.",
+            )}
+          </span>
           <a
             className="official-alert-link official-alert-link--mobile"
             href="https://x.com/112Greece/status/2082468150189167080"
@@ -1734,11 +1972,11 @@ export default function Home() {
           >
             112 {localize(language, "source", "πηγή")} ↗
           </a>
-          <span>
+          <span className="evacuation-caveat">
             {localize(
               language,
-              `Issued 16:58 · no official cancellation found as of ${officialVerifiedTime === "—" ? "the latest review" : officialVerifiedTime}. Follow authorities on the ground; this map does not certify that a route is safe.`,
-              `Εκδόθηκε στις 16:58 · δεν έχει εντοπιστεί επίσημη άρση έως ${officialVerifiedTime === "—" ? "τον τελευταίο έλεγχο" : `τις ${officialVerifiedTime}`}. Ακολουθείτε τις επί τόπου οδηγίες των Αρχών· ο χάρτης δεν πιστοποιεί ότι κάποια διαδρομή είναι ασφαλής.`,
+              `Original alert issued 16:58 · last manual record review ${officialVerifiedTime === "—" ? "pending" : officialVerifiedTime}. This banner reproduces that instruction; it is not proof that it remains current. Follow any newer 112 message and authorities on the ground.`,
+              `Η αρχική ειδοποίηση εκδόθηκε στις 16:58 · τελευταίος χειροκίνητος έλεγχος αρχείου ${officialVerifiedTime === "—" ? "εκκρεμεί" : `στις ${officialVerifiedTime}`}. Το πλαίσιο αναπαράγει εκείνη την οδηγία· δεν αποδεικνύει ότι παραμένει σε ισχύ. Ακολουθείτε κάθε νεότερο μήνυμα 112 και τις επί τόπου οδηγίες των Αρχών.`,
             )}{" "}
             <a
               className="official-alert-link"
@@ -1825,8 +2063,8 @@ export default function Home() {
               <small>
                 {localize(
                   language,
-                  "7 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                  "7 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                  "8 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                  "8 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
                 )}
               </small>
             </div>
@@ -1861,8 +2099,8 @@ export default function Home() {
                 ),
                 detail: localize(
                   language,
-                  "Official · 16:58",
-                  "Επίσημη · 16:58",
+                  "Original official alert · 16:58",
+                  "Αρχική επίσημη ειδοποίηση · 16:58",
                 ),
                 count: "1",
               },
@@ -1871,26 +2109,44 @@ export default function Home() {
                 icon: "✦",
                 label: localize(
                   language,
-                  "Thermal detections",
-                  "Θερμικές ανιχνεύσεις",
+                  "Satellite thermal detections",
+                  "Δορυφορικές θερμικές ανιχνεύσεις",
                 ),
-                detail: `${thermalError ? localize(language, "Fallback / retrying", "Εφεδρικά δεδομένα / νέα προσπάθεια") : "NASA FIRMS NRT"} · ${localize(language, "latest", "τελευταία")} ${thermalLatestTime}`,
-                count: String(thermalDetections.length),
+                detail: thermalLayerDetail,
+                count:
+                  thermalLoading || thermalUnavailable
+                    ? "—"
+                    : String(thermalDetections.length),
+              },
+              {
+                key: "satelliteRaster" as LayerKey,
+                icon: "▧",
+                label: localize(
+                  language,
+                  "Daily thermal raster",
+                  "Ημερήσιο θερμικό επίπεδο",
+                ),
+                detail: localize(
+                  language,
+                  "NASA GIBS imagery · not extra points",
+                  "Εικόνα NASA GIBS · όχι πρόσθετα σημεία",
+                ),
+                count: "IMG",
               },
               {
                 key: "local" as LayerKey,
                 icon: "△",
                 label: localize(
                   language,
-                  "Reported hotspots",
-                  "Αναφερθείσες ενεργές εστίες",
+                  "Field-reported areas (approx.)",
+                  "Περιοχές αναφοράς πεδίου (κατά προσ.)",
                 ),
                 detail: localize(
                   language,
-                  "Local field report · 20:50",
-                  "Τοπική αναφορά από το πεδίο · 20:50",
+                  "1 report · 2 reference areas · 20:50",
+                  "1 αναφορά · 2 περιοχές αναφοράς · 20:50",
                 ),
-                count: "2",
+                count: "1R/2A",
               },
               {
                 key: "wind" as LayerKey,
@@ -1972,6 +2228,186 @@ export default function Home() {
               </button>
             ))}
           </div>
+
+          <section
+            className="thermal-key"
+            aria-label={localize(
+              language,
+              "Satellite thermal detection key",
+              "Υπόμνημα δορυφορικών θερμικών ανιχνεύσεων",
+            )}
+          >
+            <div className="thermal-key__head">
+              <span>
+                {localize(
+                  language,
+                  "SATELLITE DETECTION KEY",
+                  "ΥΠΟΜΝΗΜΑ ΔΟΡΥΦΟΡΙΚΩΝ ΑΝΙΧΝΕΥΣΕΩΝ",
+                )}
+              </span>
+              <strong
+                className={
+                  thermalUnavailable
+                    ? "is-error"
+                    : thermalData?.status === "partial" ||
+                        thermalStaleSnapshot
+                      ? "is-partial"
+                      : ""
+                }
+              >
+                {thermalLoading
+                  ? localize(language, "LOADING", "ΦΟΡΤΩΣΗ")
+                  : thermalUnavailable
+                    ? localize(language, "UNAVAILABLE", "ΜΗ ΔΙΑΘΕΣΙΜΗ")
+                    : thermalStaleSnapshot
+                      ? localize(language, "RETRYING", "ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ")
+                    : thermalData?.status === "partial"
+                      ? localize(language, "PARTIAL", "ΜΕΡΙΚΗ")
+                      : localize(language, "AVAILABLE", "ΔΙΑΘΕΣΙΜΗ")}
+              </strong>
+            </div>
+
+            <div
+              className="thermal-filter"
+              role="group"
+              aria-label={localize(
+                language,
+                "Thermal observation window",
+                "Χρονικό παράθυρο θερμικών παρατηρήσεων",
+              )}
+            >
+              {(["latest", "6h", "24h"] as ThermalWindow[]).map((window) => (
+                <button
+                  type="button"
+                  key={window}
+                  className={thermalWindow === window ? "is-active" : ""}
+                  onClick={() => setThermalWindow(window)}
+                  aria-pressed={thermalWindow === window}
+                >
+                  {
+                    {
+                      latest: localize(
+                        language,
+                        "LATEST DETECTING PASS",
+                        "ΝΕΟΤΕΡΗ ΔΙΕΛΕΥΣΗ ΜΕ ΑΝΙΧΝΕΥΣΕΙΣ",
+                      ),
+                      "6h": localize(language, "6 HOURS", "6 ΩΡΕΣ"),
+                      "24h": localize(language, "24 HOURS", "24 ΩΡΕΣ"),
+                    }[window]
+                  }
+                </button>
+              ))}
+            </div>
+
+            {!thermalLoading && !thermalUnavailable && (
+              <div className="thermal-summary">
+                <strong>
+                  {thermalDetections.length}{" "}
+                  {localize(
+                    language,
+                    "detection records",
+                    "εγγραφές ανίχνευσης",
+                  )}{" "}
+                  · {visibleThermalPasses}{" "}
+                  {localize(
+                    language,
+                    visibleThermalPasses === 1 ? "pass" : "passes",
+                    visibleThermalPasses === 1 ? "διέλευση" : "διελεύσεις",
+                  )}
+                </strong>
+                <small>
+                  {localize(language, "Window", "Παράθυρο")}:{" "}
+                  {thermalWindowName} ·{" "}
+                  {localize(language, "latest observation", "νεότερη παρατήρηση")}{" "}
+                  {thermalLatestTime} ({thermalLatestAge})
+                </small>
+              </div>
+            )}
+
+            <p className="thermal-definition">
+              {localize(
+                language,
+                "Each marker is the center of a satellite pixel where a thermal anomaly was detected during one overpass. It is not a live flame location, a fire perimeter, or a count of fires.",
+                "Κάθε δείκτης είναι το κέντρο ενός δορυφορικού εικονοστοιχείου όπου ανιχνεύτηκε θερμική ανωμαλία κατά μία διέλευση. Δεν αποτελεί θέση ενεργής φλόγας σε πραγματικό χρόνο, περίμετρο πυρκαγιάς ή αριθμό πυρκαγιών.",
+              )}
+            </p>
+
+            {thermalUnavailable && (
+              <p className="thermal-message thermal-message--error">
+                {localize(
+                  language,
+                  "FIRMS point feed unavailable — showing no point count. The optional NASA daily raster can be enabled separately.",
+                  "Η σημειακή ροή FIRMS δεν είναι διαθέσιμη — δεν εμφανίζεται αριθμός σημείων. Το προαιρετικό ημερήσιο δορυφορικό επίπεδο NASA μπορεί να ενεργοποιηθεί ξεχωριστά.",
+                )}
+              </p>
+            )}
+            {!thermalLoading &&
+              !thermalUnavailable &&
+              thermalDetections.length === 0 && (
+                <p className="thermal-message">
+                  {localize(
+                    language,
+                    "No thermal detections were returned for this area in the selected window. This does not mean the fire is out; clouds, satellite timing, and sensor limits can hide activity.",
+                    "Δεν επιστράφηκαν θερμικές ανιχνεύσεις για αυτή την περιοχή στο επιλεγμένο χρονικό παράθυρο. Αυτό δεν σημαίνει ότι η πυρκαγιά έχει σβήσει· νέφη, χρόνος διέλευσης και περιορισμοί του αισθητήρα μπορεί να αποκρύπτουν δραστηριότητα.",
+                  )}
+                </p>
+              )}
+
+            <div className="thermal-confidence">
+              {[
+                {
+                  code: "h",
+                  label: localize(language, "HIGH", "ΥΨΗΛΗ"),
+                  detail: localize(
+                    language,
+                    "saturated fire pixel",
+                    "κορεσμένο εικονοστοιχείο φωτιάς",
+                  ),
+                },
+                {
+                  code: "n",
+                  label: localize(language, "NOMINAL", "ΟΝΟΜΑΣΤΙΚΗ"),
+                  detail: localize(
+                    language,
+                    "strong anomaly; no daytime sun-glint flag",
+                    "ισχυρή ανωμαλία· χωρίς ένδειξη ηλιακής αντανάκλασης",
+                  ),
+                },
+                {
+                  code: "l",
+                  label: localize(language, "LOW", "ΧΑΜΗΛΗ"),
+                  detail: localize(
+                    language,
+                    "lower confidence / sun-glint prone",
+                    "χαμηλότερη αξιοπιστία / πιθανή ηλιακή αντανάκλαση",
+                  ),
+                },
+              ].map((item) => (
+                <span key={item.code}>
+                  <i className={`thermal-dot thermal-dot--${item.code}`} />
+                  <b>{item.label}</b>
+                  <small>{item.detail}</small>
+                </span>
+              ))}
+            </div>
+
+            <p className="thermal-note">
+              {localize(
+                language,
+                "Confidence describes detection quality, not fire severity. FRP is pixel-integrated radiative power; not flame height or total fire intensity.",
+                "Η αξιοπιστία περιγράφει την ποιότητα της ανίχνευσης, όχι τη σοβαρότητα της πυρκαγιάς. Το FRP είναι ακτινοβολούμενη ισχύς ενσωματωμένη στο εικονοστοιχείο· όχι ύψος φλόγας ούτε συνολική ένταση της πυρκαγιάς.",
+              )}
+            </p>
+            <small className="thermal-source-line">
+              {localize(language, "Retrieved", "Ανάκτηση")}{" "}
+              {thermalRetrievedTime} ·{" "}
+              {localize(
+                language,
+                "app checks every 5 min; satellite passes are not continuous",
+                "έλεγχος εφαρμογής κάθε 5 λεπτά· οι δορυφορικές διελεύσεις δεν είναι συνεχείς",
+              )}
+            </small>
+          </section>
 
           <div className="position-actions">
             <button type="button" onClick={() => focusPoint(INCIDENT, 15)}>
@@ -2208,17 +2644,55 @@ export default function Home() {
                 className={item.id === activeIntel ? "intel-item is-active" : "intel-item"}
                 onClick={() => setActiveIntel(item.id)}
               >
-                <time>{item.time}</time>
+                <time>
+                  <span>{item.time}</span>
+                  {item.archived && (
+                    <small>
+                      {localize(language, "29 JUL 2026", "29 ΙΟΥΛ 2026")}
+                    </small>
+                  )}
+                </time>
                 <span>
                   <strong>{item.label}</strong>
-                  <small>{confidenceLabel(item.confidence, language)}</small>
+                  <small>
+                    {item.archived
+                      ? `${localize(language, "ARCHIVE", "ΑΡΧΕΙΟ")} · `
+                      : ""}
+                    {confidenceLabel(item.confidence, language)}
+                    {item.category
+                      ? ` · ${updateCategoryLabel(item.category, language)}`
+                      : ""}
+                  </small>
                 </span>
               </button>
             ))}
           </div>
 
           <div className={`intel-detail intel-detail--${active.confidence}`}>
-            <span>{confidenceLabel(active.confidence, language)}</span>
+            <div className="intel-detail__meta">
+              {active.archived && (
+                <span className="archive-badge">
+                  {localize(
+                    language,
+                    "ARCHIVE · 29 JUL 2026",
+                    "ΑΡΧΕΙΟ · 29 ΙΟΥΛ 2026",
+                  )}
+                </span>
+              )}
+              <span>{confidenceLabel(active.confidence, language)}</span>
+              {active.category && (
+                <span
+                  className={`category-badge category-badge--${active.severity ?? "low"}`}
+                >
+                  {updateCategoryLabel(active.category, language)}
+                </span>
+              )}
+              {active.actionRequired && (
+                <span className="action-badge">
+                  {localize(language, "ACTION", "ΕΝΕΡΓΕΙΑ")}
+                </span>
+              )}
+            </div>
             <strong>{active.label}</strong>
             <p>{active.detail}</p>
             {active.sourceUrl && (
@@ -2233,6 +2707,33 @@ export default function Home() {
                 ↗
               </a>
             )}
+          </div>
+
+          <div className="source-health">
+            <span>
+              {localize(language, "SOURCE HEALTH", "ΚΑΤΑΣΤΑΣΗ ΠΗΓΩΝ")}
+            </span>
+            {sourceHealth ? (
+              <strong>
+                {sourceHealth.online}/{sourceHealth.total}{" "}
+                {localize(language, "reachable", "προσβάσιμες")}
+                {sourceHealth.failed
+                  ? ` · ${sourceHealth.failed} ${localize(language, "failed", "σε σφάλμα")}`
+                  : ""}
+                {sourceHealth.unconfigured
+                  ? ` · ${sourceHealth.unconfigured} ${localize(language, "optional unconfigured", "προαιρετικές χωρίς ρύθμιση")}`
+                  : ""}
+              </strong>
+            ) : (
+              <strong>{localize(language, "CHECKING", "ΕΛΕΓΧΟΣ")}</strong>
+            )}
+            <small>
+              {localize(
+                language,
+                "Reachable means the source responded—not that it published a new Plomari update.",
+                "Προσβάσιμη σημαίνει ότι η πηγή ανταποκρίθηκε—όχι ότι δημοσίευσε νέα ενημέρωση για το Πλωμάρι.",
+              )}
+            </small>
           </div>
 
           <div className="source-links">
@@ -2362,22 +2863,42 @@ export default function Home() {
         </div>
         <div>
           <span>
-            {localize(language, "THERMAL", "ΘΕΡΜΙΚΑ")} · {thermalLatestTime}
+            {localize(language, "SATELLITE THERMAL", "ΔΟΡΥΦΟΡΙΚΑ ΘΕΡΜΙΚΑ")} ·{" "}
+            {thermalLatestTime}
           </span>
           <strong>
-            {thermalDetections.length}{" "}
-            {localize(
-              language,
-              "NASA PIXELS",
-              "ΔΟΡΥΦΟΡΙΚΑ ΕΙΚΟΝΟΣΤΟΙΧΕΙΑ NASA",
-            )}
+            {thermalLoading
+              ? localize(language, "CHECKING FIRMS", "ΕΛΕΓΧΟΣ FIRMS")
+              : thermalUnavailable
+                ? localize(
+                    language,
+                    "POINT FEED UNAVAILABLE",
+                    "Η ΣΗΜΕΙΑΚΗ ΡΟΗ ΔΕΝ ΕΙΝΑΙ ΔΙΑΘΕΣΙΜΗ",
+                  )
+                : localize(
+                    language,
+                    `${thermalDetections.length} RECORDS · ${visibleThermalPasses} PASSES`,
+                    `${thermalDetections.length} ΕΓΓΡΑΦΕΣ · ${visibleThermalPasses} ΔΙΕΛΕΥΣΕΙΣ`,
+                  )}
           </strong>
           <small>
-            {localize(
-              language,
-              "Poll 5 min · satellite latency typically ≤3h",
-              "Έλεγχος κάθε 5 λεπτά · συνήθης δορυφορική καθυστέρηση έως 3 ώρες",
-            )}
+            {thermalUnavailable
+              ? localize(
+                  language,
+                  "No historical points substituted · raster is a separate layer",
+                  "Δεν υποκαθίστανται ιστορικά σημεία · η εικόνα είναι ξεχωριστό επίπεδο",
+                )
+              : thermalDetections.length === 0
+                ? localize(
+                    language,
+                    "Zero detections is not an all-clear",
+                    "Μηδενικές ανιχνεύσεις δεν σημαίνουν λήξη συναγερμού",
+                  )
+                : localize(
+                    language,
+                    `${thermalWindowName} · ${thermalLatestAge} · orbital snapshots`,
+                    `${thermalWindowName} · ${thermalLatestAge} · δορυφορικά στιγμιότυπα`,
+                  )}
           </small>
         </div>
         <div>
@@ -2421,8 +2942,12 @@ export default function Home() {
           <small>
             {localize(
               language,
-              "Local RSS + official feeds · timestamps in Greece time",
-              "Τοπικό RSS + επίσημες ροές · ώρες Ελλάδας",
+              sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} sources reachable · Greece timestamps`
+                : "Checking official and local sources · Greece timestamps",
+              sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} πηγές προσβάσιμες · ώρες Ελλάδας`
+                : "Έλεγχος επίσημων και τοπικών πηγών · ώρες Ελλάδας",
             )}
           </small>
         </div>
