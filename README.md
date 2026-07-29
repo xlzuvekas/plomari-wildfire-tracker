@@ -6,6 +6,10 @@ instructions, satellite thermal detections, local field reporting, detailed
 modeled wind, a measured airport observation, a smoke transport proxy, and a
 clearly marked spread-scenario tool.
 
+The interface is localized in English and Greek. It follows the browser
+language on first load, remembers the selected language, and keeps the critical
+112 instruction visible in both languages.
+
 [Open the live map](https://plomari-fire-map.xlzuv.chatgpt.site)
 
 > **Safety notice**
@@ -36,6 +40,9 @@ clearly marked spread-scenario tool.
   **not** measured PM2.5, an air-quality forecast, or safe-route guidance.
 - An optional spread scenario controlled by wind force, direction, and time.
   It is intentionally labeled as a scenario rather than a forecast.
+- A map-first phone layout with a safe-area-aware bottom dock, mutually
+  exclusive Layers and Updates sheets, 44px-or-larger touch targets, and a
+  compact official-status/wind ribbon.
 
 There is no personal location tracking, GPS prompt, user marker, account data,
 or user-specific status in this repository.
@@ -51,7 +58,7 @@ or user-specific status in this repository.
 | NASA GIBS thermal/aerosol overlay | Reloaded every 5 minutes | Daily satellite layers updated as observations arrive | Current-day detections persist; aerosol retrieval is coarse, daylight-only, cloud-sensitive, and not PM2.5 |
 | Fire Service incident status | Every 60 seconds through the shared server cache | Official board refreshes approximately every 15 minutes and may publish newer minute-age data | Status only; no perimeter, route, or public action instructions |
 | Local incident reporting | Every 60 seconds through the shared server cache | Publisher-controlled RSS/page updates | Local reporting is not official; StoNisi feed item timestamps are day-only, so the app uses the live story's modification time when available |
-| 112 instruction | Manually verified direct official permalink | Cell broadcast and official publisher | No supported credential-free public 112 alert API; phone alerts and authorities remain authoritative |
+| 112 instruction | Manually verified direct official permalink | Cell broadcast and official publisher | No supported credential-free public 112 alert API; the banner displays the manual verification time, while phone alerts and authorities remain authoritative |
 
 Every live data panel exposes its model/observation time. If live wind retrieval
 fails, the interface marks the data stale and retains a timestamped fallback so
