@@ -2181,6 +2181,7 @@ export default function Home() {
           `${incident.municipality ?? "—"}${incident.province ? ` (${incident.province})` : ""}`,
           incident.status,
           incident.level !== null ? `${localize(language, "level", "επίπεδο")} ${incident.level}` : null,
+          incident.aerialUnits ? `${incident.aerialUnits} ${localize(language, "aerial units", "εναέρια μέσα")}` : null,
           incident.startDate,
         ]
           .filter((value): value is string => value !== null)
@@ -2193,10 +2194,10 @@ export default function Home() {
           weight: 1.5,
         })
           .bindTooltip(
-            `<div class="popup-copy"><strong>INFORCYL</strong><br>${label}<br><span>${localize(
+            `<div class="popup-copy"><strong>${incident.source}</strong><br>${label}<br><span>${localize(
               language,
-              "Official Castilla y León record",
-              "Επίσημη καταγραφή Castilla y León",
+              "Official regional fire-service record",
+              "Επίσημη καταγραφή περιφερειακής πυροσβεστικής υπηρεσίας",
             )}</span></div>`,
             { sticky: true },
           )
@@ -2872,13 +2873,13 @@ export default function Home() {
                 icon: "◉",
                 label: localize(
                   language,
-                  "INFORCYL incidents (Castilla y León)",
-                  "Συμβάντα INFORCYL (Castilla y León)",
+                  "Spain official incidents (INFORCYL + INFOCA)",
+                  "Επίσημα συμβάντα Ισπανίας (INFORCYL + INFOCA)",
                 ),
                 detail: localize(
                   language,
-                  "Official records · Spain region · 14 days",
-                  "Επίσημες καταγραφές · περιοχή Ισπανίας · 14 ημέρες",
+                  "Castilla y León + Andalucía · 14 days",
+                  "Castilla y León + Ανδαλουσία · 14 ημέρες",
                 ),
                 count:
                   region === "spain"

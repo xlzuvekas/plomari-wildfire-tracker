@@ -386,11 +386,13 @@ export const ES: TranslationMap = {
 
   // Spain incidents / region news
   level: "nivel",
-  "Official Castilla y León record": "Registro oficial de Castilla y León",
-  "INFORCYL incidents (Castilla y León)":
-    "Incidentes INFORCYL (Castilla y León)",
-  "Official records · Spain region · 14 days":
-    "Registros oficiales · región de España · 14 días",
+  "Official regional fire-service record":
+    "Registro oficial del servicio regional de incendios",
+  "Spain official incidents (INFORCYL + INFOCA)":
+    "Incidentes oficiales de España (INFORCYL + INFOCA)",
+  "Castilla y León + Andalucía · 14 days":
+    "Castilla y León + Andalucía · 14 días",
+  "aerial units": "medios aéreos",
   "No recent fire headlines from the region packs.":
     "Sin titulares recientes de incendios en los paquetes de la región.",
   "REGION FIRE NEWS · CURATED RSS":
@@ -778,11 +780,13 @@ export const FR: TranslationMap = {
 
   // Spain incidents / region news
   level: "niveau",
-  "Official Castilla y León record": "Registre officiel de Castille-et-León",
-  "INFORCYL incidents (Castilla y León)":
-    "Incidents INFORCYL (Castille-et-León)",
-  "Official records · Spain region · 14 days":
-    "Registres officiels · région Espagne · 14 jours",
+  "Official regional fire-service record":
+    "Registre officiel du service régional d'incendie",
+  "Spain official incidents (INFORCYL + INFOCA)":
+    "Incidents officiels d'Espagne (INFORCYL + INFOCA)",
+  "Castilla y León + Andalucía · 14 days":
+    "Castille-et-León + Andalousie · 14 jours",
+  "aerial units": "moyens aériens",
   "No recent fire headlines from the region packs.":
     "Aucun titre d'incendie récent dans les flux de la région.",
   "REGION FIRE NEWS · CURATED RSS":
@@ -1170,11 +1174,13 @@ export const DE: TranslationMap = {
 
   // Spain incidents / region news
   level: "Stufe",
-  "Official Castilla y León record": "Offizieller Eintrag aus Kastilien und León",
-  "INFORCYL incidents (Castilla y León)":
-    "INFORCYL-Ereignisse (Kastilien und León)",
-  "Official records · Spain region · 14 days":
-    "Offizielle Einträge · Region Spanien · 14 Tage",
+  "Official regional fire-service record":
+    "Offizieller Eintrag des regionalen Branddienstes",
+  "Spain official incidents (INFORCYL + INFOCA)":
+    "Offizielle Ereignisse Spaniens (INFORCYL + INFOCA)",
+  "Castilla y León + Andalucía · 14 days":
+    "Kastilien und León + Andalusien · 14 Tage",
+  "aerial units": "Luftfahrzeuge",
   "No recent fire headlines from the region packs.":
     "Keine aktuellen Brandmeldungen aus den Regions-Feeds.",
   "REGION FIRE NEWS · CURATED RSS":
@@ -1562,11 +1568,13 @@ export const IT: TranslationMap = {
 
   // Spain incidents / region news
   level: "livello",
-  "Official Castilla y León record": "Registro ufficiale di Castiglia e León",
-  "INFORCYL incidents (Castilla y León)":
-    "Eventi INFORCYL (Castiglia e León)",
-  "Official records · Spain region · 14 days":
-    "Registri ufficiali · regione Spagna · 14 giorni",
+  "Official regional fire-service record":
+    "Registro ufficiale del servizio antincendio regionale",
+  "Spain official incidents (INFORCYL + INFOCA)":
+    "Eventi ufficiali della Spagna (INFORCYL + INFOCA)",
+  "Castilla y León + Andalucía · 14 days":
+    "Castiglia e León + Andalusia · 14 giorni",
+  "aerial units": "mezzi aerei",
   "No recent fire headlines from the region packs.":
     "Nessun titolo recente sugli incendi dai pacchetti della regione.",
   "REGION FIRE NEWS · CURATED RSS":

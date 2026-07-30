@@ -10,6 +10,7 @@ export const INFORCYL_DOCS =
   "https://datosabiertos.jcyl.es/web/jcyl/set/es/medio-ambiente/incendios-forestales/1284941252651";
 
 export type SpainIncident = {
+  source: "INFORCYL" | "INFOCA";
   startDate: string | null;
   province: string | null;
   municipality: string | null;
@@ -17,6 +18,7 @@ export type SpainIncident = {
   level: number | null;
   maxLevel: number | null;
   surface: string | null;
+  aerialUnits: number | null;
   lat: number;
   lon: number;
 };
@@ -55,6 +57,7 @@ export function normalizeInforcyl(payload: unknown): SpainIncident[] {
     if (typeof lat !== "number" || typeof lon !== "number") return [];
     return [
       {
+        source: "INFORCYL" as const,
         startDate: text(row.fecha_de_inicio),
         province: text(row.provincia),
         municipality: text(row.termino_municipal),
@@ -62,6 +65,7 @@ export function normalizeInforcyl(payload: unknown): SpainIncident[] {
         level: integer(row.nivel),
         maxLevel: integer(row.nivel_maximo_alcanzado),
         surface: text(row.tipo_y_has_de_superficie_afectada),
+        aerialUnits: null,
         lat,
         lon,
       },
