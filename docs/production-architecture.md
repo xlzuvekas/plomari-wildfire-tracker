@@ -56,6 +56,14 @@ objects but cannot overwrite or delete them. Collectors verify bytes against
 the digest on write and read; retention deletion is a separately authorized,
 audited operator action governed by each source's terms.
 
+Evidence reconstructs the credential-redacted application request and response,
+not a replay-ready HTTP wire message. Exact small bodies use database-verified
+`inline_bytes`. Large bodies use content-addressed Storage objects whose bytes
+and byte count are verified by the collector; PostgreSQL can enforce the path
+but cannot inspect Storage bytes. `inline_payload` is instead a PostgreSQL
+`jsonb` semantic value whose database-verified digest covers normalized
+`jsonb::text`, so it does not identify the upstream JSON serialization.
+
 ## Source identity model
 
 The same provider can publish products with different semantics, licensing,
@@ -129,6 +137,31 @@ does not depend on that future work.
   and health tables are narrowly scoped and use short transactions.
 - Job claims use leases and `FOR UPDATE SKIP LOCKED`; collectors do not hold a
   database transaction while waiting on an upstream network request.
+- Before issuing network I/O, a collector commits one lease-bound, secret-free
+  HTTP exchange row. Its URL is limited to the catalog-bound HTTPS origin and
+  path; query, request/response header, and request/result metadata maps are
+  separate, flat, bounded, and positive-key-allowlisted. Explicit credential
+  fields—including authorization, cookies, `x-auth-token`, signed URL/query
+  material, redirect `Location`, and `set-cookie`—are not representable in this
+  envelope. Because an opaque value under an allowed key cannot be proven
+  non-secret by the database, every adapter still requires trusted,
+  provider-specific review.
+- Exact bodies are captured at the application boundary actually chosen by the
+  configured HTTP runtime: redacted outbound bytes and inbound bytes after its
+  configured transfer/content decoding, before adapter parsing or text/JSON
+  normalization. This contract does not claim to preserve TLS, HTTP framing,
+  compressed wire bytes, or other replay-only state.
+- Every HTTP response, including non-2xx and empty bodies, is content-addressed
+  and linked to exactly one issued exchange before parsing. Empty bodies use an
+  explicit zero-byte content object. A source revision can cite the object only
+  after that exchange terminalizes as a response. Failures and abandoned
+  requests remain durable terminal entities; a run cannot finalize with a
+  pending or unledgered response or while its declared request count differs
+  from the exchange ledger.
+- Automatic redirect history is not collapsed. Each redirect response is
+  terminalized as its own exchange, its transient `Location` is omitted from
+  retained safe headers, and any followed destination becomes a new
+  catalog-validated exchange.
 - Row-level security is enabled and forced as defense in depth on application
   tables. Private schemas are not exposed through the Data API; client roles
   receive no writes and only the minimum underlying `SELECT` needed by
@@ -233,8 +266,10 @@ admission gates are in the [source integration roadmap](source-integration-roadm
 Each adapter release has fixtures covering success, empty, partial, changed,
 malformed, rate-limited, unauthorized, and upstream-failure states. Collection
 must preserve pagination cursors, conditional-request metadata, safe response
-metadata, content hashes, and source attribution. Parser changes create a new
-release; replay against retained fixtures must be deterministic.
+metadata, content hashes, source attribution, and the configured runtime's
+application-body byte boundary. Redirect fixtures treat every hop as a distinct
+exchange. Parser changes create a new release; replay against retained fixtures
+must be deterministic.
 
 An adapter may emit quarantined evidence when a response is structurally valid
 but fails domain checks. It must not coerce an impossible value to zero or turn

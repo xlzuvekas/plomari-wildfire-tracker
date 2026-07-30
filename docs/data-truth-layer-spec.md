@@ -58,10 +58,11 @@ The production application currently provides:
 - the Hellenic Fire Service incident board;
 - Greek Civil Protection and Municipality of Mytilene feeds;
 - ERT North Aegean, StoNisi, and Aeolos publisher feeds;
-- optional official `@112Greece`, `@pyrosvestiki`, and `@CivPro_GR` retrieval;
+- archived official-account context; live X retrieval is disabled until a
+  persisted scheduled collector is provisioned;
 - explicit source health, timestamps, and bilingual display;
-- client polling every 60 seconds for updates and every five minutes for
-  thermal and wind data.
+- client polling every five minutes for updates and wind data and every two
+  minutes for active-incident thermal data.
 
 Current limitations:
 
@@ -138,6 +139,7 @@ The first implementation will not:
 | Collection target | A versioned request/query against an endpoint, including geography, cadence, and freshness policy |
 | Incident-source binding | Configuration that selects a collection target for an incident |
 | Ingestion run | One attempt to retrieve a collection target at a recorded time |
+| HTTP exchange | One issued upstream HTTP request and its terminal response, transport failure, or indeterminate abandoned result |
 | Source item | An immutable version of an upstream record, article, post, board row, sensor record, or model result |
 | Observation | A global normalized representation of what a source measured, modeled, published, or reported |
 | Incident-observation link | Immutable relevance evaluation connecting an observation to an incident and the AOI version used |
@@ -188,6 +190,57 @@ that arbitrary stored snapshot JSON has already been retroactively rebuilt.
 
 Original titles, identifiers, measurements, URLs, timestamps, and source
 payload hashes are retained before categorization or summarization.
+
+Every upstream data request that can influence a displayed observation,
+status, alert, model, summary, or source-health decision is itself durable
+evidence. The collector records a credential-redacted application request
+entity before network I/O and records exactly one terminal result afterward.
+The retained entity is sufficient to reconstruct that credential-redacted
+application exchange; it is deliberately not a replay-ready wire message. Its
+schema excludes explicit credential and transport fields, TLS state, HTTP
+framing, transfer-compression bytes, cookies, and other transport-private state.
+
+The safe request URL is the catalog-bound HTTPS origin and path only: it has no
+userinfo, query, or fragment and must exactly equal the endpoint's approved
+base URL. Credential-free query values, request headers, response
+headers, and request/result metadata are stored in separate, bounded maps with
+positive key allowlists. Unknown keys and nested structures are rejected.
+Credential fields—including authorization, cookies, `x-auth-token`, signed URL
+or signed-query material, redirect `Location`, and `set-cookie`—are not
+representable in this safe envelope. Positive key allowlists and bounded flat
+values are defense in depth; they cannot prove that an opaque value under an
+allowed key is not a secret. A trusted, provider-reviewed collector must still
+exclude credentials. Redaction is not a reason to put a secret-bearing URL or
+an unapproved field into a generic metadata map.
+
+For bodies, “exact” means the application-body byte sequence at the collector's
+declared HTTP-runtime boundary: the redacted request bytes supplied to the
+client and the response bytes presented to the adapter after the runtime's
+configured transfer/content decoding. It does not mean the original network
+framing or compressed wire serialization. The adapter release and fixtures
+must keep that byte boundary deterministic.
+
+HTTP responses, including non-2xx, redirect, and zero-byte responses, are
+linked to immutable exact-byte raw content. Every redirect response is
+terminalized on its own exchange; following its transient `Location` creates a
+new catalog-validated exchange and does not persist that header. Transport
+failures retain only safe error metadata. A request abandoned after issuance
+is explicitly indeterminate. Its missing response must never be reconstructed,
+parsed, normalized, or published by assumption.
+
+Parsing and publication are downstream of raw persistence. If evidence cannot
+be stored, the response cannot influence a public read model. Run-level request
+counts are derived from the per-request ledger rather than trusted as caller
+supplied summaries.
+
+This boundary covers server-side acquisition from NASA, weather services,
+official pages and feeds, social APIs, AI providers, and future adapters. It
+does not turn browser requests for presentation-only basemap, imagery, font, or
+application assets into incident evidence. Those responses remain under their
+provider cache and retention terms and cannot be cited as database truth.
+Calls to Firewatch's own read API are reconstructed from the underlying stored
+entities and are handled by access logs rather than duplicated as upstream
+evidence.
 
 ### 7.4 Authority is claim-specific
 
@@ -241,7 +294,13 @@ and a successfully observed absence are distinct states.
 
 3. **Raw evidence store**
    - Retains encrypted raw responses for a limited audit window.
-   - Stores large payloads in object storage and hashes in PostgreSQL.
+   - Stores exact small bodies as database-verified `inline_bytes`; stores
+     large exact bodies at content-addressed object-storage paths and requires
+     the collector to verify their byte count and digest on write and read.
+   - Uses `inline_payload` only for a canonical PostgreSQL `jsonb::text`
+     semantic representation. JSONB normalization changes whitespace and key
+     order, so this representation is never claimed as original request or
+     response bytes.
 
 4. **Normalizer**
    - Converts source-specific payloads into source items and global
@@ -417,6 +476,54 @@ cadence, or enablement creates a new revision rather than changing history.
 | `item_count` | Parsed item count |
 | `error_class`, `error_detail_safe` | Non-secret diagnostics |
 | `collector_version` | Reproducibility |
+
+### 9.3a `http_exchanges`
+
+One run may issue several HTTP requests because of products, pagination,
+conditional retries, or bounded fan-out. The per-request ledger is therefore
+the durable source for `ingestion_runs.request_count`.
+
+| Field | Purpose |
+| --- | --- |
+| `contract_version`, `id`, `run_id`, `request_no` | Stable occurrence identity and ordering inside one run |
+| `source_id`, `endpoint_id`, `idempotency_key` | Endpoint-bound provenance and replay protection |
+| `request_method`, `request_url_redacted` | Method plus catalog-bound HTTPS origin/path, without query, fragment, or credentials |
+| `request_query_safe`, `request_headers_safe`, `request_metadata_safe` | Separate flat, positive-key-allowlisted, credential-free request envelope |
+| `request_fingerprint_sha256`, `request_body_blob_id`, `request_body_sha256` | Reconstructible credential-redacted application body and request identity |
+| `started_at`, `completed_at`, `latency_ms` | Database-owned request timing |
+| `outcome` | `pending`, `response`, `transport_error`, or reclaim-only `indeterminate` |
+| `http_status`, `response_headers_safe`, `result_metadata_safe` | Status and flat, positive-key-allowlisted, credential-free result diagnostics |
+| `response_raw_object_id` | Exact application-visible response body, including an explicit zero-byte object |
+| `error_class`, `error_detail_safe` | Bounded, non-secret transport diagnostics |
+
+The issuance row commits before network I/O. Request identity is immutable;
+only a lease-fenced database function may terminalize it once. The safe URL is
+bound to the catalog endpoint, and query, header, and metadata maps accept only
+known non-secret keys. Authorization, cookies, `x-auth-token`, signed URL/query
+material, `Location`, and `set-cookie` are outside the evidence envelope.
+
+Exact request and response bodies use one of two representations:
+
+- `inline_bytes` stores the bytes in PostgreSQL, where constraints verify the
+  byte count and SHA-256 digest;
+- `storage_object` stores them at a digest-derived path. PostgreSQL enforces the
+  content address, while the trusted collector verifies the object bytes and
+  byte count on write and read.
+
+`inline_payload` is a third representation for normalized semantic JSON. Its
+digest is database-verified over PostgreSQL's canonical `jsonb::text` bytes,
+not over the upstream serialization, so it cannot satisfy an exact request-body
+or raw-response link. An empty response is still represented by an exact
+zero-byte content blob and raw object rather than by `null` or a fabricated
+payload.
+
+Each raw response occurrence links to exactly one issued exchange, and that
+exchange can select only its own raw object as the terminal response. A source
+revision may cite a raw object only after the linked exchange has terminalized
+as `response`; pending, transport-error, and indeterminate exchanges cannot be
+parsed into revisions. Every followed redirect is a separate issued exchange.
+A transport error has no fabricated status or body. Lease reclaim marks an
+unfinished request indeterminate before closing its run.
 
 ### 9.4 `source_items`
 
@@ -692,9 +799,9 @@ Initial Plomari collection-target policies:
 
 | Endpoint/product | Target cadence | Stale threshold | Notes |
 | --- | --- | --- | --- |
-| Official 112 account, when configured | 60 seconds | 3 minutes | Optional API must not be the only alert path |
-| Fire Service board | 60 seconds | 5 minutes collector / source age shown separately | Board may publish less frequently |
-| Official and publisher feeds | 60 seconds | 5 minutes collector | Publication age remains separate |
+| Official 112 account, when configured | Scheduled worker or webhook only | 3 minutes | Optional API must not be the only alert path |
+| Fire Service board | 5 minutes | 5 minutes collector / source age shown separately | Board may publish less frequently |
+| Official and publisher feeds | 5 minutes | 5 minutes collector | Publication age remains separate |
 | FIRMS | 5 minutes | 15 minutes collector | Observation latency may be up to several hours |
 | Open-Meteo | 5 minutes | 15 minutes collector | Model cycle age must be exposed |
 | LGMT METAR | 5 minutes | 20 minutes collector / 90 minutes observation | Airport is not the fireground |
@@ -884,7 +991,12 @@ Operational alerts are distinct from public incident notifications.
 - Do not use `NEXT_PUBLIC_` for secrets.
 - Encrypt database and raw object storage at rest and in transit.
 - Do not store user GPS, account identity, or personal location in phase 1.
-- Strip credentials and unnecessary headers before raw-response retention.
+- Persist only catalog-bound HTTPS origins/paths and positive-key-allowlisted
+  query, header, and metadata maps. Never retain authorization, cookies,
+  `x-auth-token`, signed URLs/query values, redirect `Location`, or
+  `set-cookie` in the API evidence envelope.
+- Strip credentials before request-body retention and never claim the retained
+  application exchange is a replay-ready wire message.
 - Apply strict retention to raw publisher payloads.
 - Store only licensed excerpts, hashes, metadata, and direct links for
   publisher content.

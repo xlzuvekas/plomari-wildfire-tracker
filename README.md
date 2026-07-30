@@ -125,9 +125,9 @@ one.
 | Smoke envelope | Recomputed whenever wind data or the selected horizon changes | Derived from the current 10 m model wind | Not observed smoke, PM2.5, or a dispersion model |
 | NASA FIRMS points | Every 2 minutes for the active incident while the tab is visible; shared response cache 2 minutes | FIRMS services refresh after satellite processing | Orbital detecting snapshots, not continuous coverage; point age is observation age, not API age |
 | NASA GIBS thermal/aerosol overlay | Reloaded every 5 minutes | Daily satellite layers updated as observations arrive | Current-day detections persist; aerosol retrieval is coarse, daylight-only, cloud-sensitive, and not PM2.5 |
-| Fire Service incident status | Every 60 seconds through the shared server cache | Official board refreshes approximately every 15 minutes and may publish newer minute-age data | Status only; no perimeter, route, or public action instructions |
-| Local feed reader | Every 60 seconds for a visible active-incident tab; shared response cache 60 seconds | Source-controlled RSS/page updates | Source failures and unconfigured optional feeds are shown; publisher reporting is not official |
-| 112 instruction | Optional shared official-account check every 60 seconds for a visible active-incident tab when `X_BEARER_TOKEN` is configured; the original 16:58 permalink remains visible as an archived alert | Cell broadcast and official publisher | The archived banner is not proof that the instruction remains current; phone alerts and authorities remain authoritative, and X API availability is not guaranteed |
+| Fire Service incident status | Every 5 minutes through the shared server cache | Official board refreshes approximately every 15 minutes and may publish newer minute-age data | Status only; no perimeter, route, or public action instructions |
+| Local feed reader | Every 5 minutes for a visible active-incident tab; shared response cache 5 minutes | Source-controlled RSS/page updates | Source failures and unconfigured optional feeds are shown; publisher reporting is not official |
+| 112 instruction | Browser polling never calls X; the original 16:58 permalink remains visible as an archived alert until a persisted scheduled collector publishes a newer verified projection | Cell broadcast and official publisher | The archived banner is not proof that the instruction remains current; phone alerts and authorities remain authoritative, and X API availability is not guaranteed |
 
 Every live data panel exposes its model/observation time. If live wind retrieval
 fails, the interface marks the model unavailable and withholds wind vectors,
@@ -188,16 +188,15 @@ no-key NASA GIBS raster available and explicitly marks the point feed
 unconfigured; it does not display substitute points. Create a FIRMS key through
 the [NASA FIRMS map-key service](https://firms.modaps.eosdis.nasa.gov/api/map_key/).
 
-`X_BEARER_TOKEN` is optional. It enables automatic retrieval from the official
-`@112Greece`, `@pyrosvestiki`, and `@CivPro_GR` accounts. The application
-continues to use the other official and publisher sources when it is absent.
-X API access is usage-priced and should be treated as an optional enhancement,
-not the only emergency-alert channel. The live fallback makes at most one
-10-post timeline request per configured account on an origin-cache miss, and
-the shared response is cached for 60 seconds. Put a hard spend limit and usage
-alerts on the X project. The intended steady state is one verified X Activity
-API webhook with three `post.create` subscriptions after narrow, idempotent
-database ingestion is deployed; polling remains the failure fallback.
+`X_BEARER_TOKEN` is optional and reserved for the future scheduled evidence
+collector. Public `/api/updates` requests never spend it, including
+`realtime=1` requests, which are rejected before any upstream call. X API
+access is usage-priced and remains an optional enhancement rather than the only
+emergency-alert channel.
+Put a hard spend limit and usage alerts on the X project. The intended steady
+state is one verified X Activity API webhook with three `post.create`
+subscriptions after narrow, idempotent database ingestion is deployed;
+persisted polling is the failure fallback.
 
 Both variables are server-only. Never prefix either with `NEXT_PUBLIC_`, expose
 their values in browser code, or commit `.env.local`.
@@ -216,13 +215,13 @@ npm start
 3. Use the default build command (`npm run build`) and output settings.
 4. Add `FIRMS_MAP_KEY` under **Settings → Environment Variables** for
    Production, Preview, and Development.
-5. Optionally add `X_BEARER_TOKEN` in the same environments for automatic
-   official X account retrieval.
+5. Reserve `X_BEARER_TOKEN`, if configured, for the future scheduled evidence
+   collector. Public browser-driven routes do not use it.
 6. Redeploy after adding or rotating an environment variable.
 
 The `/api/thermal`, `/api/updates`, and `/api/wind` routes keep upstream
 credentials and cross-origin requests on the server. Neither key is sent to the
-browser. Vercel caches the shared local feed snapshot for 60 seconds, live FIRMS
+browser. Vercel caches the shared local feed snapshot for 5 minutes, live FIRMS
 responses for 2 minutes, and complete finished historical UTC days for 1 hour;
 the client uses those shared responses at the documented cadence and pauses
 recurring polling while hidden or offline. An offline load still makes one
@@ -248,10 +247,9 @@ The response reports:
 
 `GET /api/updates` returns schema version 2. It reports:
 
-- a strictly bounded optional `realtime=0|1` switch; `realtime=0` is a
-  five-minute feeds-only snapshot that performs no X API reads, while the
-  default `realtime=1` incident snapshot preserves the one-minute shared
-  official-account check;
+- a feeds-only public snapshot; omitted or `realtime=0` performs no X API
+  reads, while `realtime=1` is rejected before any upstream request so paid
+  collection cannot be triggered by a browser;
 - official and publisher source tiers with per-source health and error codes;
 - request/retrieval time, exact source time when available, and item age;
 - source summaries for online, failed, and optional unconfigured feeds;
@@ -264,6 +262,17 @@ The response reports:
 
 The next architecture phase moves source collection and incident history out of
 request-time API composition and into an append-only, auditable data layer.
+The existing version 2 thermal, updates, and wind routes are the explicitly
+tracked rollout exception: they remain request-time collectors until their
+persisted read models are reconciled and cut over. New provider and AI adapters
+must not add direct network access; they receive an evidence-recording
+transport, and their response cannot affect published truth before persistence.
+`lib/evidence/recorded-fetch.ts` is that runtime contract, not a completed
+collector integration: the legacy v2 routes do not use it yet, and no production
+ledger credential, scheduled collector, or adapter has been provisioned for
+them. The TypeScript boundary and direct-fetch inventory are migration guards,
+not a security boundary against deliberate casts, aliases, or another HTTP
+client.
 
 - [Data truth layer specification](docs/data-truth-layer-spec.md)
 - [Production architecture and rollout gates](docs/production-architecture.md)

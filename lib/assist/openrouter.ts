@@ -149,7 +149,12 @@ function upstreamError(status: number) {
 export async function requestOrientation(options: {
   bundle: OodaEvidenceBundle;
   configuration: OpenRouterOodaConfiguration;
-  fetchImpl?: typeof fetch;
+  /**
+   * Must be an evidence-recording transport. The adapter deliberately has no
+   * global-fetch fallback: an OpenRouter response may not influence an OODA
+   * draft until its secret-free request metadata and raw response are durable.
+   */
+  fetchImpl: typeof fetch;
   signal?: AbortSignal;
 }): Promise<OrientationGeneration> {
   if (!options.configuration.enabled) throw new OodaAdapterError("disabled");
@@ -187,7 +192,7 @@ export async function requestOrientation(options: {
       headers.set("http-referer", options.configuration.siteUrl);
     }
 
-    const response = await (options.fetchImpl ?? fetch)(
+    const response = await options.fetchImpl(
       OPENROUTER_COMPLETIONS_URL,
       {
         method: "POST",

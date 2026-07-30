@@ -671,7 +671,7 @@ function clusterSatellitePasses(detections: ThermalDetection[]) {
 function responseHeaders(
   completedHistoricalDay: boolean,
   status: ThermalStatus,
-) {
+): Record<string, string> {
   if (status === "unconfigured" || status === "upstream-error") {
     return { "Cache-Control": "no-store" };
   }
@@ -682,6 +682,7 @@ function responseHeaders(
     "Cache-Control": completedHistoricalDay && status === "ok"
       ? "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
       : "public, max-age=15, s-maxage=120, stale-while-revalidate=180",
+    "X-Firewatch-Cacheable": "1",
   };
 }
 

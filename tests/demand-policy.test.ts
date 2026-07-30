@@ -86,7 +86,7 @@ describe("demandPollingPolicy", () => {
     });
   });
 
-  it("enables incident-rate updates and X only for active incident demand", () => {
+  it("enables incident-rate public updates without exposing X spend", () => {
     expect(demandPollingPolicy(input("incident"))).toEqual({
       thermal: {
         enabled: true,
@@ -100,10 +100,7 @@ describe("demandPollingPolicy", () => {
         enabled: true,
         intervalMs: DEMAND_INTERVALS_MS.incident.updates,
       },
-      x: {
-        enabled: true,
-        intervalMs: DEMAND_INTERVALS_MS.incident.x,
-      },
+      x: { enabled: false, intervalMs: null },
     });
   });
 
