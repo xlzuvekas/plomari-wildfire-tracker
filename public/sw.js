@@ -10,11 +10,22 @@
  *     capped so the cache cannot grow without bound.
  */
 
-const VERSION = "firewatch-v1";
+// v2 retires the earlier broad /api/* data cache so responses outside the
+// explicit public-data allowlist cannot linger after this worker activates.
+const VERSION = "firewatch-v2";
 const SHELL_CACHE = `${VERSION}-shell`;
+const ASSET_CACHE = `${VERSION}-assets`;
 const DATA_CACHE = `${VERSION}-data`;
 const TILE_CACHE = `${VERSION}-tiles`;
+const SHELL_LIMIT = 1;
+const ASSET_LIMIT = 80;
 const TILE_LIMIT = 400;
+const DATA_LIMIT = 24;
+const PUBLIC_DATA_PATHS = new Set([
+  "/api/wind",
+  "/api/updates",
+  "/api/thermal",
+]);
 
 const TILE_HOSTS = [
   "basemaps.cartocdn.com",
@@ -47,17 +58,47 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-async function networkFirst(request, cacheName) {
+function offlineSnapshot(response) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Firewatch-Snapshot", "offline-cache");
+  headers.set("Cache-Control", "no-store");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function networkFirst(
+  request,
+  cacheName,
+  limit = 0,
+  tagCachedFallback = false,
+  cacheKey = request,
+) {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
     if (response.ok) {
-      cache.put(request, response.clone());
+      try {
+        await cache.put(cacheKey, response.clone());
+        if (limit) await trimCache(cache, limit);
+      } catch {
+        // A quota/cache failure must not replace a valid live response.
+      }
+      return response;
+    }
+
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      return tagCachedFallback ? offlineSnapshot(cached) : cached;
     }
     return response;
   } catch (error) {
-    const cached = await cache.match(request);
-    if (cached) return cached;
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      return tagCachedFallback ? offlineSnapshot(cached) : cached;
+    }
     throw error;
   }
 }
@@ -68,8 +109,12 @@ async function cacheFirst(request, cacheName, limit) {
   if (cached) return cached;
   const response = await fetch(request);
   if (response.ok || response.type === "opaque") {
-    await cache.put(request, response.clone());
-    if (limit) await trimCache(cache, limit);
+    try {
+      await cache.put(request, response.clone());
+      if (limit) await trimCache(cache, limit);
+    } catch {
+      // A quota/cache failure must not replace a valid live response.
+    }
   }
   return response;
 }
@@ -87,16 +132,23 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (url.origin === self.location.origin) {
-    if (url.pathname.startsWith("/api/")) {
-      event.respondWith(networkFirst(request, DATA_CACHE));
+    if (PUBLIC_DATA_PATHS.has(url.pathname)) {
+      event.respondWith(
+        networkFirst(request, DATA_CACHE, DATA_LIMIT, true),
+      );
       return;
     }
     if (url.pathname.startsWith("/_next/static/")) {
-      event.respondWith(cacheFirst(request, SHELL_CACHE));
+      event.respondWith(cacheFirst(request, ASSET_CACHE, ASSET_LIMIT));
       return;
     }
     if (request.mode === "navigate") {
-      event.respondWith(networkFirst(request, SHELL_CACHE));
+      // Cache successful navigations under one key so query variants cannot
+      // grow the shell cache without bound. The actual request still goes to
+      // the network whenever connectivity is available.
+      event.respondWith(
+        networkFirst(request, SHELL_CACHE, SHELL_LIMIT, false, "/"),
+      );
     }
     return;
   }

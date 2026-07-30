@@ -58,7 +58,7 @@ The production application currently provides:
 - the Hellenic Fire Service incident board;
 - Greek Civil Protection and Municipality of Mytilene feeds;
 - ERT North Aegean, StoNisi, and Aeolos publisher feeds;
-- optional official `@112Greece` and `@pyrosvestiki` retrieval;
+- optional official `@112Greece`, `@pyrosvestiki`, and `@CivPro_GR` retrieval;
 - explicit source health, timestamps, and bilingual display;
 - client polling every 60 seconds for updates and every five minutes for
   thermal and wind data.

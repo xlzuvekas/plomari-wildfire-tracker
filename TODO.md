@@ -6,22 +6,28 @@ connection.
 
 ## P0 — Field-critical (mobile first)
 
-- [x] **"Where am I?" geolocation.** Auto-requested on load (declines fail
-  quietly; explicit taps surface errors). YOU marker + accuracy circle, readout
+- [x] **"Where am I?" geolocation.** Requested only after an explicit tap;
+  permission and availability errors are surfaced without leaving a background
+  watch running. YOU marker + accuracy circle, readout
   with straight-line distance/bearing to the nearest satellite hotspot, the
-  archived 112 route, and the incident reference. Never moves the map on a fix;
-  "CENTER MAP ON ME" is an explicit button. Location never leaves the device.
+  app-drawn archived road reference, and the incident reference. Never moves the
+  map on a fix; "CENTER MAP ON ME" is an explicit button. Coordinates are not
+  submitted to Firewatch, while the UI discloses that centering can request
+  third-party map tiles near the resulting view.
 - [x] **Safe-area fix.** `viewport-fit=cover` viewport export in `layout.tsx`
   so the existing `env(safe-area-inset-*)` CSS actually resolves on notched
   phones.
 - [x] **New-alert notification.** New `actionRequired` wire items trigger a
   dismissible toast (tap → opens the item in the wire), a red badge on the
-  UPDATES dock/toggle buttons, and vibration where supported. First payload
-  only seeds the seen-set so history is not re-alerted.
+  UPDATES dock/toggle buttons, and vibration where supported. Every unseen item
+  from later polls is retained in a queue; the newest current actionable item
+  is surfaced on first load without replaying the older lookback.
 - [x] **Offline resilience (PWA).** `app/manifest.ts` + PNG/SVG icons +
-  `public/sw.js`: network-first for navigations and `/api/*` (falls back to
-  the last good snapshot), cache-first for `/_next/static` and basemap/overlay
-  tiles (capped at 400 entries). Registered in production builds only.
+  `public/sw.js`: network-first for navigations and an explicit allowlist of the
+  three public data endpoints. Cached data fallbacks are tagged and surfaced as
+  stale snapshots; data storage is capped at 24 responses. `/_next/static` and
+  basemap/overlay tiles remain cache-first (tiles capped at 400 entries).
+  Registered in production builds only.
 - [x] **Sunlight-readable text & map.** Raised every sub-10px font rule
   (0.42–0.6 rem → 0.6–0.66 rem floor), toned down extreme letter-spacing,
   brightened the basemap tile filters (satellite 0.66 → 0.9 brightness), and
@@ -57,9 +63,9 @@ connection.
 
 ## P2 — Accessibility & polish
 
-- [ ] **Bottom-sheet semantics.** Focus trap, Escape/swipe-to-close,
-  `role="dialog"`; `aria-controls` currently points at unmounted ids when
-  closed; the drag handle looks draggable but isn't.
+- [ ] **Bottom-sheet semantics.** Add a focus trap, Escape/swipe-to-close, and
+  `role="dialog"`; tab/tabpanel keyboard semantics and desktop keyboard panel
+  movement are implemented.
 - [ ] **Don't encode by color alone.** Confidence legend and category badges
   differentiate only by hue — add shapes/text like the thermal dots do.
 - [ ] **Heading structure.** `h1` is the only heading; panel titles are spans.
@@ -85,7 +91,7 @@ connection.
 
 - [ ] **Multi-incident / fire recognition — REQUIRED BEFORE PUBLIC LAUNCH.**
   The app currently hardcodes the Plomari incident (center, radius, start
-  time, evacuation route, settlements, sources). A public release must
+  time, archived road-reference geometry, settlements, sources). A public release must
   recognize fires other than Plomari. Path:
   1. Extract the incident definition into `lib/incident.ts` (see Foundation).
   2. Parameterize the three API routes and the map by incident.
@@ -103,9 +109,18 @@ connection.
   panel.
 - [ ] **Web Push for action-required items.** The in-app toast ships; true
   push while the app is closed needs the persistence layer above.
+- [ ] **Replace steady-state X polling with X Activity API delivery.** After a
+  narrow-write, idempotent Supabase ingest path exists, register one verified
+  webhook and `post.create` subscriptions for the three official accounts.
+  Keep the current 60-second, CDN-cached reads only as an incident-mode/failure
+  fallback, add replay handling, and configure hard spend limits plus 50/80%
+  usage alerts before enabling the webhook in production.
 - [ ] **Post-incident burn-scar layer.** Sentinel-2 false-color via no-key WMTS
   once contained.
 - [ ] **Structured i18n.** Move inline `localize()` pairs to message catalogs
   if a third language is ever wanted.
 - [ ] **FIRMS key onboarding.** Dev-mode console hint linking to the NASA
   map-key form when thermal is `unconfigured`.
+- [ ] **Voluntary project support.** Add Stripe Checkout or Payment Links using
+  hosted payment pages only. Do not store card/payment data, and keep all
+  operational alerts and safety features fully independent of donations.

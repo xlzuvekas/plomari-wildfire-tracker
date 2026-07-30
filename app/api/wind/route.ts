@@ -304,7 +304,20 @@ function safeError(source: string, error: unknown): string {
   return `${source}: upstream data is temporarily unavailable`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.size > 0) {
+    return Response.json(
+      {
+        error: "unsupported_query",
+        message: "The wind endpoint does not accept query parameters.",
+      },
+      {
+        status: 400,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
+
   const errors: string[] = [];
   const [locationResults, metarResult] = await Promise.all([
     Promise.allSettled(LOCATIONS.map((location) => fetchLocation(location))),
