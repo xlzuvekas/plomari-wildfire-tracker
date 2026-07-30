@@ -2230,6 +2230,8 @@ export default function Home() {
       ) return;
       inFlight = true;
       try {
+        // Public reads remain feeds-only. Realtime providers stay disabled
+        // until the persisted scheduled collector is provisioned.
         const response = await fetch("/api/updates");
         recordSnapshotResponses("updates", [response]);
         if (!response.ok) throw new Error("updates request failed");

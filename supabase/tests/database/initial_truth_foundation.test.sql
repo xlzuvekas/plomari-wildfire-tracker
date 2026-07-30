@@ -736,25 +736,64 @@ where j.public_id = '018f0000-0000-7000-8000-000000009014';
 
 insert into ingest.content_blobs (
   public_id, contract_version, identity_version, content_sha256, content_type,
-  byte_size, inline_payload, created_at
+  byte_size, inline_bytes, created_at
 )
-values (
+select
   '018f0000-0000-7000-8000-000000009016', '1.1.0', '2.0.0',
-  repeat('3', 64), 'application/json', 2, '{}'::jsonb, now() - interval '18 minutes'
-);
+  encode(pg_catalog.sha256(payload.bytes), 'hex'), 'application/json',
+  octet_length(payload.bytes), payload.bytes, now() - interval '18 minutes'
+from (values (convert_to('{}', 'UTF8'))) as payload(bytes);
+
+insert into ingest.http_exchanges (
+  public_id, contract_version, run_id, source_id, endpoint_id, request_no,
+  idempotency_key, request_method, request_url_redacted,
+  request_fingerprint_sha256
+)
+select
+  '018f0000-0000-7000-8000-000000009901', '1.1.0', run.id,
+  run.source_id, run.endpoint_id, 1, 'test-nonofficial-http-1', 'GET',
+  'https://example.test/status', repeat('a', 64)
+from ingest.runs as run
+where run.public_id = '018f0000-0000-7000-8000-000000009015';
 
 insert into ingest.raw_objects (
   public_id, contract_version, source_id, endpoint_id, run_id, blob_id,
-  content_sha256, idempotency_key, retrieved_at, created_at
+  content_sha256, idempotency_key, retrieved_at, created_at, http_exchange_id
 )
 select
   '018f0000-0000-7000-8000-000000009017', '1.1.0', r.source_id,
   r.endpoint_id, r.id, b.id, b.content_sha256, 'test-nonofficial-raw',
-  now() - interval '18 minutes', now() - interval '18 minutes'
+  now() - interval '18 minutes', now() - interval '18 minutes', exchange.id
 from ingest.runs as r
+join ingest.http_exchanges as exchange on exchange.run_id = r.id
 cross join ingest.content_blobs as b
 where r.public_id = '018f0000-0000-7000-8000-000000009015'
+  and exchange.public_id = '018f0000-0000-7000-8000-000000009901'
   and b.public_id = '018f0000-0000-7000-8000-000000009016';
+
+set local role firewatch_collector;
+
+select ok(
+  (
+    select ingest.finish_http_exchange(
+      p_exchange_id => exchange.id,
+      p_run_id => run.id,
+      p_lease_token => run.lease_token,
+      p_worker_id => run.lease_owner,
+      p_outcome => 'response',
+      p_http_status => 200::smallint,
+      p_response_raw_object_id => raw.id
+    )
+    from ingest.http_exchanges as exchange
+    join ingest.runs as run on run.id = exchange.run_id
+    join ingest.raw_objects as raw on raw.run_id = run.id
+    where exchange.public_id = '018f0000-0000-7000-8000-000000009901'
+      and raw.public_id = '018f0000-0000-7000-8000-000000009017'
+  ),
+  'non-official fixture terminalizes its issued HTTP response through the lease-fenced function'
+);
+
+reset role;
 
 insert into ingest.source_revisions (
   public_id, contract_version, identity_version, source_id, source_record_key,
@@ -866,6 +905,7 @@ select ok(
       p_lease_token => run.lease_token,
       p_worker_id => run.lease_owner,
       p_status => 'success',
+      p_request_count => 1,
       p_cursor_before => '{}'::jsonb,
       p_cursor_after => '{"cursor":"nonofficial-1"}'::jsonb
     )
@@ -1034,7 +1074,37 @@ select
 from ingest.jobs as j
 where j.public_id = '018f0000-0000-7000-8000-000000009036';
 
+insert into ingest.http_exchanges (
+  public_id, contract_version, run_id, source_id, endpoint_id, request_no,
+  idempotency_key, request_method, request_url_redacted,
+  request_fingerprint_sha256
+)
+select
+  '018f0000-0000-7000-8000-000000009902', '1.1.0', run.id,
+  run.source_id, run.endpoint_id, 1, 'test-official-http-failed-1', 'GET',
+  'https://authority.example.test/status', repeat('b', 64)
+from ingest.runs as run
+where run.public_id = '018f0000-0000-7000-8000-000000009037';
+
 set local role firewatch_collector;
+
+select ok(
+  (
+    select ingest.finish_http_exchange(
+      p_exchange_id => exchange.id,
+      p_run_id => run.id,
+      p_lease_token => run.lease_token,
+      p_worker_id => run.lease_owner,
+      p_outcome => 'transport_error',
+      p_error_class => 'network',
+      p_error_detail_safe => 'Fixture network failure.'
+    )
+    from ingest.http_exchanges as exchange
+    join ingest.runs as run on run.id = exchange.run_id
+    where exchange.public_id = '018f0000-0000-7000-8000-000000009902'
+  ),
+  'failed fixture terminalizes its issued HTTP request through the lease-fenced function'
+);
 
 select ok(
   (
@@ -1126,27 +1196,126 @@ select ok(
   'failed lease fencing leaves both run and cursor state untouched'
 );
 
+-- Issue every request before creating the exact raw response occurrence.
+insert into ingest.http_exchanges (
+  public_id, contract_version, run_id, source_id, endpoint_id, request_no,
+  idempotency_key, request_method, request_url_redacted,
+  request_fingerprint_sha256
+)
+select
+  exchange.public_id::core.uuid_v7, '1.1.0', run.id, run.source_id,
+  run.endpoint_id, exchange.request_no, exchange.idempotency_key, 'GET',
+  'https://authority.example.test/status', exchange.request_fingerprint_sha256
+from ingest.runs as run
+join (
+  values
+    ('018f0000-0000-7000-8000-000000009903', 1, 'test-official-http-1', repeat('c', 64)),
+    ('018f0000-0000-7000-8000-000000009904', 2, 'test-official-http-2', repeat('d', 64)),
+    ('018f0000-0000-7000-8000-000000009905', 3, 'test-official-http-3', repeat('e', 64))
+) as exchange(public_id, request_no, idempotency_key, request_fingerprint_sha256)
+  on true
+where run.public_id = '018f0000-0000-7000-8000-000000009068';
+
 insert into ingest.content_blobs (
   public_id, contract_version, identity_version, content_sha256, content_type,
-  byte_size, inline_payload, created_at
+  byte_size, inline_bytes, created_at
 )
-values (
+select
   '018f0000-0000-7000-8000-000000009038', '1.1.0', '2.0.0',
-  repeat('6', 64), 'application/json', 2, '{}'::jsonb, now() - interval '18 minutes'
-);
+  encode(pg_catalog.sha256(payload.bytes), 'hex'), 'application/json',
+  octet_length(payload.bytes), payload.bytes, now() - interval '18 minutes'
+from (values (convert_to('{"state":"a"}', 'UTF8'))) as payload(bytes);
 
 insert into ingest.raw_objects (
   public_id, contract_version, source_id, endpoint_id, run_id, blob_id,
-  content_sha256, idempotency_key, retrieved_at, created_at
+  content_sha256, idempotency_key, retrieved_at, created_at, http_exchange_id
 )
 select
   '018f0000-0000-7000-8000-000000009039', '1.1.0', r.source_id,
   r.endpoint_id, r.id, b.id, b.content_sha256, 'test-official-raw',
-  now() - interval '18 minutes', now() - interval '18 minutes'
+  now() - interval '18 minutes', now() - interval '18 minutes', exchange.id
 from ingest.runs as r
+join ingest.http_exchanges as exchange on exchange.run_id = r.id
 cross join ingest.content_blobs as b
 where r.public_id = '018f0000-0000-7000-8000-000000009068'
+  and exchange.public_id = '018f0000-0000-7000-8000-000000009903'
   and b.public_id = '018f0000-0000-7000-8000-000000009038';
+
+-- A source may legitimately restore earlier content. The version chain, not a
+-- unique (record, hash) constraint, distinguishes the A -> B -> A sequence.
+insert into ingest.content_blobs (
+  public_id, contract_version, identity_version, content_sha256, content_type,
+  byte_size, inline_bytes
+)
+select
+  '018f0000-0000-7000-8000-000000009074', '1.1.0', '2.0.0',
+  encode(pg_catalog.sha256(payload.bytes), 'hex'), 'application/json',
+  octet_length(payload.bytes), payload.bytes
+from (values (convert_to('{"state":"b"}', 'UTF8'))) as payload(bytes);
+
+insert into ingest.raw_objects (
+  public_id, contract_version, source_id, endpoint_id, run_id, blob_id,
+  content_sha256, idempotency_key, retrieved_at, http_exchange_id
+)
+select
+  '018f0000-0000-7000-8000-000000009075', '1.1.0', run.source_id,
+  run.endpoint_id, run.id, blob.id, blob.content_sha256,
+  'test-aba-raw-b', now(), exchange.id
+from ingest.runs as run
+join ingest.http_exchanges as exchange on exchange.run_id = run.id
+cross join ingest.content_blobs as blob
+where run.public_id = '018f0000-0000-7000-8000-000000009068'
+  and exchange.public_id = '018f0000-0000-7000-8000-000000009904'
+  and blob.public_id = '018f0000-0000-7000-8000-000000009074';
+
+insert into ingest.raw_objects (
+  public_id, contract_version, source_id, endpoint_id, run_id, blob_id,
+  content_sha256, idempotency_key, retrieved_at, http_exchange_id
+)
+select
+  '018f0000-0000-7000-8000-000000009077', '1.1.0', run.source_id,
+  run.endpoint_id, run.id, blob.id, blob.content_sha256,
+  'test-aba-raw-a-restored', now(), exchange.id
+from ingest.runs as run
+join ingest.http_exchanges as exchange on exchange.run_id = run.id
+cross join ingest.content_blobs as blob
+where run.public_id = '018f0000-0000-7000-8000-000000009068'
+  and exchange.public_id = '018f0000-0000-7000-8000-000000009905'
+  and blob.public_id = '018f0000-0000-7000-8000-000000009038';
+
+set local role firewatch_collector;
+
+select ok(
+  (
+    select bool_and(
+      ingest.finish_http_exchange(
+        p_exchange_id => exchange.id,
+        p_run_id => run.id,
+        p_lease_token => run.lease_token,
+        p_worker_id => run.lease_owner,
+        p_outcome => 'response',
+        p_http_status => 200::smallint,
+        p_response_raw_object_id => raw.id
+      )
+    )
+    from ingest.http_exchanges as exchange
+    join ingest.runs as run on run.id = exchange.run_id
+    join (
+      values
+        (1, '018f0000-0000-7000-8000-000000009039'),
+        (2, '018f0000-0000-7000-8000-000000009075'),
+        (3, '018f0000-0000-7000-8000-000000009077')
+    ) as expected(request_no, raw_public_id)
+      on expected.request_no = exchange.request_no
+    join ingest.raw_objects as raw
+      on raw.run_id = run.id
+      and raw.public_id = expected.raw_public_id::core.uuid_v7
+    where run.public_id = '018f0000-0000-7000-8000-000000009068'
+  ),
+  'successful retry terminalizes each issued HTTP response through the lease-fenced function'
+);
+
+reset role;
 
 insert into ingest.source_revisions (
   public_id, contract_version, identity_version, source_id, source_record_key,
@@ -1155,51 +1324,15 @@ insert into ingest.source_revisions (
   raw_payload, canonical_data, recorded_at
 )
 select
-  '018f0000-0000-7000-8000-000000009040', '1.1.0', '2.0.0', r.source_id,
-  'official-status-record', 1, r.id, ro.id, r.adapter_release_id,
-  'test-official-revision', ro.content_sha256, '1.0.0',
+  '018f0000-0000-7000-8000-000000009040', '1.1.0', '2.0.0', run.source_id,
+  'official-status-record', 1, run.id, raw.id, run.adapter_release_id,
+  'test-official-revision', raw.content_sha256, '1.0.0',
   now() - interval '17 minutes', 'exact', now() - interval '17 minutes',
   '{}'::jsonb, '{}'::jsonb, now() - interval '17 minutes'
-from ingest.runs as r
-join ingest.raw_objects as ro on ro.run_id = r.id
-where r.public_id = '018f0000-0000-7000-8000-000000009068';
-
--- A source may legitimately restore earlier content. The version chain, not a
--- unique (record, hash) constraint, distinguishes the A -> B -> A sequence.
-insert into ingest.content_blobs (
-  public_id, contract_version, identity_version, content_sha256, content_type,
-  byte_size, inline_payload
-)
-values (
-  '018f0000-0000-7000-8000-000000009074', '1.1.0', '2.0.0',
-  repeat('8', 64), 'application/json', 7, '{"b":1}'::jsonb
-);
-
-insert into ingest.raw_objects (
-  public_id, contract_version, source_id, endpoint_id, run_id, blob_id,
-  content_sha256, idempotency_key, retrieved_at
-)
-select
-  '018f0000-0000-7000-8000-000000009075', '1.1.0', run.source_id,
-  run.endpoint_id, run.id, blob.id, blob.content_sha256,
-  'test-aba-raw-b', now()
 from ingest.runs as run
-cross join ingest.content_blobs as blob
+join ingest.raw_objects as raw on raw.run_id = run.id
 where run.public_id = '018f0000-0000-7000-8000-000000009068'
-  and blob.public_id = '018f0000-0000-7000-8000-000000009074';
-
-insert into ingest.raw_objects (
-  public_id, contract_version, source_id, endpoint_id, run_id, blob_id,
-  content_sha256, idempotency_key, retrieved_at
-)
-select
-  '018f0000-0000-7000-8000-000000009077', '1.1.0', run.source_id,
-  run.endpoint_id, run.id, blob.id, blob.content_sha256,
-  'test-aba-raw-a-restored', now()
-from ingest.runs as run
-cross join ingest.content_blobs as blob
-where run.public_id = '018f0000-0000-7000-8000-000000009068'
-  and blob.public_id = '018f0000-0000-7000-8000-000000009038';
+  and raw.public_id = '018f0000-0000-7000-8000-000000009039';
 
 insert into ingest.source_revisions (
   public_id, contract_version, identity_version, source_id, source_record_key,
@@ -1258,9 +1391,12 @@ select lives_ok(
 );
 
 select ok(
-  (select revision_no = 3 and content_sha256 = repeat('6', 64)
-   from ingest.source_revisions
-   where public_id = '018f0000-0000-7000-8000-000000009079')
+  (select revision.revision_no = 3
+      and revision.content_sha256 = blob.content_sha256
+   from ingest.source_revisions as revision
+   cross join ingest.content_blobs as blob
+   where revision.public_id = '018f0000-0000-7000-8000-000000009079'
+     and blob.public_id = '018f0000-0000-7000-8000-000000009038')
   and not exists (
     select 1
     from ingest.source_revisions as successor
@@ -1366,7 +1502,7 @@ select ok(
       p_lease_token => run.lease_token,
       p_worker_id => run.lease_owner,
       p_status => 'success',
-      p_request_count => 2,
+      p_request_count => 3,
       p_fetched_count => 1,
       p_accepted_count => 1,
       p_cursor_before => '{}'::jsonb,
@@ -1381,7 +1517,7 @@ select ok(
 reset role;
 
 select ok(
-  (select status = 'success' and request_count = 2 and accepted_count = 1
+  (select status = 'success' and request_count = 3 and accepted_count = 1
    from ingest.runs
    where public_id = '018f0000-0000-7000-8000-000000009068')
   and (select status = 'succeeded' and attempt_count = 2 and completed_at is not null

@@ -80,15 +80,21 @@ async function networkFirst(
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
-    if (response.ok) {
+    const cacheable =
+      response.ok &&
+      (!tagCachedFallback ||
+        response.headers.get("X-Firewatch-Cacheable") === "1");
+    if (cacheable) {
       try {
         await cache.put(cacheKey, response.clone());
-        if (limit) await trimCache(cache, limit);
+        if (limit) await trimCache(cacheName, limit);
       } catch {
         // A quota/cache failure must not replace a valid live response.
       }
       return response;
     }
+
+    if (response.ok) return response;
 
     const cached = await cache.match(cacheKey);
     if (cached) {

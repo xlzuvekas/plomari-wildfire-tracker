@@ -787,18 +787,23 @@ function normalizeTitle(value: string) {
 export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const realtimeValues = searchParams.getAll("realtime");
-  const realtimeValue = realtimeValues[0] ?? "1";
+  // Public reads are always feeds-only. Paid/limited realtime account
+  // collection moves to a scheduled, persisted worker; a cache miss from an
+  // arbitrary browser must never authorize X API spend. Keep `realtime=0` as
+  // a temporary compatibility spelling, but reject `realtime=1` before any
+  // upstream request begins.
+  const realtimeValue = realtimeValues[0] ?? "0";
   if (
     searchParams.size > 1 ||
     realtimeValues.length > 1 ||
-    !["0", "1"].includes(realtimeValue) ||
+    realtimeValue !== "0" ||
     (searchParams.size === 1 && !searchParams.has("realtime"))
   ) {
     return Response.json(
       {
         error: "unsupported_query",
         message:
-          "The updates endpoint accepts only realtime=0 or realtime=1.",
+          "The public updates endpoint accepts only realtime=0; realtime provider collection is disabled until the durable worker is provisioned.",
       },
       {
         status: 400,
@@ -806,7 +811,7 @@ export async function GET(request: Request) {
       },
     );
   }
-  const includeRealtimeAccounts = realtimeValue === "1";
+  const includeRealtimeAccounts = false;
 
   const requestStartedAt = new Date().toISOString();
   const officialAccountStartTime = new Date(
@@ -1022,7 +1027,7 @@ export async function GET(request: Request) {
       requestStartedAt,
       retrievedAt,
       localTimeZone: LOCAL_TIME_ZONE,
-      refreshSeconds: 60,
+      refreshSeconds: 300,
       freshnessPolicy: {
         incidentStartedAt: INCIDENT_STARTED_AT,
         exactTimestamps: "accepted at or after incidentStartedAt",
@@ -1041,7 +1046,7 @@ export async function GET(request: Request) {
         issuedAt: "2026-07-29T13:58:00Z",
         lastManuallyVerifiedAt: "2026-07-29T20:33:00Z",
         lastAutomaticallyCheckedAt: officialAlertAutomaticallyChecked,
-        automaticOfficialFeedConfigured: Boolean(xBearerToken),
+        automaticOfficialFeedConfigured: false,
         automaticOfficialFeedHealthy:
           officialAlertSource?.status === "ok",
         status: officialAlertAutomaticallyChecked
@@ -1088,9 +1093,10 @@ export async function GET(request: Request) {
     {
       headers: {
         "Cache-Control":
-          includeRealtimeAccounts
-            ? "public, max-age=10, s-maxage=60, stale-while-revalidate=120"
+          onlineSources === 0
+            ? "no-store"
             : "public, max-age=30, s-maxage=300, stale-while-revalidate=600",
+        ...(onlineSources > 0 ? { "X-Firewatch-Cacheable": "1" } : {}),
       },
     },
   );

@@ -51,14 +51,15 @@ canonical coarse cell key:
 | --- | --- | --- | --- | --- |
 | Quiet | 15 minutes | Off | Off | Off |
 | Watch | 5 minutes | 10 minutes | 5 minutes | Off |
-| Incident | 2 minutes | 5 minutes | 1 minute | 1 minute only for a bound, recently demanded incident |
+| Incident | 2 minutes | 5 minutes | 5 minutes | Off in clients; scheduled persisted worker only |
 
 Hidden clients make no request-time polls. An offline load gets one best-effort
 service-worker snapshot read, then makes no recurring polls; live refresh
-resumes immediately when the client becomes visible/online again. The current
-Plomari view runs as an active incident. `/api/updates?realtime=0` provides a five-minute cached
-feeds-only variant with no X API requests; the default incident variant keeps
-the existing one-minute shared X-capable snapshot. Global discovery will run
+resumes immediately when the client becomes visible/online again. The active
+incident route uses a five-minute feeds-only snapshot and performs no X API requests.
+The current Plomari view also uses that public feeds-only snapshot. Paid or
+limited realtime providers will run only in a persisted scheduled collector; a
+browser request cannot authorize provider spend. Global discovery will run
 once per provider-sized region and partition results into UI cells, never once
 per viewer.
 

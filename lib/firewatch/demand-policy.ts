@@ -39,8 +39,7 @@ export const DEMAND_INTERVALS_MS = Object.freeze({
   incident: Object.freeze({
     thermal: 2 * MINUTE_MS,
     wind: 5 * MINUTE_MS,
-    updates: 1 * MINUTE_MS,
-    x: 1 * MINUTE_MS,
+    updates: 5 * MINUTE_MS,
   }),
 } as const);
 
@@ -65,8 +64,8 @@ function enabled(intervalMs: number): PollingSchedule {
  *
  * This deliberately does not schedule background alerting or durable source
  * ingestion. Those belong to a separately leased server worker. X is the
- * highest-cost source and is only activated for an incident-bound, recently
- * interactive client.
+ * highest-cost source and is never activated by this client request-time
+ * policy, including for an incident-bound, recently interactive client.
  */
 export function demandPollingPolicy(
   input: DemandPolicyInput,
@@ -108,8 +107,6 @@ export function demandPollingPolicy(
     updates: realtimeEligible
       ? enabled(DEMAND_INTERVALS_MS.incident.updates)
       : DISABLED,
-    x: realtimeEligible
-      ? enabled(DEMAND_INTERVALS_MS.incident.x)
-      : DISABLED,
+    x: DISABLED,
   });
 }

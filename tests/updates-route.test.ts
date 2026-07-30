@@ -16,6 +16,7 @@ describe("GET /api/updates", () => {
 
     for (const url of [
       "http://localhost/api/updates?cache-bust=1",
+      "http://localhost/api/updates?realtime=1",
       "http://localhost/api/updates?realtime=2",
       "http://localhost/api/updates?realtime=0&realtime=1",
       "http://localhost/api/updates?realtime=0&nonce=1",
@@ -28,13 +29,16 @@ describe("GET /api/updates", () => {
       expect(payload).toEqual({
         error: "unsupported_query",
         message:
-          "The updates endpoint accepts only realtime=0 or realtime=1.",
+          "The public updates endpoint accepts only realtime=0; realtime provider collection is disabled until the durable worker is provisioned.",
       });
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("supports a slower feeds-only snapshot without spending X API calls", async () => {
+  it.each([
+    "http://localhost/api/updates",
+    "http://localhost/api/updates?realtime=0",
+  ])("defaults %s to a feeds-only snapshot without spending X API calls", async (url) => {
     vi.stubEnv("X_BEARER_TOKEN", "server-only-test-token");
     const fetchMock = vi.fn(
       async (input: Parameters<typeof fetch>[0]) => {
@@ -44,19 +48,19 @@ describe("GET /api/updates", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await GET(
-      new Request("http://localhost/api/updates?realtime=0"),
-    );
+    const response = await GET(new Request(url));
     const payload = await response.json();
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toContain("s-maxage=300");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-firewatch-cacheable")).toBeNull();
     expect(payload.collectionMode).toBe("feeds-only");
     expect(payload.freshnessPolicy.officialAccountRead.enabled).toBe(false);
     expect(payload.officialAlert.status).toBe(
       "manual-alert-snapshot-realtime-feed-not-requested",
     );
+    expect(payload.officialAlert.automaticOfficialFeedConfigured).toBe(false);
     expect(
       payload.sources.some((source: { id: string }) =>
         ["112-greece", "hellenic-fire-service", "civil-protection-x"].includes(
@@ -66,5 +70,26 @@ describe("GET /api/updates", () => {
     ).toBe(false);
     expect(requestedUrls.some((url) => url.startsWith("https://api.x.com/")))
       .toBe(false);
+  });
+
+  it("keeps successful active-incident feeds on the advertised five-minute cache", async () => {
+    vi.stubEnv("X_BEARER_TOKEN", "server-only-test-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<rss><channel></channel></rss>", {
+          status: 200,
+          headers: { "Content-Type": "application/xml" },
+        }),
+      ),
+    );
+
+    const response = await GET(new Request("http://localhost/api/updates"));
+    const payload = await response.json();
+
+    expect(response.headers.get("cache-control")).toContain("s-maxage=300");
+    expect(response.headers.get("x-firewatch-cacheable")).toBe("1");
+    expect(payload.refreshSeconds).toBe(300);
+    expect(payload.collectionMode).toBe("feeds-only");
   });
 });
