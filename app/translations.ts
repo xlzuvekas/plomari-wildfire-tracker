@@ -334,6 +334,41 @@ export const ES: TranslationMap = {
     "Página local de información en vivo; abra la fuente directa para ver la cronología completa y los detalles de campo.",
   "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
     "Publicación directa de una cuenta oficial. Siga la instrucción enlazada y a las autoridades sobre el terreno.",
+
+  // Locator / proximity check
+  LOCATE: "UBICAR",
+  "HIDE LOCATOR": "OCULTAR UBICACIÓN",
+  "PROXIMITY CHECK": "COMPROBACIÓN DE PROXIMIDAD",
+  "Search data © OpenStreetMap": "Datos de búsqueda © OpenStreetMap",
+  "Search address or place": "Buscar dirección o lugar",
+  SEARCH: "BUSCAR",
+  "Locating…": "Localizando…",
+  "MY LOCATION": "MI UBICACIÓN",
+  CLEAR: "BORRAR",
+  "YOUR LOCATION": "SU UBICACIÓN",
+  "No results — try a more specific place name.":
+    "Sin resultados — pruebe con un nombre de lugar más específico.",
+  "Location unavailable — allow location access or search instead.":
+    "Ubicación no disponible — permita el acceso a la ubicación o use la búsqueda.",
+  "Search failed — try again.": "La búsqueda falló — inténtelo de nuevo.",
+  "to incident center": "al centro del incidente",
+  "nearest satellite detection": "detección satelital más cercana",
+  "no detections in the selected window":
+    "sin detecciones en la ventana seleccionada",
+  "Indicative distance-based level · not an official warning. Follow 112 and authorities.":
+    "Nivel indicativo basado en la distancia · no es una advertencia oficial. Siga el 112 y a las autoridades.",
+  "NEAR ACTIVE FIRE AREA": "CERCA DE ZONA DE FUEGO ACTIVO",
+  "Follow the 112 instruction now and move away from the fire area.":
+    "Siga ahora la instrucción del 112 y aléjese de la zona del incendio.",
+  "HIGH PROXIMITY": "PROXIMIDAD ALTA",
+  "Prepare to move; keep checking 112 and local authorities.":
+    "Prepárese para desplazarse; siga consultando el 112 y a las autoridades locales.",
+  "ELEVATED · SMOKE RANGE": "ELEVADA · ALCANCE DEL HUMO",
+  "Smoke and rekindling can affect this distance; stay aware.":
+    "El humo y las reactivaciones pueden afectar a esta distancia; manténgase atento.",
+  MONITOR: "VIGILANCIA",
+  "Outside the immediate area; keep monitoring official updates.":
+    "Fuera de la zona inmediata; siga las actualizaciones oficiales.",
 };
 
 export const FR: TranslationMap = {
@@ -665,6 +700,41 @@ export const FR: TranslationMap = {
     "Page locale d'information en direct ; ouvrez la source directe pour la chronologie complète et les détails de terrain.",
   "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
     "Publication directe d'un compte officiel. Suivez la consigne liée et les autorités sur le terrain.",
+
+  // Locator / proximity check
+  LOCATE: "LOCALISER",
+  "HIDE LOCATOR": "MASQUER LA LOCALISATION",
+  "PROXIMITY CHECK": "CONTRÔLE DE PROXIMITÉ",
+  "Search data © OpenStreetMap": "Données de recherche © OpenStreetMap",
+  "Search address or place": "Rechercher une adresse ou un lieu",
+  SEARCH: "RECHERCHER",
+  "Locating…": "Localisation…",
+  "MY LOCATION": "MA POSITION",
+  CLEAR: "EFFACER",
+  "YOUR LOCATION": "VOTRE POSITION",
+  "No results — try a more specific place name.":
+    "Aucun résultat — essayez un nom de lieu plus précis.",
+  "Location unavailable — allow location access or search instead.":
+    "Position indisponible — autorisez l'accès à la position ou utilisez la recherche.",
+  "Search failed — try again.": "La recherche a échoué — réessayez.",
+  "to incident center": "du centre de l'incident",
+  "nearest satellite detection": "détection satellite la plus proche",
+  "no detections in the selected window":
+    "aucune détection dans la fenêtre sélectionnée",
+  "Indicative distance-based level · not an official warning. Follow 112 and authorities.":
+    "Niveau indicatif fondé sur la distance · pas une alerte officielle. Suivez le 112 et les autorités.",
+  "NEAR ACTIVE FIRE AREA": "PRÈS D'UNE ZONE DE FEU ACTIF",
+  "Follow the 112 instruction now and move away from the fire area.":
+    "Suivez maintenant la consigne du 112 et éloignez-vous de la zone de l'incendie.",
+  "HIGH PROXIMITY": "PROXIMITÉ ÉLEVÉE",
+  "Prepare to move; keep checking 112 and local authorities.":
+    "Préparez-vous à partir ; continuez de consulter le 112 et les autorités locales.",
+  "ELEVATED · SMOKE RANGE": "ÉLEVÉ · PORTÉE DE LA FUMÉE",
+  "Smoke and rekindling can affect this distance; stay aware.":
+    "La fumée et les reprises de feu peuvent affecter cette distance ; restez vigilant.",
+  MONITOR: "SURVEILLANCE",
+  "Outside the immediate area; keep monitoring official updates.":
+    "Hors de la zone immédiate ; continuez de suivre les mises à jour officielles.",
 };
 
 export const DE: TranslationMap = {
@@ -996,6 +1066,41 @@ export const DE: TranslationMap = {
     "Lokale Live-Berichtsseite; öffnen Sie die direkte Quelle für die vollständige Chronologie und Felddetails.",
   "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
     "Direkter Beitrag eines offiziellen Kontos. Folgen Sie der verlinkten Anweisung und den Behörden vor Ort.",
+
+  // Locator / proximity check
+  LOCATE: "ORTEN",
+  "HIDE LOCATOR": "ORTUNG AUSBLENDEN",
+  "PROXIMITY CHECK": "NÄHE-CHECK",
+  "Search data © OpenStreetMap": "Suchdaten © OpenStreetMap",
+  "Search address or place": "Adresse oder Ort suchen",
+  SEARCH: "SUCHEN",
+  "Locating…": "Ortung läuft…",
+  "MY LOCATION": "MEIN STANDORT",
+  CLEAR: "LÖSCHEN",
+  "YOUR LOCATION": "IHR STANDORT",
+  "No results — try a more specific place name.":
+    "Keine Ergebnisse — versuchen Sie einen genaueren Ortsnamen.",
+  "Location unavailable — allow location access or search instead.":
+    "Standort nicht verfügbar — erlauben Sie den Standortzugriff oder nutzen Sie die Suche.",
+  "Search failed — try again.": "Suche fehlgeschlagen — erneut versuchen.",
+  "to incident center": "zum Ereigniszentrum",
+  "nearest satellite detection": "nächste Satellitendetektion",
+  "no detections in the selected window":
+    "keine Detektionen im gewählten Fenster",
+  "Indicative distance-based level · not an official warning. Follow 112 and authorities.":
+    "Indikative, entfernungsbasierte Stufe · keine offizielle Warnung. Befolgen Sie 112 und die Behörden.",
+  "NEAR ACTIVE FIRE AREA": "NAHE AKTIVEM BRANDGEBIET",
+  "Follow the 112 instruction now and move away from the fire area.":
+    "Befolgen Sie jetzt die 112-Anweisung und entfernen Sie sich vom Brandgebiet.",
+  "HIGH PROXIMITY": "HOHE NÄHE",
+  "Prepare to move; keep checking 112 and local authorities.":
+    "Bereiten Sie sich auf einen Ortswechsel vor; prüfen Sie weiterhin 112 und die lokalen Behörden.",
+  "ELEVATED · SMOKE RANGE": "ERHÖHT · RAUCHREICHWEITE",
+  "Smoke and rekindling can affect this distance; stay aware.":
+    "Rauch und Wiederaufflammen können diese Entfernung betreffen; bleiben Sie wachsam.",
+  MONITOR: "BEOBACHTEN",
+  "Outside the immediate area; keep monitoring official updates.":
+    "Außerhalb des unmittelbaren Gebiets; verfolgen Sie weiterhin offizielle Updates.",
 };
 
 export const IT: TranslationMap = {
@@ -1327,4 +1432,39 @@ export const IT: TranslationMap = {
     "Pagina locale di informazione in diretta; aprire la fonte diretta per la cronologia completa e i dettagli dal campo.",
   "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
     "Post diretto da un account ufficiale. Seguire l'istruzione collegata e le autorità sul territorio.",
+
+  // Locator / proximity check
+  LOCATE: "LOCALIZZA",
+  "HIDE LOCATOR": "NASCONDI LOCALIZZAZIONE",
+  "PROXIMITY CHECK": "CONTROLLO DI PROSSIMITÀ",
+  "Search data © OpenStreetMap": "Dati di ricerca © OpenStreetMap",
+  "Search address or place": "Cerca indirizzo o luogo",
+  SEARCH: "CERCA",
+  "Locating…": "Localizzazione…",
+  "MY LOCATION": "LA MIA POSIZIONE",
+  CLEAR: "CANCELLA",
+  "YOUR LOCATION": "LA TUA POSIZIONE",
+  "No results — try a more specific place name.":
+    "Nessun risultato — provare con un nome di luogo più specifico.",
+  "Location unavailable — allow location access or search instead.":
+    "Posizione non disponibile — consentire l'accesso alla posizione o usare la ricerca.",
+  "Search failed — try again.": "Ricerca non riuscita — riprovare.",
+  "to incident center": "dal centro dell'evento",
+  "nearest satellite detection": "rilevamento satellitare più vicino",
+  "no detections in the selected window":
+    "nessun rilevamento nella finestra selezionata",
+  "Indicative distance-based level · not an official warning. Follow 112 and authorities.":
+    "Livello indicativo basato sulla distanza · non è un avviso ufficiale. Seguire il 112 e le autorità.",
+  "NEAR ACTIVE FIRE AREA": "VICINO A UN'AREA DI FUOCO ATTIVO",
+  "Follow the 112 instruction now and move away from the fire area.":
+    "Seguire subito l'istruzione del 112 e allontanarsi dall'area dell'incendio.",
+  "HIGH PROXIMITY": "PROSSIMITÀ ALTA",
+  "Prepare to move; keep checking 112 and local authorities.":
+    "Prepararsi a spostarsi; continuare a consultare il 112 e le autorità locali.",
+  "ELEVATED · SMOKE RANGE": "ELEVATA · PORTATA DEL FUMO",
+  "Smoke and rekindling can affect this distance; stay aware.":
+    "Il fumo e le riprese del fuoco possono interessare questa distanza; restare vigili.",
+  MONITOR: "MONITORAGGIO",
+  "Outside the immediate area; keep monitoring official updates.":
+    "Fuori dall'area immediata; continuare a seguire gli aggiornamenti ufficiali.",
 };

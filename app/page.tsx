@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DE, ES, FR, IT } from "./translations";
+import type { GeocodeResult } from "./api/geocode/nominatim";
+import { assessProximity } from "./lib/proximity";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -678,7 +680,7 @@ function scenarioShape(
 }
 
 function markerHtml(
-  kind: "fire" | "settlement" | "arrow" | "wind",
+  kind: "fire" | "settlement" | "arrow" | "wind" | "user",
   label: string,
 ) {
   return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}</b></div>`;
@@ -938,6 +940,18 @@ export default function Home() {
   const [ageEpoch, setAgeEpoch] = useState(() => Date.now());
   const [baseMode, setBaseMode] = useState<BaseMode>("satellite");
   const [language, setLanguage] = useState<Language>("en");
+  const [locatorOpen, setLocatorOpen] = useState(false);
+  const [locatorQuery, setLocatorQuery] = useState("");
+  const [locatorResults, setLocatorResults] = useState<GeocodeResult[]>([]);
+  const [locatorBusy, setLocatorBusy] = useState(false);
+  const [locatorError, setLocatorError] = useState<
+    "search" | "empty" | "geolocation" | null
+  >(null);
+  const [userPoint, setUserPoint] = useState<{
+    lat: number;
+    lon: number;
+    label: string;
+  } | null>(null);
   const [compact, setCompact] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [intelOpen, setIntelOpen] = useState(true);
@@ -1157,6 +1171,61 @@ export default function Home() {
     () => new Set(thermalDetections.map((detection) => detection.passId)).size,
     [thermalDetections],
   );
+  const proximity = useMemo(
+    () =>
+      userPoint
+        ? assessProximity(
+            userPoint,
+            { lat: INCIDENT[0], lon: INCIDENT[1] },
+            thermalDetections,
+          )
+        : null,
+    [userPoint, thermalDetections],
+  );
+  const proximityLevelText = proximity
+    ? {
+        critical: {
+          label: localize(
+            language,
+            "NEAR ACTIVE FIRE AREA",
+            "ΚΟΝΤΑ ΣΕ ΕΝΕΡΓΗ ΠΕΡΙΟΧΗ ΠΥΡΚΑΓΙΑΣ",
+          ),
+          advice: localize(
+            language,
+            "Follow the 112 instruction now and move away from the fire area.",
+            "Ακολουθήστε τώρα την οδηγία 112 και απομακρυνθείτε από την περιοχή της πυρκαγιάς.",
+          ),
+        },
+        high: {
+          label: localize(language, "HIGH PROXIMITY", "ΥΨΗΛΗ ΕΓΓΥΤΗΤΑ"),
+          advice: localize(
+            language,
+            "Prepare to move; keep checking 112 and local authorities.",
+            "Προετοιμαστείτε για μετακίνηση· ελέγχετε συνεχώς το 112 και τις τοπικές αρχές.",
+          ),
+        },
+        elevated: {
+          label: localize(
+            language,
+            "ELEVATED · SMOKE RANGE",
+            "ΑΥΞΗΜΕΝΗ · ΕΜΒΕΛΕΙΑ ΚΑΠΝΟΥ",
+          ),
+          advice: localize(
+            language,
+            "Smoke and rekindling can affect this distance; stay aware.",
+            "Ο καπνός και οι αναζωπυρώσεις μπορούν να επηρεάσουν αυτή την απόσταση· παραμείνετε σε επαγρύπνηση.",
+          ),
+        },
+        monitor: {
+          label: localize(language, "MONITOR", "ΠΑΡΑΚΟΛΟΥΘΗΣΗ"),
+          advice: localize(
+            language,
+            "Outside the immediate area; keep monitoring official updates.",
+            "Εκτός της άμεσης περιοχής· συνεχίστε να παρακολουθείτε τις επίσημες ενημερώσεις.",
+          ),
+        },
+      }[proximity.level]
+    : null;
   const thermalUnavailable =
     (!thermalData && thermalError) ||
     thermalData?.status === "unconfigured" ||
@@ -1486,6 +1555,21 @@ export default function Home() {
         }),
       }).addTo(group);
     });
+
+    if (userPoint) {
+      L.marker([userPoint.lat, userPoint.lon], {
+        interactive: false,
+        icon: L.divIcon({
+          className: "marker-shell",
+          html: markerHtml(
+            "user",
+            localize(language, "YOUR LOCATION", "Η ΘΕΣΗ ΣΑΣ"),
+          ),
+          iconSize: [150, 26],
+          iconAnchor: [8, 13],
+        }),
+      }).addTo(group);
+    }
 
     if (layers.official) {
       L.polygon(LANDFILL_FOOTPRINT, {
@@ -1937,6 +2021,7 @@ export default function Home() {
     thermalDetections,
     ageEpoch,
     language,
+    userPoint,
   ]);
 
   const toggleLayer = (key: LayerKey) => {
@@ -1948,6 +2033,68 @@ export default function Home() {
 
   const focusPoint = (point: LatLngTuple, zoom = 15) => {
     mapRef.current?.flyTo(point, zoom, { duration: 0.65 });
+  };
+
+  const chooseLocatorResult = (result: GeocodeResult) => {
+    setUserPoint({ lat: result.lat, lon: result.lon, label: result.label });
+    setLocatorResults([]);
+    setLocatorError(null);
+    focusPoint([result.lat, result.lon], 13);
+  };
+
+  const runLocatorSearch = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const query = locatorQuery.trim();
+    if (query.length < 2 || locatorBusy) return;
+    setLocatorBusy(true);
+    setLocatorError(null);
+    try {
+      const response = await fetch(
+        `/api/geocode?q=${encodeURIComponent(query)}&lang=${language}`,
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = (await response.json()) as { results: GeocodeResult[] };
+      if (payload.results.length === 0) {
+        setLocatorResults([]);
+        setLocatorError("empty");
+      } else {
+        setLocatorResults(payload.results);
+      }
+    } catch {
+      setLocatorError("search");
+    } finally {
+      setLocatorBusy(false);
+    }
+  };
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      setLocatorError("geolocation");
+      return;
+    }
+    setLocatorBusy(true);
+    setLocatorError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocatorBusy(false);
+        chooseLocatorResult({
+          label: localize(language, "YOUR LOCATION", "Η ΘΕΣΗ ΣΑΣ"),
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        });
+      },
+      () => {
+        setLocatorBusy(false);
+        setLocatorError("geolocation");
+      },
+      { timeout: 10_000, maximumAge: 60_000 },
+    );
+  };
+
+  const clearLocator = () => {
+    setUserPoint(null);
+    setLocatorResults([]);
+    setLocatorError(null);
   };
 
   const showOperationalView = () => {
@@ -2172,6 +2319,154 @@ export default function Home() {
           ? localize(language, "HIDE LAYERS", "ΑΠΟΚΡΥΨΗ ΕΠΙΠΕΔΩΝ")
           : localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")}
       </button>
+
+      <button
+        type="button"
+        className="locator-toggle"
+        onClick={() => setLocatorOpen((value) => !value)}
+        aria-expanded={locatorOpen}
+        aria-controls="locator-hud"
+      >
+        {locatorOpen
+          ? localize(language, "HIDE LOCATOR", "ΑΠΟΚΡΥΨΗ ΕΝΤΟΠΙΣΜΟΥ")
+          : localize(language, "LOCATE", "ΕΝΤΟΠΙΣΜΟΣ")}
+      </button>
+
+      {locatorOpen && (
+        <aside
+          className="locator-hud"
+          id="locator-hud"
+          aria-label={localize(
+            language,
+            "PROXIMITY CHECK",
+            "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ",
+          )}
+        >
+          <div className="hud-heading">
+            <div>
+              <span>
+                {localize(language, "PROXIMITY CHECK", "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ")}
+              </span>
+              <small>
+                {localize(
+                  language,
+                  "Search data © OpenStreetMap",
+                  "Δεδομένα αναζήτησης © OpenStreetMap",
+                )}
+              </small>
+            </div>
+          </div>
+          <form className="locator-search" onSubmit={runLocatorSearch}>
+            <input
+              type="search"
+              value={locatorQuery}
+              onChange={(event) => setLocatorQuery(event.target.value)}
+              placeholder={localize(
+                language,
+                "Search address or place",
+                "Αναζήτηση διεύθυνσης ή τοποθεσίας",
+              )}
+              aria-label={localize(
+                language,
+                "Search address or place",
+                "Αναζήτηση διεύθυνσης ή τοποθεσίας",
+              )}
+            />
+            <button type="submit" disabled={locatorBusy}>
+              {localize(language, "SEARCH", "ΑΝΑΖΗΤΗΣΗ")}
+            </button>
+          </form>
+          <div className="locator-actions">
+            <button type="button" onClick={useMyLocation} disabled={locatorBusy}>
+              {locatorBusy
+                ? localize(language, "Locating…", "Εντοπισμός…")
+                : localize(language, "MY LOCATION", "Η ΘΕΣΗ ΜΟΥ")}
+            </button>
+            {userPoint && (
+              <button type="button" onClick={clearLocator}>
+                {localize(language, "CLEAR", "ΚΑΘΑΡΙΣΜΟΣ")}
+              </button>
+            )}
+          </div>
+          {locatorError && (
+            <p className="locator-error" role="alert">
+              {locatorError === "empty"
+                ? localize(
+                    language,
+                    "No results — try a more specific place name.",
+                    "Κανένα αποτέλεσμα — δοκιμάστε πιο συγκεκριμένο όνομα τοποθεσίας.",
+                  )
+                : locatorError === "geolocation"
+                  ? localize(
+                      language,
+                      "Location unavailable — allow location access or search instead.",
+                      "Η τοποθεσία δεν είναι διαθέσιμη — επιτρέψτε την πρόσβαση τοποθεσίας ή χρησιμοποιήστε την αναζήτηση.",
+                    )
+                  : localize(
+                      language,
+                      "Search failed — try again.",
+                      "Η αναζήτηση απέτυχε — δοκιμάστε ξανά.",
+                    )}
+            </p>
+          )}
+          {locatorResults.length > 0 && (
+            <ul className="locator-results">
+              {locatorResults.map((result) => (
+                <li key={`${result.lat},${result.lon}`}>
+                  <button
+                    type="button"
+                    onClick={() => chooseLocatorResult(result)}
+                  >
+                    {result.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {userPoint && proximity && proximityLevelText && (
+            <div className={`locator-card locator-card--${proximity.level}`}>
+              <strong className="locator-level">
+                {proximityLevelText.label}
+              </strong>
+              <p className="locator-place">{userPoint.label}</p>
+              <p>
+                <strong>
+                  {proximity.distanceToIncidentKm.toFixed(1)} km{" "}
+                  {compass(proximity.bearingToIncidentDeg, language)}
+                </strong>{" "}
+                {localize(
+                  language,
+                  "to incident center",
+                  "από το κέντρο του συμβάντος",
+                )}
+              </p>
+              <p>
+                {localize(
+                  language,
+                  "nearest satellite detection",
+                  "πλησιέστερη δορυφορική ανίχνευση",
+                )}
+                :{" "}
+                {proximity.nearestDetectionKm !== null
+                  ? `${proximity.nearestDetectionKm.toFixed(1)} km · ${Math.round(proximity.nearestDetectionAgeMinutes ?? 0)} min`
+                  : localize(
+                      language,
+                      "no detections in the selected window",
+                      "καμία ανίχνευση στο επιλεγμένο παράθυρο",
+                    )}
+              </p>
+              <p className="locator-advice">{proximityLevelText.advice}</p>
+              <small>
+                {localize(
+                  language,
+                  "Indicative distance-based level · not an official warning. Follow 112 and authorities.",
+                  "Ενδεικτικό επίπεδο βάσει απόστασης · όχι επίσημη προειδοποίηση. Ακολουθείτε το 112 και τις αρχές.",
+                )}
+              </small>
+            </div>
+          )}
+        </aside>
+      )}
 
       {panelOpen && (
         <aside
