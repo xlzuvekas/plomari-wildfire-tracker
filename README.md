@@ -301,6 +301,18 @@ catalog. It requires only `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, reads
 the curated `api` schema, and is deliberately not wired into the v2 map. Never
 substitute a service-role or secret key for this route.
 
+`GET /api/v3/satellite-passes?cell=wm/z/x/y` is the persisted CMR
+satellite-pass read. It accepts only a canonical coarse area, queries
+security-invoker Supabase projections/functions with the same publishable
+server credential, and performs no NASA request. The response separates full
+UTC observation, production, catalog, retrieval, and source-health times. It
+labels CMR geometry as catalog-footprint coverage with
+`anomalyAssessment: "not_assessed"`. A local `valid-empty` result requires a
+database-proven continuous complete global scan lineage across the current
+36-hour window plus zero exact PostGIS intersections; an isolated incremental,
+stale scan, or partial scan can never produce that claim. The route is not yet
+wired into the v2 map.
+
 ## Supabase development
 
 The local database requires Docker and the Supabase CLI:

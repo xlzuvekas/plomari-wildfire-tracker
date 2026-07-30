@@ -25,6 +25,7 @@ const PUBLIC_DATA_PATHS = new Set([
   "/api/wind",
   "/api/updates",
   "/api/thermal",
+  "/api/v3/satellite-passes",
 ]);
 
 const TILE_HOSTS = [
@@ -91,6 +92,12 @@ async function networkFirst(
       } catch {
         // A quota/cache failure must not replace a valid live response.
       }
+      return response;
+    }
+
+    if (response.status === 304) {
+      const cached = await cache.match(cacheKey);
+      if (cached) return cached;
       return response;
     }
 

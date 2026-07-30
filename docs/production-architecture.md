@@ -64,6 +64,23 @@ but cannot inspect Storage bytes. `inline_payload` is instead a PostgreSQL
 `jsonb` semantic value whose database-verified digest covers normalized
 `jsonb::text`, so it does not identify the upstream JSON serialization.
 
+CMR FireMask catalog collection is global and shared, never triggered per
+viewer or coarse area. A bootstrap or reconciliation establishes a complete
+baseline; five-minute incremental scans use an upstream update watermark and
+append to that baseline. Scan-completeness records preserve predecessor and
+baseline lineage. A current incremental response cannot prove area coverage
+unless the database verifies an uninterrupted chain covering the route's full
+requested window.
+
+The public satellite-pass route uses only the server-scoped Supabase URL and a
+publishable key. It reads security-invoker projections and bounded,
+security-invoker spatial functions; it never receives a collector, secret, or
+service-role credential. The request carries only a canonical coarse Web
+Mercator cell. PostGIS derives the polygon and returns exact intersections from
+persisted CMR catalog footprints. Zero intersections become `valid-empty` only
+when the same database read proves current, complete, continuous global
+coverage for the requested window.
+
 ## Source identity model
 
 The same provider can publish products with different semantics, licensing,

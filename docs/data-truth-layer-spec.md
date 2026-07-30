@@ -557,7 +557,76 @@ content hash, permitted excerpt, and extracted structured metadata.
 | `parser_version` | Reproducibility |
 | `validation_state` | `accepted`, `quarantined`, or `rejected` |
 
-### 9.5a `incident_observation_links`
+### 9.5a CMR catalog pass metadata and complete-scan lineage
+
+NASA CMR FireMask catalog records are normalized as
+`satellite_imagery` / `satellite_pass_metadata`, never as thermal detections.
+`ingest.cmr_granule_details` is a typed 1:1 extension of the global observation
+and preserves the CMR granule/collection identities, upstream metadata
+revision, product/platform, exact UTC interval, production/catalog times, and
+day/night label. The linked observation geometry is the actual CMR-declared
+Polygon or MultiPolygon. Because CMR does not publish a defensible metric
+accuracy for these catalog footprints, accepted rows keep
+`geometry_precision_m = null` and `geometry_precision_source = not_applicable`
+rather than inventing precision. They also require the quality flags
+`catalog_metadata_only` and `anomaly_not_assessed`.
+
+Malformed catalog items are appended to `ingest.cmr_rejections`, fenced by the
+active run lease and keyed to the exact terminal HTTP exchange and item index.
+They retain a safe reason plus any parseable CMR identity, but never create a
+source revision or observation.
+
+Accepted items also append one `ingest.cmr_granule_occurrences` row per run,
+keyed to the exact terminal HTTP exchange and zero-based response item index.
+The occurrence resolves the upstream product, concept ID, and revision ID to
+the immutable normalized observation. Observation identity remains globally
+deduplicated, while occurrence evidence remains run-specific: if an early item
+is normalized during a failed scan, a successful replay appends a second
+occurrence for the same observation. It does not mutate or duplicate the source
+revision, observation, or typed detail.
+
+One `ingest.cmr_scan_completions` row represents a fully persisted global scan,
+not an upstream assertion supplied by a browser. Each completion is backed by
+three typed product-completion rows and by every page's terminal
+`ingest.http_exchanges` response. Page numbers and Search-After cursors must be
+continuous; the stable query envelope cannot change; HTTP failures, either CMR
+timeout-header spelling, truncation, parser rejection, missing terminal pages,
+or a pagination cap make a completion row impossible. Each product's accepted
+plus deduplicated granule accounting must exactly equal the upstream CMR hit
+count; silent item loss cannot authorize completion or a valid-empty result.
+
+`bootstrap` and `reconciliation` scans establish a baseline. An `incremental`
+scan must name the immediately preceding complete scan and persist
+`updated_since = watermark_from = predecessor.watermark_to`. Every scan stores
+`watermark_to = requested_to - 10 minutes`; this single lag makes the next run
+replay CMR's publication-lag interval without double-applying overlap. The scan
+must remain on the same immutable target revision, overlap or touch its
+coverage, and advance the coverage end. The database derives baseline identity,
+continuous coverage, lineage depth, and the freshness deadline. A standalone
+incremental scan is never complete for a 36-hour read window.
+
+Page-by-page accepted rows remain private until at least one of their per-run
+occurrences belongs to a healthy, zero-rejection `cmr_scan_completions` proof.
+The scan and each product completion must reconcile their accepted counts to
+that run's durable occurrences. This gate is enforced in global-observation RLS
+and explicitly in both typed pass APIs (including their latest-revision
+anti-joins), so failed first attempts remain private, completed replays can
+publish already-normalized identity, and a later failed or quarantined revision
+neither leaks nor suppresses the latest completed public revision for bypass-RLS
+callers.
+
+Public reads use `api.satellite_passes`,
+`api.satellite_scan_status_for_window(from, to)`, and
+`api.satellite_passes_for_cell(z, x, y, from, to, limit)`. The cell RPC accepts
+only canonical Web Mercator cells at zoom 7 through 11, constructs the polygon
+inside PostGIS, and applies exact spatial and temporal interval intersection.
+A local result is `valid-empty` only when the window-status RPC says the latest
+complete lineage is current and covers the exact requested interval **and** the
+cell RPC returns zero intersections. Its wording must remain catalog coverage
+with `anomaly_assessment = not_assessed`; it cannot clear a FIRMS anomaly or
+state that a fire is out.
+
+### 9.5b `incident_observation_links`
 
 An observation may be relevant to zero, one, or many incidents. Linking never
 copies or mutates the global observation.
