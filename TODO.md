@@ -28,6 +28,11 @@ connection.
   stale snapshots; data storage is capped at 24 responses. `/_next/static` and
   basemap/overlay tiles remain cache-first (tiles capped at 400 entries).
   Registered in production builds only.
+- [x] **Cache-preserving active polling.** Anonymous data GETs now use ordinary
+  browser/CDN semantics instead of forcing `no-store`; hidden/offline tabs stop
+  recurring polling, resume immediately when active, and guard against
+  overlapping requests. Offline startup retains one service-worker snapshot
+  read. A bounded `realtime=0` feed snapshot makes zero X API calls.
 - [x] **Sunlight-readable text & map.** Raised every sub-10px font rule
   (0.42–0.6 rem → 0.6–0.66 rem floor), toned down extreme letter-spacing,
   brightened the basemap tile filters (satellite 0.66 → 0.9 brightness), and
@@ -71,8 +76,8 @@ connection.
 - [ ] **Heading structure.** `h1` is the only heading; panel titles are spans.
 - [ ] **Landscape/short-viewport pass.** Desktop `min-height: 580px` +
   `overflow: hidden` can clip short viewports outside the 900px query.
-- [ ] **Field micro-features.** Map scale control, larger desktop touch
-  targets, battery-friendly slower polling when the tab is hidden.
+- [ ] **Field micro-features.** Map scale control and larger desktop touch
+  targets. (Hidden/offline polling is now paused.)
 
 ## Foundation (prerequisite for the bigger features)
 

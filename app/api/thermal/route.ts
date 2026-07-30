@@ -381,10 +381,20 @@ function detectionsFromCsv(
       const satellite = row.satellite || dataset.id;
       const confidenceValue = confidence(row.confidence);
       const incidentDistanceKm = distanceKm(INCIDENT, { lat, lon });
-      const passId = `${dataset.id}-${observedAt}`;
+      const scanKm = finiteNumber(row.scan);
+      const trackKm = finiteNumber(row.track);
+      const passId = [dataset.id, satellite, observedAt].join("::");
 
       return {
-        id: [dataset.id, observedAt, lat.toFixed(5), lon.toFixed(5)].join("-"),
+        id: [
+          dataset.id,
+          satellite,
+          observedAt,
+          lat.toFixed(5),
+          lon.toFixed(5),
+          scanKm?.toFixed(3) ?? "scan-unknown",
+          trackKm?.toFixed(3) ?? "track-unknown",
+        ].join("::"),
         passId,
         lat,
         lon,
@@ -397,8 +407,8 @@ function detectionsFromCsv(
         confidence: confidenceValue.label,
         confidenceCode: confidenceValue.code,
         frpMw: finiteNumber(row.frp),
-        scanKm: finiteNumber(row.scan),
-        trackKm: finiteNumber(row.track),
+        scanKm,
+        trackKm,
         daynight: row.daynight || null,
         distanceFromIncidentKm: Number(incidentDistanceKm.toFixed(2)),
         bearingFromIncidentDeg: Number(
@@ -624,7 +634,7 @@ function confidenceCounts(detections: ThermalDetection[]) {
 }
 
 function clusterSatellitePasses(detections: ThermalDetection[]) {
-  const lastByProduct = new Map<
+  const lastByPlatform = new Map<
     string,
     { observedMs: number; passId: string }
   >();
@@ -634,18 +644,22 @@ function clusterSatellitePasses(detections: ThermalDetection[]) {
       if (left.product !== right.product) {
         return left.product.localeCompare(right.product);
       }
+      if (left.satellite !== right.satellite) {
+        return left.satellite.localeCompare(right.satellite);
+      }
       return Date.parse(left.observedAt) - Date.parse(right.observedAt);
     })
     .map((detection) => {
       const observedMs = Date.parse(detection.observedAt);
-      const previous = lastByProduct.get(detection.product);
+      const platformKey = `${detection.product}::${detection.satellite}`;
+      const previous = lastByPlatform.get(platformKey);
       const samePass =
         previous &&
         observedMs - previous.observedMs <= PASS_GAP_MINUTES * 60_000;
       const passId = samePass
         ? previous.passId
-        : `${detection.product}-${detection.observedAt}`;
-      lastByProduct.set(detection.product, { observedMs, passId });
+        : `${platformKey}::${detection.observedAt}`;
+      lastByPlatform.set(platformKey, { observedMs, passId });
       return { ...detection, passId };
     })
     .sort(
@@ -694,9 +708,11 @@ export async function GET(request: Request) {
   let date: string | null = null;
   if (rawDate !== null) {
     const todayUtc = new Date(nowMs).toISOString().slice(0, 10);
+    const parsedDateMs = Date.parse(`${rawDate}T00:00:00Z`);
     const valid =
       /^\d{4}-\d{2}-\d{2}$/.test(rawDate) &&
-      !Number.isNaN(Date.parse(`${rawDate}T00:00:00Z`)) &&
+      !Number.isNaN(parsedDateMs) &&
+      new Date(parsedDateMs).toISOString().slice(0, 10) === rawDate &&
       rawDate >= INCIDENT_START_UTC_DATE &&
       rawDate <= todayUtc;
     if (!valid) {
@@ -883,7 +899,7 @@ export async function GET(request: Request) {
         downloads: FIRMS_ACTIVE_FIRE_DOWNLOADS,
         semantics: FIRMS_VIIRS_DOCS,
         modisSemantics: FIRMS_MODIS_DOCS,
-        appPollSeconds: 300,
+        appPollSeconds: 120,
         upstreamRefreshMinutes: 15,
         globalNrtLatencyMaxHours: GLOBAL_NRT_LATENCY_MAX_HOURS,
         observationCadenceNote:

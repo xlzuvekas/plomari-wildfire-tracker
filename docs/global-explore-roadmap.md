@@ -30,6 +30,54 @@ one deduplicated collection job per shared area/target/time bucket. Browsers do
 not call upstream providers, and refresh polling does not increase demand
 counts or paid-source usage.
 
+## Cache and demand contract
+
+The browser uses ordinary HTTP cache semantics and the production service
+worker retains a bounded last-known-good snapshot for offline use. Public
+responses are shared through Vercel's CDN. Supabase remains the durable source
+of truth and already supplies unique job idempotency keys, lease fencing, and
+`FOR UPDATE SKIP LOCKED` claims for global single-flight collection.
+
+Redis is deliberately deferred. It must not become a second evidence store or
+job authority. Add a small, single-region ephemeral cache only after metrics
+show that CDN hit rate, Postgres leases, or coarse-cell rate limits need it;
+every Redis key must then have a TTL and failures must fall back to the durable
+database model.
+
+The implemented request-time policy is deterministic and accepts only a
+canonical coarse cell key:
+
+| Mode | Thermal | Wind | RSS / official web | X |
+| --- | --- | --- | --- | --- |
+| Quiet | 15 minutes | Off | Off | Off |
+| Watch | 5 minutes | 10 minutes | 5 minutes | Off |
+| Incident | 2 minutes | 5 minutes | 1 minute | 1 minute only for a bound, recently demanded incident |
+
+Hidden clients make no request-time polls. An offline load gets one best-effort
+service-worker snapshot read, then makes no recurring polls; live refresh
+resumes immediately when the client becomes visible/online again. The current
+Plomari view runs as an active incident. `/api/updates?realtime=0` provides a five-minute cached
+feeds-only variant with no X API requests; the default incident variant keeps
+the existing one-minute shared X-capable snapshot. Global discovery will run
+once per provider-sized region and partition results into UI cells, never once
+per viewer.
+
+Repeated successful empty scans may back off from 15 to 30 to 60 minutes for
+an active cell and then to 2, 6, and 12 hours while inactive. Failed, obscured,
+partial, or unknown coverage never counts as a successful empty scan. A global
+catalog or new regional anomaly can wake a quiet cell.
+
+## Renderer boundary
+
+Global Explore will use a dynamically loaded MapLibre globe backed by curated
+aggregate cells and a keyboard-accessible incident list. Incident mode keeps
+the existing Leaflet renderer. Only one renderer is mounted at a time, and a
+WebGL failure falls back to the semantic list plus a lightweight map/raster.
+Cesium remains a later option for real terrain, altitude-aware objects, 3D
+Tiles, or plume volumes. This adopts Godseye's camera-height layer budgets and
+modular layers without copying its client polling, continuous rendering,
+hidden attribution, or zero-as-error behavior.
+
 ## Implementation packages
 
 | Package | Deliverable | Primary ownership |
