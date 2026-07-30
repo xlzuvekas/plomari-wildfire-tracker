@@ -1,6 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DE, ES, FR, IT } from "./translations";
+import type { GeocodeResult } from "./api/geocode/nominatim";
+import { assessProximity } from "./lib/proximity";
+import type { BurntArea } from "./api/effis/effis";
+import type { AlertSummary } from "./api/alerts/meteoalarm";
+import type { SpainIncident } from "./api/spain-incidents/inforcyl";
+import type { NewsItem } from "./api/regionnews/feeds";
+import type { NormalizedAirQuality } from "./api/wind/airquality";
+import {
+  FIRE_REGIONS,
+  REGION_LINKS,
+  type FireRegionId,
+} from "./lib/regions";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -11,11 +24,37 @@ import "leaflet/dist/leaflet.css";
 
 type LatLngTuple = [number, number];
 type Confidence = "official" | "observed" | "reported" | "modeled";
-type Language = "en" | "el";
+type Language = "en" | "el" | "es" | "fr" | "de" | "it";
+
+const LANGUAGES: Language[] = ["en", "el", "es", "fr", "de", "it"];
+
+const LOCALES: Record<Language, string> = {
+  en: "en-GB",
+  el: "el-GR",
+  es: "es-ES",
+  fr: "fr-FR",
+  de: "de-DE",
+  it: "it-IT",
+};
+
+const LANGUAGE_NAMES: Record<Language, string> = {
+  en: "English",
+  el: "Ελληνικά",
+  es: "Español",
+  fr: "Français",
+  de: "Deutsch",
+  it: "Italiano",
+};
+
+function isLanguage(value: unknown): value is Language {
+  return LANGUAGES.includes(value as Language);
+}
 type LayerKey =
   | "official"
   | "satellite"
   | "satelliteRaster"
+  | "effis"
+  | "inforcyl"
   | "local"
   | "wind"
   | "smokeObserved"
@@ -66,6 +105,14 @@ type WindPayload = {
     dewpointC: number;
     pressureHpa: number;
   } | null;
+  airQuality?: Array<{
+    id: string;
+    label: string;
+    time: string | null;
+    pm25: number | null;
+    pm10: number | null;
+    europeanAqi: number | null;
+  }>;
   errors: string[];
 };
 
@@ -175,9 +222,8 @@ type ThermalPayload = {
 type LiveUpdateItem = {
   id: string;
   title: string;
-  summary: string;
-  summaryEn?: string;
-  summaryEl?: string;
+  summaryEn: string;
+  summaryEl: string;
   url: string;
   sourceId: string;
   sourceLabel: string;
@@ -646,14 +692,45 @@ function scenarioShape(
 }
 
 function markerHtml(
-  kind: "fire" | "settlement" | "arrow" | "wind",
+  kind: "fire" | "settlement" | "arrow" | "wind" | "user",
   label: string,
 ) {
   return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}</b></div>`;
 }
 
+// Spanish/French come from the dictionaries in app/translations.ts, keyed
+// by the English source string; a missing entry falls back to English.
+const DICTIONARIES: Partial<Record<Language, Record<string, string>>> = {
+  es: ES,
+  fr: FR,
+  de: DE,
+  it: IT,
+};
+
+function translate(language: Language, english: string) {
+  return DICTIONARIES[language]?.[english] ?? english;
+}
+
 function localize(language: Language, english: string, greek: string) {
-  return language === "el" ? greek : english;
+  return language === "el" ? greek : translate(language, english);
+}
+
+// For strings built from template literals, where a dictionary keyed by the
+// full English text cannot work.
+function pick(language: Language, variants: Record<Language, string>) {
+  return variants[language];
+}
+
+// European Air Quality Index bands (EEA scale). Boundary values belong to
+// the lower band: 0-20 good, 20-40 fair, ..., 80-100 very poor, >100
+// extremely poor.
+function eaqiBand(language: Language, value: number) {
+  if (value <= 20) return localize(language, "GOOD", "ΚΑΛΗ");
+  if (value <= 40) return localize(language, "FAIR", "ΙΚΑΝΟΠΟΙΗΤΙΚΗ");
+  if (value <= 60) return localize(language, "MODERATE", "ΜΕΤΡΙΑ");
+  if (value <= 80) return localize(language, "POOR", "ΚΑΚΗ");
+  if (value <= 100) return localize(language, "VERY POOR", "ΠΟΛΥ ΚΑΚΗ");
+  return localize(language, "EXTREMELY POOR", "ΕΞΑΙΡΕΤΙΚΑ ΚΑΚΗ");
 }
 
 function confidenceLabel(confidence: Confidence, language: Language) {
@@ -701,7 +778,7 @@ function formatGreeceDateTime(
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
-  return new Intl.DateTimeFormat(language === "el" ? "el-GR" : "en-GB", {
+  return new Intl.DateTimeFormat(LOCALES[language], {
     timeZone: "Europe/Athens",
     day: "2-digit",
     month: "short",
@@ -719,27 +796,36 @@ function ageLabel(
     return localize(language, "age unknown", "άγνωστη ηλικία");
   }
   if (ageMinutes < 60) {
-    return localize(
-      language,
-      `${ageMinutes} min ago`,
-      `πριν από ${ageMinutes} λεπτά`,
-    );
+    return pick(language, {
+      en: `${ageMinutes} min ago`,
+      el: `πριν από ${ageMinutes} λεπτά`,
+      es: `hace ${ageMinutes} min`,
+      fr: `il y a ${ageMinutes} min`,
+      de: `vor ${ageMinutes} Min.`,
+      it: `${ageMinutes} min fa`,
+    });
   }
   const hours = Math.floor(ageMinutes / 60);
   const minutes = ageMinutes % 60;
   if (hours < 24) {
-    return localize(
-      language,
-      `${hours}h${minutes ? ` ${minutes}m` : ""} ago`,
-      `πριν από ${hours}ω${minutes ? ` ${minutes}λ` : ""}`,
-    );
+    return pick(language, {
+      en: `${hours}h${minutes ? ` ${minutes}m` : ""} ago`,
+      el: `πριν από ${hours}ω${minutes ? ` ${minutes}λ` : ""}`,
+      es: `hace ${hours}h${minutes ? ` ${minutes}m` : ""}`,
+      fr: `il y a ${hours}h${minutes ? ` ${minutes}m` : ""}`,
+      de: `vor ${hours}h${minutes ? ` ${minutes}m` : ""}`,
+      it: `${hours}h${minutes ? ` ${minutes}m` : ""} fa`,
+    });
   }
   const days = Math.floor(hours / 24);
-  return localize(
-    language,
-    `${days}d ${hours % 24}h ago`,
-    `πριν από ${days}η ${hours % 24}ω`,
-  );
+  return pick(language, {
+    en: `${days}d ${hours % 24}h ago`,
+    el: `πριν από ${days}η ${hours % 24}ω`,
+    es: `hace ${days}d ${hours % 24}h`,
+    fr: `il y a ${days}j ${hours % 24}h`,
+    de: `vor ${days}T ${hours % 24}h`,
+    it: `${days}g ${hours % 24}h fa`,
+  });
 }
 
 function ageMinutesFromTimestamp(
@@ -791,7 +877,11 @@ function compass(degrees: number, language: Language = "en") {
   const points =
     language === "el"
       ? ["Β", "ΒΑ", "Α", "ΝΑ", "Ν", "ΝΔ", "Δ", "ΒΔ"]
-      : ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+      : language === "es" || language === "fr" || language === "it"
+        ? ["N", "NE", "E", "SE", "S", "SO", "O", "NO"]
+        : language === "de"
+          ? ["N", "NO", "O", "SO", "S", "SW", "W", "NW"]
+          : ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   return points[Math.round((((degrees % 360) + 360) % 360) / 45) % 8];
 }
 
@@ -807,18 +897,34 @@ function localizeFireStatus(
     "in-progress": {
       en: "IN PROGRESS",
       el: "ΣΕ ΕΞΕΛΙΞΗ",
+      es: "EN CURSO",
+      fr: "EN COURS",
+      de: "IM GANGE",
+      it: "IN CORSO",
     },
     "partial-control": {
       en: "PARTIAL CONTROL",
       el: "ΜΕΡΙΚΟΣ ΕΛΕΓΧΟΣ",
+      es: "CONTROL PARCIAL",
+      fr: "MAÎTRISE PARTIELLE",
+      de: "TEILWEISE UNTER KONTROLLE",
+      it: "CONTROLLO PARZIALE",
     },
     "full-control": {
       en: "UNDER CONTROL",
       el: "ΥΠΟ ΕΛΕΓΧΟ",
+      es: "BAJO CONTROL",
+      fr: "SOUS CONTRÔLE",
+      de: "UNTER KONTROLLE",
+      it: "SOTTO CONTROLLO",
     },
     ended: {
       en: "ENDED",
       el: "ΛΗΞΗ ΣΥΜΒΑΝΤΟΣ",
+      es: "FINALIZADO",
+      fr: "TERMINÉ",
+      de: "BEENDET",
+      it: "CONCLUSO",
     },
   } as const;
   return labels[status][language];
@@ -838,6 +944,7 @@ export default function Home() {
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const operationalGroup = useRef<LayerGroup | null>(null);
+  const effisGroup = useRef<LayerGroup | null>(null);
   const baseLayerRef = useRef<TileLayer | null>(null);
   const lastAutoSelectedLive = useRef<string | null>(null);
 
@@ -846,6 +953,18 @@ export default function Home() {
   const [ageEpoch, setAgeEpoch] = useState(() => Date.now());
   const [baseMode, setBaseMode] = useState<BaseMode>("satellite");
   const [language, setLanguage] = useState<Language>("en");
+  const [locatorOpen, setLocatorOpen] = useState(false);
+  const [locatorQuery, setLocatorQuery] = useState("");
+  const [locatorResults, setLocatorResults] = useState<GeocodeResult[]>([]);
+  const [locatorBusy, setLocatorBusy] = useState(false);
+  const [locatorError, setLocatorError] = useState<
+    "search" | "empty" | "geolocation" | null
+  >(null);
+  const [userPoint, setUserPoint] = useState<{
+    lat: number;
+    lon: number;
+    label: string;
+  } | null>(null);
   const [compact, setCompact] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [intelOpen, setIntelOpen] = useState(true);
@@ -864,31 +983,57 @@ export default function Home() {
     official: true,
     satellite: true,
     satelliteRaster: false,
+    effis: true,
+    inforcyl: true,
     local: true,
     wind: true,
     smokeObserved: false,
     smoke: true,
     simulation: false,
   });
+  const [region, setRegion] = useState<FireRegionId>("lesvos");
+  const [effisData, setEffisData] = useState<BurntArea[] | null>(null);
+  const [effisError, setEffisError] = useState(false);
+  const [alertData, setAlertData] = useState<AlertSummary | null>(null);
+  const [alertError, setAlertError] = useState(false);
+  const [spainIncidents, setSpainIncidents] = useState<SpainIncident[] | null>(
+    null,
+  );
+  const [regionNews, setRegionNews] = useState<NewsItem[] | null>(null);
+  const [regionAq, setRegionAq] = useState<NormalizedAirQuality | null>(null);
   const [hour, setHour] = useState(2);
   const [beaufort, setBeaufort] = useState(6);
   const [heading, setHeading] = useState(218);
   const [smokeMinutes, setSmokeMinutes] = useState(15);
 
   const scenarioDistance = useMemo(
-    () => Number((spreadRates[beaufort] * hour).toFixed(1)),
+    () => Number(((spreadRates[beaufort] ?? 0) * hour).toFixed(1)),
     [beaufort, hour],
   );
-  const staticIntel = language === "el" ? intelEl : intelEn;
-  const localizedSources = language === "el" ? sourcesEl : sourcesEn;
+  const staticIntel =
+    language === "el"
+      ? intelEl
+      : intelEn.map((item) => ({
+          ...item,
+          label: translate(language, item.label),
+          detail: translate(language, item.detail),
+        }));
+  const localizedSources =
+    language === "el"
+      ? sourcesEl
+      : sourcesEn.map((item) => ({
+          ...item,
+          label: translate(language, item.label),
+          kind: translate(language, item.kind),
+        }));
   const displayIntel = useMemo<IntelItem[]>(() => {
     const liveItems =
       updatesData?.items.slice(0, 6).map((item) => {
         const timestamp = item.modifiedAt ?? item.publishedAt;
         const localizedSummary =
           language === "el"
-            ? item.summaryEl ?? item.summary
-            : item.summaryEn ?? item.summary;
+            ? item.summaryEl
+            : translate(language, item.summaryEn);
         const detailPrefix =
           item.sourceTier === "official"
             ? localize(
@@ -949,13 +1094,16 @@ export default function Home() {
               updatesData.fireServiceIncident.status,
               updatesData.fireServiceIncident.statusLabel,
               language,
-            ).toLocaleLowerCase(language === "el" ? "el-GR" : "en-GB")}${
+            ).toLocaleLowerCase(LOCALES[language])}${
               updatesData.fireServiceIncident.sourceAge
-                ? localize(
-                    language,
-                    `; source-reported update age ${updatesData.fireServiceIncident.sourceAge}`,
-                    `· ηλικία ενημέρωσης πηγής ${updatesData.fireServiceIncident.sourceAge}`,
-                  )
+                ? pick(language, {
+                    en: `; source-reported update age ${updatesData.fireServiceIncident.sourceAge}`,
+                    el: `· ηλικία ενημέρωσης πηγής ${updatesData.fireServiceIncident.sourceAge}`,
+                    es: `; antigüedad del dato según la fuente ${updatesData.fireServiceIncident.sourceAge}`,
+                    fr: `; ancienneté de la mise à jour selon la source ${updatesData.fireServiceIncident.sourceAge}`,
+                    de: `; Alter der Quellenmeldung ${updatesData.fireServiceIncident.sourceAge}`,
+                    it: `; età dell'aggiornamento secondo la fonte ${updatesData.fireServiceIncident.sourceAge}`,
+                  })
                 : ""
             }. ${localize(
               language,
@@ -1048,6 +1196,61 @@ export default function Home() {
     () => new Set(thermalDetections.map((detection) => detection.passId)).size,
     [thermalDetections],
   );
+  const proximity = useMemo(
+    () =>
+      userPoint
+        ? assessProximity(
+            userPoint,
+            { lat: INCIDENT[0], lon: INCIDENT[1] },
+            thermalDetections,
+          )
+        : null,
+    [userPoint, thermalDetections],
+  );
+  const proximityLevelText = proximity
+    ? {
+        critical: {
+          label: localize(
+            language,
+            "NEAR ACTIVE FIRE AREA",
+            "ΚΟΝΤΑ ΣΕ ΕΝΕΡΓΗ ΠΕΡΙΟΧΗ ΠΥΡΚΑΓΙΑΣ",
+          ),
+          advice: localize(
+            language,
+            "Follow the 112 instruction now and move away from the fire area.",
+            "Ακολουθήστε τώρα την οδηγία 112 και απομακρυνθείτε από την περιοχή της πυρκαγιάς.",
+          ),
+        },
+        high: {
+          label: localize(language, "HIGH PROXIMITY", "ΥΨΗΛΗ ΕΓΓΥΤΗΤΑ"),
+          advice: localize(
+            language,
+            "Prepare to move; keep checking 112 and local authorities.",
+            "Προετοιμαστείτε για μετακίνηση· ελέγχετε συνεχώς το 112 και τις τοπικές αρχές.",
+          ),
+        },
+        elevated: {
+          label: localize(
+            language,
+            "ELEVATED · SMOKE RANGE",
+            "ΑΥΞΗΜΕΝΗ · ΕΜΒΕΛΕΙΑ ΚΑΠΝΟΥ",
+          ),
+          advice: localize(
+            language,
+            "Smoke and rekindling can affect this distance; stay aware.",
+            "Ο καπνός και οι αναζωπυρώσεις μπορούν να επηρεάσουν αυτή την απόσταση· παραμείνετε σε επαγρύπνηση.",
+          ),
+        },
+        monitor: {
+          label: localize(language, "MONITOR", "ΠΑΡΑΚΟΛΟΥΘΗΣΗ"),
+          advice: localize(
+            language,
+            "Outside the immediate area; keep monitoring official updates.",
+            "Εκτός της άμεσης περιοχής· συνεχίστε να παρακολουθείτε τις επίσημες ενημερώσεις.",
+          ),
+        },
+      }[proximity.level]
+    : null;
   const thermalUnavailable =
     (!thermalData && thermalError) ||
     thermalData?.status === "unconfigured" ||
@@ -1081,22 +1284,31 @@ export default function Home() {
           "Η σημειακή ροή FIRMS δεν είναι διαθέσιμη",
         )
       : thermalStaleSnapshot
-        ? localize(
-            language,
-            `Last response · refresh failed · ${thermalLatestAge}`,
-            `Τελευταία απόκριση · αποτυχία ανανέωσης · ${thermalLatestAge}`,
-          )
+        ? pick(language, {
+            en: `Last response · refresh failed · ${thermalLatestAge}`,
+            el: `Τελευταία απόκριση · αποτυχία ανανέωσης · ${thermalLatestAge}`,
+            es: `Última respuesta · fallo de actualización · ${thermalLatestAge}`,
+            fr: `Dernière réponse · échec d'actualisation · ${thermalLatestAge}`,
+            de: `Letzte Antwort · Aktualisierung fehlgeschlagen · ${thermalLatestAge}`,
+            it: `Ultima risposta · aggiornamento non riuscito · ${thermalLatestAge}`,
+          })
       : thermalData?.status === "partial"
-        ? localize(
-            language,
-            `Partial FIRMS response · ${thermalLatestAge}`,
-            `Μερική απόκριση FIRMS · ${thermalLatestAge}`,
-          )
-        : localize(
-            language,
-            `NASA FIRMS · ${thermalLatestAge}`,
-            `NASA FIRMS · ${thermalLatestAge}`,
-          );
+        ? pick(language, {
+            en: `Partial FIRMS response · ${thermalLatestAge}`,
+            el: `Μερική απόκριση FIRMS · ${thermalLatestAge}`,
+            es: `Respuesta parcial de FIRMS · ${thermalLatestAge}`,
+            fr: `Réponse partielle FIRMS · ${thermalLatestAge}`,
+            de: `Teilweise FIRMS-Antwort · ${thermalLatestAge}`,
+            it: `Risposta parziale FIRMS · ${thermalLatestAge}`,
+          })
+        : pick(language, {
+            en: `NASA FIRMS · ${thermalLatestAge}`,
+            el: `NASA FIRMS · ${thermalLatestAge}`,
+            es: `NASA FIRMS · ${thermalLatestAge}`,
+            fr: `NASA FIRMS · ${thermalLatestAge}`,
+            de: `NASA FIRMS · ${thermalLatestAge}`,
+            it: `NASA FIRMS · ${thermalLatestAge}`,
+          });
   const thermalWindowName = {
     latest: localize(
       language,
@@ -1124,6 +1336,7 @@ export default function Home() {
   const closePanels = () => {
     setPanelOpen(false);
     setIntelOpen(false);
+    setLocatorOpen(false);
   };
 
   useEffect(() => {
@@ -1151,12 +1364,12 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const stored = window.localStorage.getItem("firewatch-language");
-      const nextLanguage =
-        stored === "en" || stored === "el"
-          ? stored
-          : navigator.language.toLowerCase().startsWith("el")
-            ? "el"
-            : "en";
+      const browser = navigator.language.toLowerCase().slice(0, 2);
+      const nextLanguage = isLanguage(stored)
+        ? stored
+        : isLanguage(browser)
+          ? browser
+          : "en";
       setLanguage(nextLanguage);
       document.documentElement.lang = nextLanguage;
     }, 0);
@@ -1288,6 +1501,7 @@ export default function Home() {
       mapRef.current = map;
       L.control.zoom({ position: "bottomright" }).addTo(map);
       operationalGroup.current = L.layerGroup().addTo(map);
+      effisGroup.current = L.layerGroup().addTo(map);
       map.on("click", (event) => {
         const coordinate = `${event.latlng.lat.toFixed(5)}, ${event.latlng.lng.toFixed(5)}`;
         L.popup()
@@ -1368,6 +1582,21 @@ export default function Home() {
         }),
       }).addTo(group);
     });
+
+    if (userPoint) {
+      L.marker([userPoint.lat, userPoint.lon], {
+        interactive: false,
+        icon: L.divIcon({
+          className: "marker-shell",
+          html: markerHtml(
+            "user",
+            localize(language, "YOUR LOCATION", "Η ΘΕΣΗ ΣΑΣ"),
+          ),
+          iconSize: [150, 26],
+          iconAnchor: [8, 13],
+        }),
+      }).addTo(group);
+    }
 
     if (layers.official) {
       L.polygon(LANDFILL_FOOTPRINT, {
@@ -1641,11 +1870,14 @@ export default function Home() {
           dashArray: label === "10 m" ? "5 7" : "3 9",
         })
           .bindTooltip(
-            localize(
-              language,
-              `${label} Open-Meteo point model: from ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) toward ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · valid ${windObservedTime} Greece`,
-              `${label} σημειακό μοντέλο Open-Meteo: από ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) προς ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · ισχύει για ${windObservedTime} ώρα Ελλάδας`,
-            ),
+            pick(language, {
+              en: `${label} Open-Meteo point model: from ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) toward ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · valid ${windObservedTime} Greece`,
+              el: `${label} σημειακό μοντέλο Open-Meteo: από ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) προς ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · ισχύει για ${windObservedTime} ώρα Ελλάδας`,
+              es: `${label} modelo puntual Open-Meteo: desde ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) hacia ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · válido ${windObservedTime} hora de Grecia`,
+              fr: `${label} modèle ponctuel Open-Meteo : depuis ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) vers ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · valable ${windObservedTime} heure de Grèce`,
+              de: `${label} Open-Meteo-Punktmodell: aus ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) nach ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · gültig ${windObservedTime} griechische Zeit`,
+              it: `${label} modello puntuale Open-Meteo: da ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) verso ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · valido ${windObservedTime} ora della Grecia`,
+            }),
             { sticky: true },
           )
           .addTo(group);
@@ -1686,11 +1918,14 @@ export default function Home() {
               language,
               "gust",
               "ριπή",
-            )} ${metar.gustKt ?? "—"} kt<br><span>${localize(
-              language,
-              `Observed ${formatGreeceTime(metar.observedAt)} Greece at Mytilene airport; conditions at the fire can differ.`,
-              `Παρατήρηση ${formatGreeceTime(metar.observedAt)} ώρα Ελλάδας στο αεροδρόμιο Μυτιλήνης· οι συνθήκες στην πυρκαγιά μπορεί να διαφέρουν.`,
-            )}<br>${metar.raw}</span></div>`,
+            )} ${metar.gustKt ?? "—"} kt<br><span>${pick(language, {
+              en: `Observed ${formatGreeceTime(metar.observedAt)} Greece at Mytilene airport; conditions at the fire can differ.`,
+              el: `Παρατήρηση ${formatGreeceTime(metar.observedAt)} ώρα Ελλάδας στο αεροδρόμιο Μυτιλήνης· οι συνθήκες στην πυρκαγιά μπορεί να διαφέρουν.`,
+              es: `Observado a las ${formatGreeceTime(metar.observedAt)} hora de Grecia en el aeropuerto de Mitilene; las condiciones en el incendio pueden diferir.`,
+              fr: `Observé à ${formatGreeceTime(metar.observedAt)} heure de Grèce à l'aéroport de Mytilène ; les conditions sur l'incendie peuvent différer.`,
+              de: `Beobachtet ${formatGreeceTime(metar.observedAt)} griechische Zeit am Flughafen Mytilini; die Bedingungen am Brand können abweichen.`,
+              it: `Osservato alle ${formatGreeceTime(metar.observedAt)} ora della Grecia all'aeroporto di Mitilene; le condizioni sull'incendio possono differire.`,
+            })}<br>${metar.raw}</span></div>`,
           )
           .addTo(group);
       }
@@ -1744,11 +1979,14 @@ export default function Home() {
         dashArray: "7 8",
       })
         .bindTooltip(
-          localize(
-            language,
-            `Modeled smoke-transport proxy · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km at 10 m model wind · not measured PM2.5 or fire spread`,
-            `Ενδεικτικό μοντέλο μεταφοράς καπνού · ${smokeMinutes} λεπτά · ${smokeDistance.toFixed(1)} km με μοντέλο ανέμου στα 10 m · όχι μέτρηση PM2.5 ούτε πρόγνωση εξάπλωσης πυρκαγιάς`,
-          ),
+          pick(language, {
+            en: `Modeled smoke-transport proxy · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km at 10 m model wind · not measured PM2.5 or fire spread`,
+            el: `Ενδεικτικό μοντέλο μεταφοράς καπνού · ${smokeMinutes} λεπτά · ${smokeDistance.toFixed(1)} km με μοντέλο ανέμου στα 10 m · όχι μέτρηση PM2.5 ούτε πρόγνωση εξάπλωσης πυρκαγιάς`,
+            es: `Modelo indicativo de transporte de humo · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km con viento del modelo a 10 m · no es PM2.5 medido ni propagación del fuego`,
+            fr: `Modèle indicatif de transport de fumée · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km au vent modélisé à 10 m · ni PM2,5 mesurées ni propagation du feu`,
+            de: `Indikatives Rauchtransportmodell · ${smokeMinutes} Min. · ${smokeDistance.toFixed(1)} km bei 10-m-Modellwind · kein gemessenes PM2,5 und keine Feuerausbreitung`,
+            it: `Modello indicativo di trasporto del fumo · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km con vento del modello a 10 m · non è PM2,5 misurato né propagazione del fuoco`,
+          }),
           { sticky: true },
         )
         .addTo(group);
@@ -1780,11 +2018,14 @@ export default function Home() {
         dashArray: "5 7",
       })
         .bindTooltip(
-          localize(
-            language,
-            `WHAT-IF ONLY · +${hour}h · ${beaufort} Bft · not a forecast`,
-            `ΜΟΝΟ ΥΠΟΘΕΤΙΚΟ ΣΕΝΑΡΙΟ · +${hour}ω · ${beaufort} Bft · όχι πρόγνωση`,
-          ),
+          pick(language, {
+            en: `WHAT-IF ONLY · +${hour}h · ${beaufort} Bft · not a forecast`,
+            el: `ΜΟΝΟ ΥΠΟΘΕΤΙΚΟ ΣΕΝΑΡΙΟ · +${hour}ω · ${beaufort} Bft · όχι πρόγνωση`,
+            es: `SOLO HIPOTÉTICO · +${hour}h · ${beaufort} Bft · no es un pronóstico`,
+            fr: `HYPOTHÈSE UNIQUEMENT · +${hour}h · ${beaufort} Bft · pas une prévision`,
+            de: `NUR HYPOTHETISCH · +${hour}h · ${beaufort} Bft · keine Vorhersage`,
+            it: `SOLO IPOTETICO · +${hour}h · ${beaufort} Bft · non è una previsione`,
+          }),
           { sticky: true },
         )
         .addTo(group);
@@ -1807,6 +2048,208 @@ export default function Home() {
     thermalDetections,
     ageEpoch,
     language,
+    userPoint,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/effis?region=${region}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ burntAreas: BurntArea[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setEffisData(payload.burntAreas ?? []);
+          setEffisError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEffisData(null);
+          setEffisError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const country = FIRE_REGIONS.find(
+      (candidate) => candidate.id === region,
+    )?.country;
+    if (!country) return;
+    fetch(`/api/alerts?country=${country}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ summary: AlertSummary }>;
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setAlertData(payload.summary ?? null);
+          setAlertError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAlertData(null);
+          setAlertError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (region !== "spain") {
+      return;
+    }
+    fetch("/api/spain-incidents")
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ incidents: SpainIncident[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setSpainIncidents(payload.incidents ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setSpainIncidents(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const country = FIRE_REGIONS.find(
+      (candidate) => candidate.id === region,
+    )?.country;
+    if (region === "lesvos" || !country || country === "gr") {
+      return;
+    }
+    fetch(`/api/regionnews?country=${country}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ items: NewsItem[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setRegionNews(payload.items ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setRegionNews(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/airquality?region=${region}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{
+          reading: NormalizedAirQuality | null;
+        }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setRegionAq(payload.reading ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegionAq(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    if (!ready || !leafletRef.current || !effisGroup.current) return;
+    const L = leafletRef.current;
+    const group = effisGroup.current;
+    group.clearLayers();
+    if (layers.inforcyl && region === "spain" && spainIncidents) {
+      const statusColor = (status: string | null) =>
+        status === "ACTIVO"
+          ? "#ff3b24"
+          : status === "CONTROLADO"
+            ? "#ff8a3c"
+            : "#7fa3ad";
+      spainIncidents.forEach((incident) => {
+        const label = [
+          `${incident.municipality ?? "—"}${incident.province ? ` (${incident.province})` : ""}`,
+          incident.status,
+          incident.level !== null ? `${localize(language, "level", "επίπεδο")} ${incident.level}` : null,
+          incident.aerialUnits ? `${incident.aerialUnits} ${localize(language, "aerial units", "εναέρια μέσα")}` : null,
+          incident.startDate,
+        ]
+          .filter((value): value is string => value !== null)
+          .join(" · ");
+        L.circleMarker([incident.lat, incident.lon], {
+          radius: incident.status === "ACTIVO" ? 7 : 5,
+          color: statusColor(incident.status),
+          fillColor: statusColor(incident.status),
+          fillOpacity: 0.55,
+          weight: 1.5,
+        })
+          .bindTooltip(
+            `<div class="popup-copy"><strong>${incident.source}</strong><br>${label}<br><span>${localize(
+              language,
+              "Official regional fire-service record",
+              "Επίσημη καταγραφή περιφερειακής πυροσβεστικής υπηρεσίας",
+            )}</span></div>`,
+            { sticky: true },
+          )
+          .addTo(group);
+      });
+    }
+    if (!layers.effis || !effisData) return;
+    effisData.forEach((area) => {
+      const place = [area.commune, area.province]
+        .filter((value): value is string => value !== null)
+        .join(", ");
+      const label = [
+        place || area.country || "—",
+        area.areaHa !== null ? `${area.areaHa} ha` : null,
+        area.fireDate,
+      ]
+        .filter((value): value is string => value !== null)
+        .join(" · ");
+      area.rings.forEach((ring) => {
+        L.polygon(ring, {
+          color: "#ff8a3c",
+          weight: 1.4,
+          fillColor: "#ff8a3c",
+          fillOpacity: 0.16,
+        })
+          .bindTooltip(
+            `<div class="popup-copy"><strong>${localize(
+              language,
+              "EFFIS burnt area",
+              "Καμένη έκταση EFFIS",
+            )}</strong><br>${label}<br><span>${localize(
+              language,
+              "approximate satellite mapping",
+              "κατά προσέγγιση δορυφορική αποτύπωση",
+            )}</span></div>`,
+            { sticky: true },
+          )
+          .addTo(group);
+      });
+    });
+  }, [
+    ready,
+    layers.effis,
+    layers.inforcyl,
+    effisData,
+    spainIncidents,
+    region,
+    language,
   ]);
 
   const toggleLayer = (key: LayerKey) => {
@@ -1820,6 +2263,90 @@ export default function Home() {
     mapRef.current?.flyTo(point, zoom, { duration: 0.65 });
   };
 
+  const activeRegionConfig = FIRE_REGIONS.find(
+    (candidate) => candidate.id === region,
+  );
+
+  const formatRegionTime = (value: string | null) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "—";
+    return new Intl.DateTimeFormat(LOCALES[language], {
+      timeZone: activeRegionConfig?.timeZone ?? "Europe/Athens",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(parsed);
+  };
+
+  const changeRegion = (next: FireRegionId) => {
+    setRegion(next);
+    const target = FIRE_REGIONS.find((candidate) => candidate.id === next);
+    if (target) focusPoint(target.center, target.zoom);
+  };
+
+  const chooseLocatorResult = (result: GeocodeResult) => {
+    setUserPoint({ lat: result.lat, lon: result.lon, label: result.label });
+    setLocatorResults([]);
+    setLocatorError(null);
+    focusPoint([result.lat, result.lon], 13);
+  };
+
+  const runLocatorSearch = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const query = locatorQuery.trim();
+    if (query.length < 2 || locatorBusy) return;
+    setLocatorBusy(true);
+    setLocatorError(null);
+    try {
+      const response = await fetch(
+        `/api/geocode?q=${encodeURIComponent(query)}&lang=${language}`,
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = (await response.json()) as { results: GeocodeResult[] };
+      if (payload.results.length === 0) {
+        setLocatorResults([]);
+        setLocatorError("empty");
+      } else {
+        setLocatorResults(payload.results);
+      }
+    } catch {
+      setLocatorError("search");
+    } finally {
+      setLocatorBusy(false);
+    }
+  };
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      setLocatorError("geolocation");
+      return;
+    }
+    setLocatorBusy(true);
+    setLocatorError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocatorBusy(false);
+        chooseLocatorResult({
+          label: localize(language, "YOUR LOCATION", "Η ΘΕΣΗ ΣΑΣ"),
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+        });
+      },
+      () => {
+        setLocatorBusy(false);
+        setLocatorError("geolocation");
+      },
+      { timeout: 10_000, maximumAge: 60_000 },
+    );
+  };
+
+  const clearLocator = () => {
+    setUserPoint(null);
+    setLocatorResults([]);
+    setLocatorError(null);
+  };
+
   const showOperationalView = () => {
     mapRef.current?.fitBounds(
       [MELINTA, MEGALOCHORI, MILIES, PLOMARI_BEACH, AGIOS_ISIDOROS],
@@ -1831,7 +2358,126 @@ export default function Home() {
     );
   };
 
-  const mobileSheetOpen = compact && (panelOpen || intelOpen);
+  const locatorBody = (
+    <>
+        <form className="locator-search" onSubmit={runLocatorSearch}>
+          <input
+            type="search"
+            value={locatorQuery}
+            onChange={(event) => setLocatorQuery(event.target.value)}
+            placeholder={localize(
+              language,
+              "Search address or place",
+              "Αναζήτηση διεύθυνσης ή τοποθεσίας",
+            )}
+            aria-label={localize(
+              language,
+              "Search address or place",
+              "Αναζήτηση διεύθυνσης ή τοποθεσίας",
+            )}
+          />
+          <button type="submit" disabled={locatorBusy}>
+            {localize(language, "SEARCH", "ΑΝΑΖΗΤΗΣΗ")}
+          </button>
+          <button type="button" onClick={useMyLocation} disabled={locatorBusy}>
+            {locatorBusy
+              ? localize(language, "Locating…", "Εντοπισμός…")
+              : localize(language, "MY LOCATION", "Η ΘΕΣΗ ΜΟΥ")}
+          </button>
+          {userPoint && (
+            <button type="button" onClick={clearLocator}>
+              {localize(language, "CLEAR", "ΚΑΘΑΡΙΣΜΟΣ")}
+            </button>
+          )}
+        </form>
+        {locatorError && (
+          <p className="locator-error" role="alert">
+            {locatorError === "empty"
+              ? localize(
+                  language,
+                  "No results — try a more specific place name.",
+                  "Κανένα αποτέλεσμα — δοκιμάστε πιο συγκεκριμένο όνομα τοποθεσίας.",
+                )
+              : locatorError === "geolocation"
+                ? localize(
+                    language,
+                    "Location unavailable — allow location access or search instead.",
+                    "Η τοποθεσία δεν είναι διαθέσιμη — επιτρέψτε την πρόσβαση τοποθεσίας ή χρησιμοποιήστε την αναζήτηση.",
+                  )
+                : localize(
+                    language,
+                    "Search failed — try again.",
+                    "Η αναζήτηση απέτυχε — δοκιμάστε ξανά.",
+                  )}
+          </p>
+        )}
+        {locatorResults.length > 0 && (
+          <ul className="locator-results">
+            {locatorResults.map((result) => (
+              <li key={`${result.lat},${result.lon}`}>
+                <button
+                  type="button"
+                  onClick={() => chooseLocatorResult(result)}
+                >
+                  {result.label}
+                </button>
+              </li>
+            ))}
+            <li className="locator-credit">
+              {localize(
+                language,
+                "Search data © OpenStreetMap",
+                "Δεδομένα αναζήτησης © OpenStreetMap",
+              )}
+            </li>
+          </ul>
+        )}
+        {userPoint && proximity && proximityLevelText && (
+          <div className={`locator-card locator-card--${proximity.level}`}>
+            <strong className="locator-level">
+              {proximityLevelText.label}
+            </strong>
+            <p className="locator-place">{userPoint.label}</p>
+            <p>
+              <strong>
+                {proximity.distanceToIncidentKm.toFixed(1)} km{" "}
+                {compass(proximity.bearingToIncidentDeg, language)}
+              </strong>{" "}
+              {localize(
+                language,
+                "to incident center",
+                "από το κέντρο του συμβάντος",
+              )}
+            </p>
+            <p>
+              {localize(
+                language,
+                "nearest satellite detection",
+                "πλησιέστερη δορυφορική ανίχνευση",
+              )}
+              :{" "}
+              {proximity.nearestDetectionKm !== null
+                ? `${proximity.nearestDetectionKm.toFixed(1)} km · ${Math.round(proximity.nearestDetectionAgeMinutes ?? 0)} min`
+                : localize(
+                    language,
+                    "no detections in the selected window",
+                    "καμία ανίχνευση στο επιλεγμένο παράθυρο",
+                  )}
+            </p>
+            <p className="locator-advice">{proximityLevelText.advice}</p>
+            <small>
+              {localize(
+                language,
+                "Indicative distance-based level · not an official warning. Follow 112 and authorities.",
+                "Ενδεικτικό επίπεδο βάσει απόστασης · όχι επίσημη προειδοποίηση. Ακολουθείτε το 112 και τις αρχές.",
+              )}
+            </small>
+          </div>
+        )}
+    </>
+  );
+
+  const mobileSheetOpen = compact && (panelOpen || intelOpen || locatorOpen);
 
   return (
     <main
@@ -1899,29 +2545,20 @@ export default function Home() {
           </span>
           <div className="clock-line">
             <strong aria-live="polite">{clock || "--:--:--"}</strong>
-            <div
-              className="language-switch"
-              role="group"
-              aria-label={localize(language, "Language", "Γλώσσα")}
-            >
-              <button
-                type="button"
-                className={language === "el" ? "is-active" : ""}
-                onClick={() => changeLanguage("el")}
-                aria-pressed={language === "el"}
-                lang="el"
+            <div className="language-switch">
+              <select
+                value={language}
+                onChange={(event) =>
+                  changeLanguage(event.target.value as Language)
+                }
+                aria-label={localize(language, "Language", "Γλώσσα")}
               >
-                ΕΛ
-              </button>
-              <button
-                type="button"
-                className={language === "en" ? "is-active" : ""}
-                onClick={() => changeLanguage("en")}
-                aria-pressed={language === "en"}
-                lang="en"
-              >
-                EN
-              </button>
+                {LANGUAGES.map((code) => (
+                  <option key={code} value={code} lang={code}>
+                    {LANGUAGE_NAMES[code]}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <small>
@@ -1934,6 +2571,7 @@ export default function Home() {
         </div>
       </header>
 
+      <div className="top-stack">
       <section
         className="evacuation-banner"
         aria-label={localize(
@@ -1973,11 +2611,14 @@ export default function Home() {
             112 {localize(language, "source", "πηγή")} ↗
           </a>
           <span className="evacuation-caveat">
-            {localize(
-              language,
-              `Original alert issued 16:58 · last manual record review ${officialVerifiedTime === "—" ? "pending" : officialVerifiedTime}. This banner reproduces that instruction; it is not proof that it remains current. Follow any newer 112 message and authorities on the ground.`,
-              `Η αρχική ειδοποίηση εκδόθηκε στις 16:58 · τελευταίος χειροκίνητος έλεγχος αρχείου ${officialVerifiedTime === "—" ? "εκκρεμεί" : `στις ${officialVerifiedTime}`}. Το πλαίσιο αναπαράγει εκείνη την οδηγία· δεν αποδεικνύει ότι παραμένει σε ισχύ. Ακολουθείτε κάθε νεότερο μήνυμα 112 και τις επί τόπου οδηγίες των Αρχών.`,
-            )}{" "}
+            {pick(language, {
+              en: `Original alert issued 16:58 · last manual record review ${officialVerifiedTime === "—" ? "pending" : officialVerifiedTime}. This banner reproduces that instruction; it is not proof that it remains current. Follow any newer 112 message and authorities on the ground.`,
+              el: `Η αρχική ειδοποίηση εκδόθηκε στις 16:58 · τελευταίος χειροκίνητος έλεγχος αρχείου ${officialVerifiedTime === "—" ? "εκκρεμεί" : `στις ${officialVerifiedTime}`}. Το πλαίσιο αναπαράγει εκείνη την οδηγία· δεν αποδεικνύει ότι παραμένει σε ισχύ. Ακολουθείτε κάθε νεότερο μήνυμα 112 και τις επί τόπου οδηγίες των Αρχών.`,
+              es: `Alerta original emitida a las 16:58 · última revisión manual del registro ${officialVerifiedTime === "—" ? "pendiente" : officialVerifiedTime}. Este aviso reproduce aquella instrucción; no demuestra que siga vigente. Siga cualquier mensaje 112 más reciente y a las autoridades sobre el terreno.`,
+              fr: `Alerte initiale émise à 16h58 · dernière revue manuelle du registre ${officialVerifiedTime === "—" ? "en attente" : officialVerifiedTime}. Ce bandeau reproduit cette consigne ; il ne prouve pas qu'elle reste en vigueur. Suivez tout message 112 plus récent et les autorités sur le terrain.`,
+              de: `Ursprüngliche Warnung ausgegeben 16:58 · letzte manuelle Prüfung des Eintrags ${officialVerifiedTime === "—" ? "ausstehend" : officialVerifiedTime}. Dieses Banner gibt jene Anweisung wieder; es belegt nicht, dass sie weiterhin gilt. Befolgen Sie jede neuere 112-Meldung und die Behörden vor Ort.`,
+              it: `Allerta originale emessa alle 16:58 · ultima revisione manuale del registro ${officialVerifiedTime === "—" ? "in attesa" : officialVerifiedTime}. Questo avviso riproduce quell'istruzione; non dimostra che sia ancora in vigore. Seguire ogni messaggio 112 più recente e le autorità sul territorio.`,
+            })}{" "}
             <a
               className="official-alert-link"
               href="https://x.com/112Greece/status/2082468150189167080"
@@ -1998,6 +2639,87 @@ export default function Home() {
           <b>112</b>
         </a>
       </section>
+
+      <aside
+        className="locator-hud"
+        aria-label={localize(
+          language,
+          "PROXIMITY CHECK",
+          "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ",
+        )}
+      >
+        {locatorBody}
+      </aside>
+      <div className="region-block">
+        <nav
+          className="region-controls"
+          aria-label={localize(language, "Fire region", "Περιοχή πυρκαγιών")}
+        >
+          {FIRE_REGIONS.map((candidate) => (
+            <button
+              type="button"
+              key={candidate.id}
+              className={region === candidate.id ? "is-active" : ""}
+              onClick={() => changeRegion(candidate.id)}
+              aria-pressed={region === candidate.id}
+            >
+              {
+                {
+                  lesvos: localize(language, "LESVOS", "ΛΕΣΒΟΣ"),
+                  france: localize(language, "FRANCE", "ΓΑΛΛΙΑ"),
+                  spain: localize(language, "SPAIN", "ΙΣΠΑΝΙΑ"),
+                }[candidate.id]
+              }
+            </button>
+          ))}
+        </nav>
+        <p className="region-alerts" role="status">
+          {alertError
+            ? localize(
+                language,
+                "Meteoalarm unavailable",
+                "Το Meteoalarm δεν είναι διαθέσιμο",
+              )
+            : alertData === null
+              ? localize(language, "CHECKING", "ΕΛΕΓΧΟΣ")
+              : (() => {
+                  const parts: string[] = [];
+                  if (alertData.forestFire.count > 0) {
+                    parts.push(
+                      `${alertData.forestFire.count} × ${localize(
+                        language,
+                        "FOREST-FIRE WARNINGS",
+                        "ΠΡΟΕΙΔΟΠΟΙΗΣΕΙΣ ΔΑΣΙΚΩΝ ΠΥΡΚΑΓΙΩΝ",
+                      )}`,
+                    );
+                  }
+                  if (alertData.heat.count > 0) {
+                    parts.push(
+                      `${alertData.heat.count} × ${localize(
+                        language,
+                        "HEAT WARNINGS",
+                        "ΠΡΟΕΙΔΟΠΟΙΗΣΕΙΣ ΚΑΥΣΩΝΑ",
+                      )}`,
+                    );
+                  }
+                  return parts.length > 0
+                    ? `METEOALARM · ${parts.join(" · ")}`
+                    : `METEOALARM · ${localize(
+                        language,
+                        "No active fire-weather warnings",
+                        "Καμία ενεργή προειδοποίηση πυρομετεωρολογίας",
+                      )}`;
+                })()}
+          {regionAq?.pm25 !== null && regionAq?.pm25 !== undefined
+            ? ` · PM2.5 ${regionAq.pm25} µg/m³${
+                regionAq.europeanAqi !== null
+                  ? ` (${eaqiBand(language, regionAq.europeanAqi)})`
+                  : ""
+              }`
+            : ""}
+        </p>
+      </div>
+      </div>
 
       <nav
         className="view-controls"
@@ -2021,6 +2743,7 @@ export default function Home() {
           </button>
         ))}
       </nav>
+
 
       {mobileSheetOpen && (
         <button
@@ -2049,6 +2772,7 @@ export default function Home() {
           : localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")}
       </button>
 
+
       {panelOpen && (
         <aside
           className="layer-hud"
@@ -2063,8 +2787,8 @@ export default function Home() {
               <small>
                 {localize(
                   language,
-                  "8 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                  "8 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                  "10 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                  "10 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
                 )}
               </small>
             </div>
@@ -2134,6 +2858,39 @@ export default function Home() {
                 count: "IMG",
               },
               {
+                key: "effis" as LayerKey,
+                icon: "▰",
+                label: localize(
+                  language,
+                  "EFFIS burnt areas (7 days)",
+                  "Καμένες εκτάσεις EFFIS (7 ημέρες)",
+                ),
+                detail: localize(
+                  language,
+                  "Copernicus EU-wide perimeters · auto",
+                  "Περίμετροι Copernicus για όλη την ΕΕ · αυτόματα",
+                ),
+                count: effisError ? "—" : String(effisData?.length ?? "…"),
+              },
+              {
+                key: "inforcyl" as LayerKey,
+                icon: "◉",
+                label: localize(
+                  language,
+                  "Spain official incidents (INFORCYL + INFOCA)",
+                  "Επίσημα συμβάντα Ισπανίας (INFORCYL + INFOCA)",
+                ),
+                detail: localize(
+                  language,
+                  "Castilla y León + Andalucía · 14 days",
+                  "Castilla y León + Ανδαλουσία · 14 ημέρες",
+                ),
+                count:
+                  region === "spain"
+                    ? String(spainIncidents?.length ?? "…")
+                    : "ES",
+              },
+              {
                 key: "local" as LayerKey,
                 icon: "△",
                 label: localize(
@@ -2156,11 +2913,14 @@ export default function Home() {
                   "Wind profile",
                   "Προφίλ ανέμου",
                 ),
-                detail: localize(
-                  language,
-                  `Model valid ${windObservedTime} · polls 5 min`,
-                  `Μοντέλο για ${windObservedTime} · ενημέρωση κάθε 5 λεπτά`,
-                ),
+                detail: pick(language, {
+                  en: `Model valid ${windObservedTime} · polls 5 min`,
+                  el: `Μοντέλο για ${windObservedTime} · ενημέρωση κάθε 5 λεπτά`,
+                  es: `Modelo válido ${windObservedTime} · sondeo cada 5 min`,
+                  fr: `Modèle valable ${windObservedTime} · sondage toutes les 5 min`,
+                  de: `Modell gültig ${windObservedTime} · Abfrage alle 5 Min.`,
+                  it: `Modello valido ${windObservedTime} · interrogazione ogni 5 min`,
+                }),
                 count: "4",
               },
               {
@@ -2437,11 +3197,14 @@ export default function Home() {
                       "SNAPSHOT / RETRYING",
                       "ΣΤΙΓΜΙΟΤΥΠΟ / ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ",
                     )
-                  : localize(
-                      language,
-                      `VALID ${windObservedTime}`,
-                      `ΕΓΚΥΡΟ ΓΙΑ ${windObservedTime}`,
-                    )}
+                  : pick(language, {
+                      en: `VALID ${windObservedTime}`,
+                      el: `ΕΓΚΥΡΟ ΓΙΑ ${windObservedTime}`,
+                      es: `VÁLIDO ${windObservedTime}`,
+                      fr: `VALABLE ${windObservedTime}`,
+                      de: `GÜLTIG ${windObservedTime}`,
+                      it: `VALIDO ${windObservedTime}`,
+                    })}
               </strong>
             </div>
             {[
@@ -2472,6 +3235,31 @@ export default function Home() {
               <b>{fireWind.rhPct}%</b>
               <strong>{Math.round(fireWind.pblM)} m</strong>
             </div>
+            {(windData?.airQuality ?? [])
+              .filter((entry) => entry.pm25 !== null)
+              .map((entry) => (
+                <div
+                  className={`wind-row${
+                    entry.europeanAqi !== null && entry.europeanAqi >= 60
+                      ? " wind-row--hazard"
+                      : ""
+                  }`}
+                  key={`aq-${entry.id}`}
+                >
+                  <span>
+                    PM2.5 ·{" "}
+                    {entry.id === "fire"
+                      ? localize(language, "FIRE AREA", "ΕΣΤΙΑ")
+                      : localize(language, "PERAMA", "ΠΕΡΑΜΑ")}
+                  </span>
+                  <b>
+                    {entry.europeanAqi !== null
+                      ? eaqiBand(language, entry.europeanAqi)
+                      : "—"}
+                  </b>
+                  <strong>{entry.pm25} µg/m³</strong>
+                </div>
+              ))}
             {windData?.metar && (
               <div className="metar-line">
                 <span>
@@ -2509,15 +3297,26 @@ export default function Home() {
               />
             </label>
             <p>
-              {localize(
-                language,
-                `From ${compass(fireWind.wind10.directionDeg, language)} toward ${compass(downwindHeading, language)}. Point-model wind is not fire spread; terrain and gusts can change local flow. Retrieved ${
+              {pick(language, {
+                en: `From ${compass(fireWind.wind10.directionDeg, language)} toward ${compass(downwindHeading, language)}. Point-model wind is not fire spread; terrain and gusts can change local flow. Retrieved ${
                   retrievedTime === "—" ? "pending" : `${retrievedTime} Greece`
                 }.`,
-                `Από ${compass(fireWind.wind10.directionDeg, language)} προς ${compass(downwindHeading, language)}. Το μοντέλο ανέμου σε σημείο δεν προβλέπει την εξάπλωση της φωτιάς· το ανάγλυφο και οι ριπές μπορούν να μεταβάλουν την τοπική ροή. Ανάκτηση ${
+                el: `Από ${compass(fireWind.wind10.directionDeg, language)} προς ${compass(downwindHeading, language)}. Το μοντέλο ανέμου σε σημείο δεν προβλέπει την εξάπλωση της φωτιάς· το ανάγλυφο και οι ριπές μπορούν να μεταβάλουν την τοπική ροή. Ανάκτηση ${
                   retrievedTime === "—" ? "εκκρεμεί" : `${retrievedTime} ώρα Ελλάδας`
                 }.`,
-              )}
+                es: `Desde ${compass(fireWind.wind10.directionDeg, language)} hacia ${compass(downwindHeading, language)}. El viento del modelo puntual no es propagación del fuego; el terreno y las rachas pueden cambiar el flujo local. Obtenido ${
+                  retrievedTime === "—" ? "pendiente" : `${retrievedTime} hora de Grecia`
+                }.`,
+                fr: `Depuis ${compass(fireWind.wind10.directionDeg, language)} vers ${compass(downwindHeading, language)}. Le vent du modèle ponctuel n'est pas la propagation du feu ; le terrain et les rafales peuvent modifier l'écoulement local. Récupéré ${
+                  retrievedTime === "—" ? "en attente" : `${retrievedTime} heure de Grèce`
+                }.`,
+                de: `Aus ${compass(fireWind.wind10.directionDeg, language)} nach ${compass(downwindHeading, language)}. Punktmodell-Wind ist keine Feuerausbreitung; Gelände und Böen können die lokale Strömung ändern. Abgerufen ${
+                  retrievedTime === "—" ? "ausstehend" : `${retrievedTime} griechische Zeit`
+                }.`,
+                it: `Da ${compass(fireWind.wind10.directionDeg, language)} verso ${compass(downwindHeading, language)}. Il vento del modello puntuale non è la propagazione del fuoco; terreno e raffiche possono modificare il flusso locale. Recuperato ${
+                  retrievedTime === "—" ? "in attesa" : `${retrievedTime} ora della Grecia`
+                }.`,
+              })}
             </p>
           </div>
         </aside>
@@ -2551,12 +3350,26 @@ export default function Home() {
       >
         <button
           type="button"
-          className={!panelOpen && !intelOpen ? "is-active" : ""}
+          className={!panelOpen && !intelOpen && !locatorOpen ? "is-active" : ""}
           onClick={closePanels}
-          aria-pressed={!panelOpen && !intelOpen}
+          aria-pressed={!panelOpen && !intelOpen && !locatorOpen}
         >
           <span aria-hidden="true">◎</span>
           <b>{localize(language, "MAP", "ΧΑΡΤΗΣ")}</b>
+        </button>
+        <button
+          type="button"
+          className={locatorOpen ? "is-active" : ""}
+          onClick={() => {
+            setLocatorOpen((value) => !value);
+            setPanelOpen(false);
+            setIntelOpen(false);
+          }}
+          aria-expanded={locatorOpen}
+          aria-controls="locator-sheet"
+        >
+          <span aria-hidden="true">⚲</span>
+          <b>{localize(language, "SEARCH", "ΑΝΑΖΗΤΗΣΗ")}</b>
         </button>
         <button
           type="button"
@@ -2564,6 +3377,7 @@ export default function Home() {
           onClick={() => {
             setPanelOpen((value) => !value);
             setIntelOpen(false);
+            setLocatorOpen(false);
           }}
           aria-expanded={panelOpen}
           aria-controls="layers-sheet"
@@ -2577,6 +3391,7 @@ export default function Home() {
           onClick={() => {
             setIntelOpen((value) => !value);
             setPanelOpen(false);
+            setLocatorOpen(false);
           }}
           aria-expanded={intelOpen}
           aria-controls="intel-sheet"
@@ -2585,6 +3400,34 @@ export default function Home() {
           <b>{localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")}</b>
         </button>
       </nav>
+
+      {compact && locatorOpen && (
+        <aside
+          className="locator-sheet"
+          id="locator-sheet"
+          aria-label={localize(
+            language,
+            "PROXIMITY CHECK",
+            "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ",
+          )}
+        >
+          <div className="hud-heading">
+            <div>
+              <span>
+                {localize(language, "PROXIMITY CHECK", "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ")}
+              </span>
+              <small>
+                {localize(
+                  language,
+                  "Search data © OpenStreetMap",
+                  "Δεδομένα αναζήτησης © OpenStreetMap",
+                )}
+              </small>
+            </div>
+          </div>
+          <div className="locator-sheet__body">{locatorBody}</div>
+        </aside>
+      )}
 
       {intelOpen && (
         <aside
@@ -2602,7 +3445,13 @@ export default function Home() {
                 {localize(language, "INCIDENT WIRE", "ΡΟΗ ΣΥΜΒΑΝΤΟΣ")}
               </span>
               <small>
-                {localize(language, "GREECE TIME", "ΩΡΑ ΕΛΛΑΔΑΣ")}
+                {region === "lesvos"
+                  ? localize(language, "GREECE TIME", "ΩΡΑ ΕΛΛΑΔΑΣ")
+                  : localize(
+                      language,
+                      "REGION FIRE NEWS · CURATED RSS",
+                      "ΕΙΔΗΣΕΙΣ ΠΥΡΚΑΓΙΩΝ ΠΕΡΙΟΧΗΣ · ΕΠΙΛΕΓΜΕΝΑ RSS",
+                    )}
                 {" // "}
                 {updatesError
                   ? localize(
@@ -2610,11 +3459,14 @@ export default function Home() {
                       "SNAPSHOT · RETRYING",
                       "ΣΤΙΓΜΙΟΤΥΠΟ · ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ",
                     )
-                  : localize(
-                      language,
-                      `RSS POLL ${updatesRetrievedTime}`,
-                      `ΕΛΕΓΧΟΣ RSS ${updatesRetrievedTime}`,
-                    )}
+                  : pick(language, {
+                      en: `RSS POLL ${updatesRetrievedTime}`,
+                      el: `ΕΛΕΓΧΟΣ RSS ${updatesRetrievedTime}`,
+                      es: `SONDEO RSS ${updatesRetrievedTime}`,
+                      fr: `SONDAGE RSS ${updatesRetrievedTime}`,
+                      de: `RSS-ABFRAGE ${updatesRetrievedTime}`,
+                      it: `INTERROGAZIONE RSS ${updatesRetrievedTime}`,
+                    })}
               </small>
             </div>
             <div className="hud-heading__actions">
@@ -2636,6 +3488,8 @@ export default function Home() {
             </div>
           </div>
 
+          {region === "lesvos" ? (
+            <>
           <div className="intel-list">
             {displayIntel.map((item) => (
               <button
@@ -2708,7 +3562,48 @@ export default function Home() {
               </a>
             )}
           </div>
+            </>
+          ) : (
+            <div className="intel-list intel-list--news">
+              {regionNews === null && (
+                <p className="intel-empty">
+                  {localize(language, "Checking live sources", "Έλεγχος ζωντανών πηγών")}
+                </p>
+              )}
+              {regionNews?.length === 0 && (
+                <p className="intel-empty">
+                  {localize(
+                    language,
+                    "No recent fire headlines from the region packs.",
+                    "Δεν υπάρχουν πρόσφατοι τίτλοι πυρκαγιών από τα πακέτα της περιοχής.",
+                  )}
+                </p>
+              )}
+              {(regionNews ?? []).map((item) => (
+                <a
+                  key={item.url}
+                  className="intel-item"
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <time>
+                    <span>{formatRegionTime(item.publishedAt)}</span>
+                  </time>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>
+                      {item.sourceLabel} ·{" "}
+                      {localize(language, "LOCAL REPORT", "ΤΟΠΙΚΗ ΑΝΑΦΟΡΑ")}
+                    </small>
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
 
+          {region === "lesvos" ? (
+            <>
           <div className="source-health">
             <span>
               {localize(language, "SOURCE HEALTH", "ΚΑΤΑΣΤΑΣΗ ΠΗΓΩΝ")}
@@ -2749,6 +3644,53 @@ export default function Home() {
               </a>
             ))}
           </div>
+            </>
+          ) : (
+            <div className="source-links">
+              {REGION_LINKS[region].map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span>{link.label}</span>
+                  <small>
+                    {
+                      {
+                        "Official X account": localize(
+                          language,
+                          "Official X account",
+                          "Επίσημος λογαριασμός X",
+                        ),
+                        "Official fire-weather outlook": localize(
+                          language,
+                          "Official fire-weather outlook",
+                          "Επίσημη πρόγνωση πυρομετεωρολογίας",
+                        ),
+                        "Curated national coverage": localize(
+                          language,
+                          "Curated national coverage",
+                          "Επιμελημένη εθνική κάλυψη",
+                        ),
+                        "Official government news": localize(
+                          language,
+                          "Official government news",
+                          "Επίσημες κυβερνητικές ειδήσεις",
+                        ),
+                        "Official incident data": localize(
+                          language,
+                          "Official incident data",
+                          "Επίσημα δεδομένα συμβάντων",
+                        ),
+                      }[link.kind]
+                    }{" "}
+                    ↗
+                  </small>
+                </a>
+              ))}
+            </div>
+          )}
         </aside>
       )}
 
@@ -2875,11 +3817,14 @@ export default function Home() {
                     "POINT FEED UNAVAILABLE",
                     "Η ΣΗΜΕΙΑΚΗ ΡΟΗ ΔΕΝ ΕΙΝΑΙ ΔΙΑΘΕΣΙΜΗ",
                   )
-                : localize(
-                    language,
-                    `${thermalDetections.length} RECORDS · ${visibleThermalPasses} PASSES`,
-                    `${thermalDetections.length} ΕΓΓΡΑΦΕΣ · ${visibleThermalPasses} ΔΙΕΛΕΥΣΕΙΣ`,
-                  )}
+                : pick(language, {
+                    en: `${thermalDetections.length} RECORDS · ${visibleThermalPasses} PASSES`,
+                    el: `${thermalDetections.length} ΕΓΓΡΑΦΕΣ · ${visibleThermalPasses} ΔΙΕΛΕΥΣΕΙΣ`,
+                    es: `${thermalDetections.length} REGISTROS · ${visibleThermalPasses} PASADAS`,
+                    fr: `${thermalDetections.length} ENREGISTREMENTS · ${visibleThermalPasses} PASSAGES`,
+                    de: `${thermalDetections.length} DATENSÄTZE · ${visibleThermalPasses} ÜBERFLÜGE`,
+                    it: `${thermalDetections.length} RECORD · ${visibleThermalPasses} PASSAGGI`,
+                  })}
           </strong>
           <small>
             {thermalUnavailable
@@ -2894,11 +3839,14 @@ export default function Home() {
                     "Zero detections is not an all-clear",
                     "Μηδενικές ανιχνεύσεις δεν σημαίνουν λήξη συναγερμού",
                   )
-                : localize(
-                    language,
-                    `${thermalWindowName} · ${thermalLatestAge} · orbital snapshots`,
-                    `${thermalWindowName} · ${thermalLatestAge} · δορυφορικά στιγμιότυπα`,
-                  )}
+                : pick(language, {
+                    en: `${thermalWindowName} · ${thermalLatestAge} · orbital snapshots`,
+                    el: `${thermalWindowName} · ${thermalLatestAge} · δορυφορικά στιγμιότυπα`,
+                    es: `${thermalWindowName} · ${thermalLatestAge} · capturas orbitales`,
+                    fr: `${thermalWindowName} · ${thermalLatestAge} · instantanés orbitaux`,
+                    de: `${thermalWindowName} · ${thermalLatestAge} · Orbital-Snapshots`,
+                    it: `${thermalWindowName} · ${thermalLatestAge} · istantanee orbitali`,
+                  })}
           </small>
         </div>
         <div>
@@ -2940,15 +3888,26 @@ export default function Home() {
                 )}
           </strong>
           <small>
-            {localize(
-              language,
-              sourceHealth
+            {pick(language, {
+              en: sourceHealth
                 ? `${sourceHealth.online}/${sourceHealth.total} sources reachable · Greece timestamps`
                 : "Checking official and local sources · Greece timestamps",
-              sourceHealth
+              el: sourceHealth
                 ? `${sourceHealth.online}/${sourceHealth.total} πηγές προσβάσιμες · ώρες Ελλάδας`
                 : "Έλεγχος επίσημων και τοπικών πηγών · ώρες Ελλάδας",
-            )}
+              es: sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} fuentes accesibles · horas de Grecia`
+                : "Comprobando fuentes oficiales y locales · horas de Grecia",
+              fr: sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} sources joignables · heures de Grèce`
+                : "Vérification des sources officielles et locales · heures de Grèce",
+              de: sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} Quellen erreichbar · griechische Zeitstempel`
+                : "Offizielle und lokale Quellen werden geprüft · griechische Zeitstempel",
+              it: sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} fonti raggiungibili · orari della Grecia`
+                : "Verifica delle fonti ufficiali e locali · orari della Grecia",
+            })}
           </small>
         </div>
       </section>

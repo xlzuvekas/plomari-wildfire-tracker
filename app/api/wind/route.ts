@@ -1,3 +1,10 @@
+import {
+  AIR_QUALITY_DOCS,
+  AIR_QUALITY_ENDPOINT,
+  normalizeAirQuality,
+  type NormalizedAirQuality,
+} from "./airquality";
+
 const OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_DOCS = "https://open-meteo.com/en/docs";
 const AVIATION_WEATHER_ENDPOINT =
@@ -304,15 +311,29 @@ function safeError(source: string, error: unknown): string {
   return `${source}: upstream data is temporarily unavailable`;
 }
 
+async function fetchAirQuality(): Promise<NormalizedAirQuality[]> {
+  const params = new URLSearchParams({
+    latitude: LOCATIONS.map((location) => location.lat).join(","),
+    longitude: LOCATIONS.map((location) => location.lon).join(","),
+    current: "pm2_5,pm10,european_aqi,aerosol_optical_depth",
+    timezone: "Europe/Athens",
+  });
+  return normalizeAirQuality(
+    await fetchJson(`${AIR_QUALITY_ENDPOINT}?${params.toString()}`),
+    LOCATIONS,
+  );
+}
+
 export async function GET() {
   const errors: string[] = [];
-  const [locationResults, metarResult] = await Promise.all([
+  const [locationResults, metarResult, airQualityResult] = await Promise.all([
     Promise.allSettled(LOCATIONS.map((location) => fetchLocation(location))),
     Promise.allSettled([
       fetchJson(
         `${AVIATION_WEATHER_ENDPOINT}?ids=LGMT&format=json&hours=2`,
       ).then(normalizeMetar),
     ]),
+    Promise.allSettled([fetchAirQuality()]),
   ]);
 
   const locations: NormalizedLocation[] = [];
@@ -320,7 +341,12 @@ export async function GET() {
     if (result.status === "fulfilled") {
       locations.push(result.value);
     } else {
-      errors.push(safeError(`Open-Meteo ${LOCATIONS[index].label}`, result.reason));
+      errors.push(
+        safeError(
+          `Open-Meteo ${LOCATIONS[index]?.label ?? "location"}`,
+          result.reason,
+        ),
+      );
     }
   });
 
@@ -335,6 +361,17 @@ export async function GET() {
     errors.push(safeError("AviationWeather LGMT", result.reason));
   }
 
+  let airQuality: NormalizedAirQuality[] = [];
+  const airResult = airQualityResult[0];
+  if (airResult?.status === "fulfilled") {
+    airQuality = airResult.value;
+    if (airQuality.length === 0) {
+      errors.push("Open-Meteo air quality: no observation was returned");
+    }
+  } else {
+    errors.push(safeError("Open-Meteo air quality", airResult?.reason));
+  }
+
   return Response.json(
     {
       generatedAt: new Date().toISOString(),
@@ -347,9 +384,14 @@ export async function GET() {
           data: AVIATION_WEATHER_ENDPOINT,
           documentation: AVIATION_WEATHER_DOCS,
         },
+        openMeteoAirQuality: {
+          data: AIR_QUALITY_ENDPOINT,
+          documentation: AIR_QUALITY_DOCS,
+        },
       },
       locations,
       metar,
+      airQuality,
       errors,
     },
     {
