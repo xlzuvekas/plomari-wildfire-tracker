@@ -119,8 +119,8 @@ export const ES: TranslationMap = {
   LAYERS: "CAPAS",
   "Data layers": "Capas de datos",
   "DATA LAYERS": "CAPAS DE DATOS",
-  "8 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "8 CAPAS // FUENTE + ACTUALIDAD VISIBLES",
+  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "9 CAPAS // FUENTE + ACTUALIDAD VISIBLES",
   FRAME: "ENCUADRE",
   "Close layers": "Cerrar capas",
   "112 evacuation": "Evacuación 112",
@@ -367,6 +367,22 @@ export const ES: TranslationMap = {
   MONITOR: "VIGILANCIA",
   "Outside the immediate area; keep monitoring official updates.":
     "Fuera de la zona inmediata; siga las actualizaciones oficiales.",
+
+  // EU regions / EFFIS / Meteoalarm
+  LESVOS: "LESBOS",
+  FRANCE: "FRANCIA",
+  SPAIN: "ESPAÑA",
+  "Fire region": "Región de incendios",
+  "EFFIS burnt areas (7 days)": "Áreas quemadas EFFIS (7 días)",
+  "Copernicus EU-wide perimeters · auto":
+    "Perímetros Copernicus de toda la UE · automático",
+  "EFFIS burnt area": "Área quemada EFFIS",
+  "approximate satellite mapping": "cartografía satelital aproximada",
+  "FOREST-FIRE WARNINGS": "AVISOS DE INCENDIO FORESTAL",
+  "HEAT WARNINGS": "AVISOS DE CALOR",
+  "No active fire-weather warnings":
+    "Sin avisos activos de meteorología de incendios",
+  "Meteoalarm unavailable": "Meteoalarm no disponible",
 };
 
 export const FR: TranslationMap = {
@@ -483,8 +499,8 @@ export const FR: TranslationMap = {
   LAYERS: "COUCHES",
   "Data layers": "Couches de données",
   "DATA LAYERS": "COUCHES DE DONNÉES",
-  "8 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "8 COUCHES // SOURCE + FRAÎCHEUR VISIBLES",
+  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "9 COUCHES // SOURCE + FRAÎCHEUR VISIBLES",
   FRAME: "CADRAGE",
   "Close layers": "Fermer les couches",
   "112 evacuation": "Évacuation 112",
@@ -731,6 +747,22 @@ export const FR: TranslationMap = {
   MONITOR: "SURVEILLANCE",
   "Outside the immediate area; keep monitoring official updates.":
     "Hors de la zone immédiate ; continuez de suivre les mises à jour officielles.",
+
+  // EU regions / EFFIS / Meteoalarm
+  LESVOS: "LESBOS",
+  FRANCE: "FRANCE",
+  SPAIN: "ESPAGNE",
+  "Fire region": "Région d'incendies",
+  "EFFIS burnt areas (7 days)": "Zones brûlées EFFIS (7 jours)",
+  "Copernicus EU-wide perimeters · auto":
+    "Périmètres Copernicus à l'échelle de l'UE · auto",
+  "EFFIS burnt area": "Zone brûlée EFFIS",
+  "approximate satellite mapping": "cartographie satellite approximative",
+  "FOREST-FIRE WARNINGS": "ALERTES FEUX DE FORÊT",
+  "HEAT WARNINGS": "ALERTES CANICULE",
+  "No active fire-weather warnings":
+    "Aucune alerte météo-incendie active",
+  "Meteoalarm unavailable": "Meteoalarm indisponible",
 };
 
 export const DE: TranslationMap = {
@@ -847,8 +879,8 @@ export const DE: TranslationMap = {
   LAYERS: "EBENEN",
   "Data layers": "Datenebenen",
   "DATA LAYERS": "DATENEBENEN",
-  "8 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "8 EBENEN // QUELLE + AKTUALITÄT SICHTBAR",
+  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "9 EBENEN // QUELLE + AKTUALITÄT SICHTBAR",
   FRAME: "AUSRICHTEN",
   "Close layers": "Ebenen schließen",
   "112 evacuation": "112-Evakuierung",
@@ -1095,6 +1127,22 @@ export const DE: TranslationMap = {
   MONITOR: "BEOBACHTEN",
   "Outside the immediate area; keep monitoring official updates.":
     "Außerhalb des unmittelbaren Gebiets; verfolgen Sie weiterhin offizielle Updates.",
+
+  // EU regions / EFFIS / Meteoalarm
+  LESVOS: "LESBOS",
+  FRANCE: "FRANKREICH",
+  SPAIN: "SPANIEN",
+  "Fire region": "Brandregion",
+  "EFFIS burnt areas (7 days)": "EFFIS-Brandflächen (7 Tage)",
+  "Copernicus EU-wide perimeters · auto":
+    "EU-weite Copernicus-Perimeter · automatisch",
+  "EFFIS burnt area": "EFFIS-Brandfläche",
+  "approximate satellite mapping": "ungefähre Satellitenkartierung",
+  "FOREST-FIRE WARNINGS": "WALDBRANDWARNUNGEN",
+  "HEAT WARNINGS": "HITZEWARNUNGEN",
+  "No active fire-weather warnings":
+    "Keine aktiven Feuerwetter-Warnungen",
+  "Meteoalarm unavailable": "Meteoalarm nicht verfügbar",
 };
 
 export const IT: TranslationMap = {
@@ -1211,8 +1259,8 @@ export const IT: TranslationMap = {
   LAYERS: "LIVELLI",
   "Data layers": "Livelli di dati",
   "DATA LAYERS": "LIVELLI DI DATI",
-  "8 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "8 LIVELLI // FONTE + AGGIORNAMENTO VISIBILI",
+  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "9 LIVELLI // FONTE + AGGIORNAMENTO VISIBILI",
   FRAME: "INQUADRA",
   "Close layers": "Chiudi livelli",
   "112 evacuation": "Evacuazione 112",
@@ -1459,4 +1507,20 @@ export const IT: TranslationMap = {
   MONITOR: "MONITORAGGIO",
   "Outside the immediate area; keep monitoring official updates.":
     "Fuori dall'area immediata; continuare a seguire gli aggiornamenti ufficiali.",
+
+  // EU regions / EFFIS / Meteoalarm
+  LESVOS: "LESBO",
+  FRANCE: "FRANCIA",
+  SPAIN: "SPAGNA",
+  "Fire region": "Regione degli incendi",
+  "EFFIS burnt areas (7 days)": "Aree bruciate EFFIS (7 giorni)",
+  "Copernicus EU-wide perimeters · auto":
+    "Perimetri Copernicus a scala UE · automatico",
+  "EFFIS burnt area": "Area bruciata EFFIS",
+  "approximate satellite mapping": "mappatura satellitare approssimativa",
+  "FOREST-FIRE WARNINGS": "AVVISI DI INCENDIO BOSCHIVO",
+  "HEAT WARNINGS": "AVVISI DI CALDO",
+  "No active fire-weather warnings":
+    "Nessun avviso attivo di meteorologia degli incendi",
+  "Meteoalarm unavailable": "Meteoalarm non disponibile",
 };

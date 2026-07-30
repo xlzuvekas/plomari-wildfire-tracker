@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DE, ES, FR, IT } from "./translations";
 import type { GeocodeResult } from "./api/geocode/nominatim";
 import { assessProximity } from "./lib/proximity";
+import type { BurntArea } from "./api/effis/effis";
+import type { AlertSummary } from "./api/alerts/meteoalarm";
+import { FIRE_REGIONS, type FireRegionId } from "./lib/regions";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -43,6 +46,7 @@ type LayerKey =
   | "official"
   | "satellite"
   | "satelliteRaster"
+  | "effis"
   | "local"
   | "wind"
   | "smokeObserved"
@@ -932,6 +936,7 @@ export default function Home() {
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
   const operationalGroup = useRef<LayerGroup | null>(null);
+  const effisGroup = useRef<LayerGroup | null>(null);
   const baseLayerRef = useRef<TileLayer | null>(null);
   const lastAutoSelectedLive = useRef<string | null>(null);
 
@@ -970,12 +975,18 @@ export default function Home() {
     official: true,
     satellite: true,
     satelliteRaster: false,
+    effis: true,
     local: true,
     wind: true,
     smokeObserved: false,
     smoke: true,
     simulation: false,
   });
+  const [region, setRegion] = useState<FireRegionId>("lesvos");
+  const [effisData, setEffisData] = useState<BurntArea[] | null>(null);
+  const [effisError, setEffisError] = useState(false);
+  const [alertData, setAlertData] = useState<AlertSummary | null>(null);
+  const [alertError, setAlertError] = useState(false);
   const [hour, setHour] = useState(2);
   const [beaufort, setBeaufort] = useState(6);
   const [heading, setHeading] = useState(218);
@@ -1476,6 +1487,7 @@ export default function Home() {
       mapRef.current = map;
       L.control.zoom({ position: "bottomright" }).addTo(map);
       operationalGroup.current = L.layerGroup().addTo(map);
+      effisGroup.current = L.layerGroup().addTo(map);
       map.on("click", (event) => {
         const coordinate = `${event.latlng.lat.toFixed(5)}, ${event.latlng.lng.toFixed(5)}`;
         L.popup()
@@ -2025,6 +2037,99 @@ export default function Home() {
     userPoint,
   ]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/effis?region=${region}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ burntAreas: BurntArea[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setEffisData(payload.burntAreas ?? []);
+          setEffisError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEffisData(null);
+          setEffisError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const country = FIRE_REGIONS.find(
+      (candidate) => candidate.id === region,
+    )?.country;
+    if (!country) return;
+    fetch(`/api/alerts?country=${country}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ summary: AlertSummary }>;
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setAlertData(payload.summary ?? null);
+          setAlertError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAlertData(null);
+          setAlertError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    if (!ready || !leafletRef.current || !effisGroup.current) return;
+    const L = leafletRef.current;
+    const group = effisGroup.current;
+    group.clearLayers();
+    if (!layers.effis || !effisData) return;
+    effisData.forEach((area) => {
+      const place = [area.commune, area.province]
+        .filter((value): value is string => value !== null)
+        .join(", ");
+      const label = [
+        place || area.country || "—",
+        area.areaHa !== null ? `${area.areaHa} ha` : null,
+        area.fireDate,
+      ]
+        .filter((value): value is string => value !== null)
+        .join(" · ");
+      area.rings.forEach((ring) => {
+        L.polygon(ring, {
+          color: "#ff8a3c",
+          weight: 1.4,
+          fillColor: "#ff8a3c",
+          fillOpacity: 0.16,
+        })
+          .bindTooltip(
+            `<div class="popup-copy"><strong>${localize(
+              language,
+              "EFFIS burnt area",
+              "Καμένη έκταση EFFIS",
+            )}</strong><br>${label}<br><span>${localize(
+              language,
+              "approximate satellite mapping",
+              "κατά προσέγγιση δορυφορική αποτύπωση",
+            )}</span></div>`,
+            { sticky: true },
+          )
+          .addTo(group);
+      });
+    });
+  }, [ready, layers.effis, effisData, language]);
+
   const toggleLayer = (key: LayerKey) => {
     setLayers((current) => ({ ...current, [key]: !current[key] }));
     if (key === "simulation" && compact && !layers.simulation) {
@@ -2034,6 +2139,12 @@ export default function Home() {
 
   const focusPoint = (point: LatLngTuple, zoom = 15) => {
     mapRef.current?.flyTo(point, zoom, { duration: 0.65 });
+  };
+
+  const changeRegion = (next: FireRegionId) => {
+    setRegion(next);
+    const target = FIRE_REGIONS.find((candidate) => candidate.id === next);
+    if (target) focusPoint(target.center, target.zoom);
   };
 
   const chooseLocatorResult = (result: GeocodeResult) => {
@@ -2401,6 +2512,68 @@ export default function Home() {
       >
         {locatorBody}
       </aside>
+      <div className="region-block">
+        <nav
+          className="region-controls"
+          aria-label={localize(language, "Fire region", "Περιοχή πυρκαγιών")}
+        >
+          {FIRE_REGIONS.map((candidate) => (
+            <button
+              type="button"
+              key={candidate.id}
+              className={region === candidate.id ? "is-active" : ""}
+              onClick={() => changeRegion(candidate.id)}
+              aria-pressed={region === candidate.id}
+            >
+              {
+                {
+                  lesvos: localize(language, "LESVOS", "ΛΕΣΒΟΣ"),
+                  france: localize(language, "FRANCE", "ΓΑΛΛΙΑ"),
+                  spain: localize(language, "SPAIN", "ΙΣΠΑΝΙΑ"),
+                }[candidate.id]
+              }
+            </button>
+          ))}
+        </nav>
+        <p className="region-alerts" role="status">
+          {alertError
+            ? localize(
+                language,
+                "Meteoalarm unavailable",
+                "Το Meteoalarm δεν είναι διαθέσιμο",
+              )
+            : alertData === null
+              ? localize(language, "CHECKING", "ΕΛΕΓΧΟΣ")
+              : (() => {
+                  const parts: string[] = [];
+                  if (alertData.forestFire.count > 0) {
+                    parts.push(
+                      `${alertData.forestFire.count} × ${localize(
+                        language,
+                        "FOREST-FIRE WARNINGS",
+                        "ΠΡΟΕΙΔΟΠΟΙΗΣΕΙΣ ΔΑΣΙΚΩΝ ΠΥΡΚΑΓΙΩΝ",
+                      )}`,
+                    );
+                  }
+                  if (alertData.heat.count > 0) {
+                    parts.push(
+                      `${alertData.heat.count} × ${localize(
+                        language,
+                        "HEAT WARNINGS",
+                        "ΠΡΟΕΙΔΟΠΟΙΗΣΕΙΣ ΚΑΥΣΩΝΑ",
+                      )}`,
+                    );
+                  }
+                  return parts.length > 0
+                    ? `METEOALARM · ${parts.join(" · ")}`
+                    : `METEOALARM · ${localize(
+                        language,
+                        "No active fire-weather warnings",
+                        "Καμία ενεργή προειδοποίηση πυρομετεωρολογίας",
+                      )}`;
+                })()}
+        </p>
+      </div>
       </div>
 
       <nav
@@ -2425,6 +2598,7 @@ export default function Home() {
           </button>
         ))}
       </nav>
+
 
       {mobileSheetOpen && (
         <button
@@ -2468,8 +2642,8 @@ export default function Home() {
               <small>
                 {localize(
                   language,
-                  "8 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                  "8 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                  "9 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                  "9 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
                 )}
               </small>
             </div>
@@ -2537,6 +2711,21 @@ export default function Home() {
                   "Εικόνα NASA GIBS · όχι πρόσθετα σημεία",
                 ),
                 count: "IMG",
+              },
+              {
+                key: "effis" as LayerKey,
+                icon: "▰",
+                label: localize(
+                  language,
+                  "EFFIS burnt areas (7 days)",
+                  "Καμένες εκτάσεις EFFIS (7 ημέρες)",
+                ),
+                detail: localize(
+                  language,
+                  "Copernicus EU-wide perimeters · auto",
+                  "Περίμετροι Copernicus για όλη την ΕΕ · αυτόματα",
+                ),
+                count: effisError ? "—" : String(effisData?.length ?? "…"),
               },
               {
                 key: "local" as LayerKey,

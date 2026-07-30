@@ -2405,3 +2405,63 @@ button {
     max-height: none;
   }
 }
+
+.region-block {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.region-controls {
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+}
+
+.region-controls button {
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.region-controls button.is-active {
+  background: var(--amber);
+  color: #211203;
+}
+
+.region-alerts {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--line-soft);
+  background: rgba(3, 10, 15, 0.72);
+  color: var(--amber);
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.52rem;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 900px) {
+  .region-block {
+    flex-wrap: wrap;
+  }
+
+  /* Keep the right edge clear for the basemap buttons on small screens. */
+  .region-alerts {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+}

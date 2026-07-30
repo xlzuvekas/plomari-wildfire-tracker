@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+<entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>ES161</value>
+    </cap:geocode>
+    <link title="La Mancha albaceteña" href="https://meteoalarm.org?geocode=EMMA_ID:ES161" hreflang="en"/>
+    <cap:areaDesc>La Mancha albaceteña</cap:areaDesc>
+    <cap:event>Severe high-temperature warning</cap:event>
+    <cap:sent>2026-07-29T17:04:09+00:00</cap:sent>
+    <cap:expires>2026-07-31T18:59:59+00:00</cap:expires>
+    <cap:effective>2026-07-29T17:01:07+00:00</cap:effective>
+    <cap:onset>2026-07-31T11:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Severe</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Update</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.724.0.ES.260729170409.680201ATTA311944649</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-spain/fed4e3c5-58e0-4f9f-9409-5b88551f7c5c"/>
+    <link title="Spain" rel="related" href="https://meteoalarm.org?region=ES" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-07-29T17:04:09Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-spain/fed4e3c5-58e0-4f9f-9409-5b88551f7c5c?index_info=1&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Orange High-temperature Warning issued for Spain - La Mancha albaceteña</title>
+    <updated>2026-07-29T17:04:09Z</updated>
+  </entry>
+<entry>
+    <cap:geocode>
+      <valueName>EMMA_ID</valueName>
+      <value>ES222</value>
+    </cap:geocode>
+    <link title="Noroeste de Murcia" href="https://meteoalarm.org?geocode=EMMA_ID:ES222" hreflang="en"/>
+    <cap:areaDesc>Noroeste de Murcia</cap:areaDesc>
+    <cap:event>Moderate high-temperature warning</cap:event>
+    <cap:sent>2026-07-29T17:04:09+00:00</cap:sent>
+    <cap:expires>2026-07-31T18:59:59+00:00</cap:expires>
+    <cap:effective>2026-07-29T17:01:07+00:00</cap:effective>
+    <cap:onset>2026-07-31T11:00:00+00:00</cap:onset>
+    <cap:certainty>Likely</cap:certainty>
+    <cap:severity>Moderate</cap:severity>
+    <cap:urgency>Future</cap:urgency>
+    <cap:scope>Public</cap:scope>
+    <cap:message_type>Alert</cap:message_type>
+    <cap:status>Actual</cap:status>
+    <cap:identifier>2.49.0.0.724.0.ES.260729170409.733002ATTA311944649</cap:identifier>
+    <link type="application/cap+xml" href="https://feeds.meteoalarm.org/api/v1/warnings/feeds-spain/05cf024e-6a70-4326-92f1-0cd8826929f0"/>
+    <link title="Spain" rel="related" href="https://meteoalarm.org?region=ES" hreflang="en"/>
+    <author>
+      <name>meteoalarm.org</name>
+      <uri>https://meteoalarm.org</uri>
+    </author>
+    <published>2026-07-29T17:04:09Z</published>
+    <id>https://feeds.meteoalarm.org/api/v1/warnings/feeds-spain/05cf024e-6a70-4326-92f1-0cd8826929f0?index_info=1&amp;index_area=0&amp;index_geocode=0</id>
+    <title>Yellow High-temperature Warning issued for Spain - Noroeste de Murcia</title>
+    <updated>2026-07-29T17:04:09Z</updated>
+  </entry>
+</feed>
