@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ES, FR } from "../app/translations";
+import { DE, ES, FR, IT } from "../app/translations";
+
+const MAPS = [
+  ["ES", ES],
+  ["FR", FR],
+  ["DE", DE],
+  ["IT", IT],
+] as const;
 
 // localize(language, english, greek) resolves Spanish/French by looking the
 // English argument up in the dictionaries. Extract every English string
@@ -82,16 +89,18 @@ describe("translations", () => {
     expect(keys.length).toBeGreaterThan(150);
   });
 
-  it.each([
-    ["ES", ES],
-    ["FR", FR],
-  ])("%s covers every localize English string", (_name, map) => {
+  it.each(MAPS)("%s covers every localize English string", (_name, map) => {
     const missing = keys.filter((key) => map[key] === undefined);
     expect(missing).toEqual([]);
   });
 
-  it("ES and FR have identical key sets", () => {
-    expect(Object.keys(ES).sort()).toEqual(Object.keys(FR).sort());
+  it("all dictionaries have identical key sets", () => {
+    const reference = Object.keys(ES).sort();
+    for (const [name, map] of MAPS) {
+      expect(Object.keys(map).sort(), `${name} key set differs`).toEqual(
+        reference,
+      );
+    }
   });
 
   it("covers static intel, sources, and live feed summaries", () => {
@@ -103,8 +112,9 @@ describe("translations", () => {
       "Evacuation",
       "Rekindling",
     ]) {
-      expect(ES[key], `ES missing: ${key}`).toBeDefined();
-      expect(FR[key], `FR missing: ${key}`).toBeDefined();
+      for (const [name, map] of MAPS) {
+        expect(map[key], `${name} missing: ${key}`).toBeDefined();
+      }
     }
   });
 });

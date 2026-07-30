@@ -666,3 +666,665 @@ export const FR: TranslationMap = {
   "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
     "Publication directe d'un compte officiel. Suivez la consigne liée et les autorités sur le terrain.",
 };
+
+export const DE: TranslationMap = {
+  // Air quality bands (EEA scale)
+  GOOD: "GUT",
+  FAIR: "BEFRIEDIGEND",
+  MODERATE: "MÄSSIG",
+  POOR: "SCHLECHT",
+  "VERY POOR": "SEHR SCHLECHT",
+  "EXTREMELY POOR": "EXTREM SCHLECHT",
+
+  // Confidence labels
+  OFFICIAL: "OFFIZIELL",
+  OBSERVED: "BEOBACHTET",
+  "LOCAL REPORT": "LOKALER BERICHT",
+  MODELED: "MODELLIERT",
+  "age unknown": "Alter unbekannt",
+  High: "Hoch",
+  Nominal: "Nominal",
+  Low: "Niedrig",
+  Unknown: "Unbekannt",
+
+  // Update categories
+  Evacuation: "Evakuierung",
+  Readiness: "Bereitschaft",
+  Road: "Straßennetz",
+  Smoke: "Rauch",
+  Rekindling: "Wiederaufflammen",
+  Control: "Kontrolle",
+  Response: "Einsatz",
+  Incident: "Ereignis",
+
+  // Fire service / incident wire
+  "Fire Service": "Feuerwehr",
+  "STATUS PENDING": "STATUS AUSSTEHEND",
+  "The official incident board lists the Plomari landfill fire as":
+    "Die offizielle Einsatztafel führt den Deponiebrand von Plomari als",
+  "The board does not provide a perimeter or public route instruction.":
+    "Die Tafel liefert weder einen Perimeter noch öffentliche Routenanweisungen.",
+  "No archived chronology item is selected by default. Dated archive entries remain available in the list while current sources are checked.":
+    "Standardmäßig ist kein archivierter Chronikeintrag ausgewählt. Datierte Archiveinträge bleiben in der Liste verfügbar, während aktuelle Quellen geprüft werden.",
+  "Loading FIRMS point feed": "FIRMS-Punktfeed wird geladen",
+  "FIRMS point feed unavailable": "FIRMS-Punktfeed nicht verfügbar",
+  "latest detecting pass": "letzter Überflug mit Detektionen",
+  "last 6 hours": "letzte 6 Stunden",
+  "last 24 hours": "letzte 24 Stunden",
+
+  // Place labels
+  MELINTA: "MELINTA",
+  "PLOMARI BEACH": "STRAND VON PLOMARI",
+  MILIES: "MILIES",
+  PLAGIA: "PLAGIA",
+  "AGIOS ISIDOROS": "AGIOS ISIDOROS",
+  "AGIOS ANTONIOS": "AGIOS ANTONIOS",
+  MEGALOCHORI: "MEGALOCHORI",
+  PERAMA: "PERAMA",
+  PLOMARI: "PLOMARI",
+
+  // Map annotations
+  "Restored Chalkelia landfill footprint · not the fire perimeter":
+    "Fläche der sanierten Deponie Chalkelia · nicht der Brandperimeter",
+  "REPORTED INCIDENT AREA": "GEMELDETES EREIGNISGEBIET",
+  "Restored Chalkelia landfill.": "Sanierte Deponie Chalkelia.",
+  "Site location only · perimeter not published.":
+    "Nur Standort · Perimeter nicht veröffentlicht.",
+  INCIDENT: "EREIGNIS",
+  "16:58 official 112 direction: Plomari beach → Agios Isidoros · historical alert, verify any newer instruction":
+    "Offizielle 112-Anweisung von 16:58: Strand von Plomari → Agios Isidoros · historische Warnung, neuere Anweisungen prüfen",
+  "112 · 16:58 →": "112 · 16:58 →",
+  "nominal 375 m pixel": "nominales 375-m-Pixel",
+  "SATELLITE THERMAL DETECTION": "THERMISCHE SATELLITENDETEKTION",
+  "Greece time": "griechische Zeit",
+  "Detection confidence": "Detektionskonfidenz",
+  "of incident reference": "vom Ereignisreferenzpunkt",
+  "Marker is the pixel center. The halo approximates pixel dimensions, not a fire perimeter. FRP is pixel-integrated radiative power—not flame height or total fire intensity.":
+    "Der Marker ist das Pixelzentrum. Der Halo nähert die Pixelmaße an, nicht einen Brandperimeter. FRP ist die pixelintegrierte Strahlungsleistung — weder Flammenhöhe noch Gesamtintensität des Feuers.",
+  "FIELD-REPORTED AREA (APPROXIMATE)": "VOR ORT GEMELDETES GEBIET (UNGEFÄHR)",
+  "Approximate only · not an official perimeter or live flame location.":
+    "Nur ungefähr · kein offizieller Perimeter und keine Live-Flammenposition.",
+  "FIELD REPORT · 20:50": "FELDBERICHT · 20:50",
+  "LGMT MEASURED WIND": "LGMT GEMESSENER WIND",
+  gust: "Böe",
+  "NASA VIIRS daylight aerosol classification · smoke retrieval is coarse, cloud-sensitive and not surface PM2.5":
+    "NASA-VIIRS-Aerosolklassifikation bei Tageslicht · Raucherkennung ist grob, wolkenempfindlich und keine PM2,5-Bodenmessung",
+  "Higher-confidence centerline of an illustrative wind-driven envelope · terrain and fire behavior are not modeled":
+    "Mittellinie höherer Konfidenz einer illustrativen windgetriebenen Hüllkurve · Gelände und Feuerverhalten sind nicht modelliert",
+  "Interactive Plomari wildfire operational map":
+    "Interaktive Einsatzkarte des Waldbrands von Plomari",
+  "ACQUIRING MAP…": "KARTE WIRD GELADEN…",
+  "OFFLINE — DISPLAYING THE LAST AVAILABLE SNAPSHOT":
+    "OFFLINE — LETZTER VERFÜGBARER SNAPSHOT WIRD ANGEZEIGT",
+  "LOCAL INCIDENT PICTURE · MULTISOURCE OSINT":
+    "LOKALES LAGEBILD · OSINT AUS MEHREREN QUELLEN",
+  "FIRE SERVICE": "FEUERWEHR",
+  "GREECE LOCAL": "ORTSZEIT GRIECHENLAND",
+  Language: "Sprache",
+  "FIRE BOARD AUTO · 112 MANUAL": "BRANDTAFEL AUTO · 112 MANUELL",
+  "Archived 112 instruction issued at 16:58; not a current verification":
+    "Archivierte 112-Anweisung von 16:58; keine aktuelle Verifizierung",
+  "ARCHIVED 112 · ISSUED 16:58 · NOT LIVE":
+    "112 ARCHIVIERT · AUSGEGEBEN 16:58 · NICHT LIVE",
+  "Archived instruction — not a current verification. Follow newer 112 messages.":
+    "Archivierte Anweisung — keine aktuelle Verifizierung. Neuere 112-Meldungen befolgen.",
+  source: "Quelle",
+  "Official alert": "Offizielle Warnung",
+  "Call 112": "112 anrufen",
+  CALL: "ANRUFEN",
+  "Map style": "Kartenstil",
+  dark: "dunkel",
+  satellite: "Satellit",
+  terrain: "Gelände",
+  "Close panel": "Panel schließen",
+  "HIDE LAYERS": "EBENEN AUSBLENDEN",
+  LAYERS: "EBENEN",
+  "Data layers": "Datenebenen",
+  "DATA LAYERS": "DATENEBENEN",
+  "8 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "8 EBENEN // QUELLE + AKTUALITÄT SICHTBAR",
+  FRAME: "AUSRICHTEN",
+  "Close layers": "Ebenen schließen",
+  "112 evacuation": "112-Evakuierung",
+  "Original official alert · 16:58": "Ursprüngliche offizielle Warnung · 16:58",
+  "Satellite thermal detections": "Thermische Satellitendetektionen",
+  "Daily thermal raster": "Tägliches Thermalraster",
+  "NASA GIBS imagery · not extra points":
+    "NASA-GIBS-Bilder · keine zusätzlichen Punkte",
+  "Field-reported areas (approx.)": "Vor Ort gemeldete Gebiete (ca.)",
+  "1 report · 2 reference areas · 20:50":
+    "1 Bericht · 2 Referenzgebiete · 20:50",
+  "Wind profile": "Windprofil",
+  "Satellite aerosol / smoke": "Satellitenaerosol / Rauch",
+  "NASA VIIRS NRT · daylight snapshot":
+    "NASA VIIRS NRT · Tageslicht-Snapshot",
+  "Smoke transport proxy": "Indikatives Rauchtransportmodell",
+  "Modeled wind envelope · not PM2.5":
+    "Modellierte Windhüllkurve · kein PM2,5",
+  "What-if envelope": "Was-wäre-wenn-Hüllkurve",
+  "Simulation · never route from this":
+    "Simulation · niemals Routen daraus ableiten",
+  "Satellite thermal detection key": "Legende thermischer Satellitendetektion",
+  "SATELLITE DETECTION KEY": "SATELLITENDETEKTIONS-LEGENDE",
+  LOADING: "LÄDT",
+  UNAVAILABLE: "NICHT VERFÜGBAR",
+  RETRYING: "NEUER VERSUCH",
+  PARTIAL: "TEILWEISE",
+  AVAILABLE: "VERFÜGBAR",
+  "Thermal observation window": "Thermisches Beobachtungsfenster",
+  "LATEST DETECTING PASS": "LETZTER ÜBERFLUG MIT DETEKTIONEN",
+  "6 HOURS": "6 STUNDEN",
+  "24 HOURS": "24 STUNDEN",
+  "detection records": "Detektionsdatensätze",
+  Window: "Fenster",
+  "latest observation": "letzte Beobachtung",
+  "Each marker is the center of a satellite pixel where a thermal anomaly was detected during one overpass. It is not a live flame location, a fire perimeter, or a count of fires.":
+    "Jeder Marker ist das Zentrum eines Satellitenpixels, in dem während eines Überflugs eine thermische Anomalie erkannt wurde. Er ist weder eine Live-Flammenposition noch ein Brandperimeter noch eine Anzahl von Bränden.",
+  "FIRMS point feed unavailable — showing no point count. The optional NASA daily raster can be enabled separately.":
+    "FIRMS-Punktfeed nicht verfügbar — keine Punktanzahl wird angezeigt. Das optionale tägliche NASA-Raster kann separat aktiviert werden.",
+  "No thermal detections were returned for this area in the selected window. This does not mean the fire is out; clouds, satellite timing, and sensor limits can hide activity.":
+    "Für dieses Gebiet wurden im gewählten Fenster keine thermischen Detektionen zurückgegeben. Das bedeutet nicht, dass das Feuer gelöscht ist; Wolken, Satellitenzeitpunkte und Sensorgrenzen können Aktivität verbergen.",
+  HIGH: "HOCH",
+  "saturated fire pixel": "gesättigtes Feuerpixel",
+  NOMINAL: "NOMINAL",
+  "strong anomaly; no daytime sun-glint flag":
+    "starke Anomalie; kein Sonnenreflex-Flag bei Tageslicht",
+  LOW: "NIEDRIG",
+  "lower confidence / sun-glint prone":
+    "geringere Konfidenz / anfällig für Sonnenreflexe",
+  "Confidence describes detection quality, not fire severity. FRP is pixel-integrated radiative power; not flame height or total fire intensity.":
+    "Die Konfidenz beschreibt die Detektionsqualität, nicht die Brandschwere. FRP ist die pixelintegrierte Strahlungsleistung; weder Flammenhöhe noch Gesamtintensität des Feuers.",
+  Retrieved: "Abgerufen",
+  "app checks every 5 min; satellite passes are not continuous":
+    "App prüft alle 5 Min.; Satellitenüberflüge sind nicht kontinuierlich",
+  "FIRE-GRID WIND MODEL": "WINDMODELL BRANDGEBIET",
+  "SNAPSHOT / RETRYING": "SNAPSHOT / NEUER VERSUCH",
+  FROM: "AUS",
+  GUST: "BÖE",
+  MODEL: "MODELL",
+  "FIRE AREA": "BRANDGEBIET",
+  "LGMT MEASURED": "LGMT GEMESSEN",
+  "Smoke proxy horizon": "Horizont des Rauchmodells",
+  min: "Min.",
+  "HIDE UPDATES": "UPDATES AUSBLENDEN",
+  UPDATES: "UPDATES",
+  "Mobile map navigation": "Mobile Kartennavigation",
+  MAP: "KARTE",
+  "Incident updates": "Ereignis-Updates",
+  "INCIDENT WIRE": "EREIGNIS-TICKER",
+  "GREECE TIME": "GRIECHISCHE ZEIT",
+  "SNAPSHOT · RETRYING": "SNAPSHOT · NEUER VERSUCH",
+  REC: "REC",
+  "Close updates": "Updates schließen",
+  "29 JUL 2026": "29. JUL 2026",
+  ARCHIVE: "ARCHIV",
+  "ARCHIVE · 29 JUL 2026": "ARCHIV · 29. JUL 2026",
+  ACTION: "MASSNAHME",
+  "Direct source": "Direkte Quelle",
+  "SOURCE HEALTH": "QUELLENSTATUS",
+  reachable: "erreichbar",
+  failed: "fehlgeschlagen",
+  "optional unconfigured": "optional nicht konfiguriert",
+  CHECKING: "PRÜFUNG",
+  "Reachable means the source responded—not that it published a new Plomari update.":
+    "Erreichbar bedeutet, dass die Quelle geantwortet hat — nicht, dass sie ein neues Plomari-Update veröffentlicht hat.",
+  "What-if simulation controls": "Steuerung der Was-wäre-wenn-Simulation",
+  "SCENARIO ENGINE": "SZENARIO-ENGINE",
+  "WHAT-IF ONLY · NOT A FORECAST":
+    "NUR HYPOTHETISCH · KEINE VORHERSAGE",
+  Horizon: "Horizont",
+  h: "h",
+  Wind: "Wind",
+  Heading: "Richtung",
+  "SW · modeled downwind": "SW · modelliert leeseitig",
+  "S · Plomari": "S · Plomari",
+  "W · Melinta": "W · Melinta",
+  "SE · Agios Isidoros": "SO · Agios Isidoros",
+  "Illustrative head": "Illustrative Front",
+  "Current operating picture": "Aktuelles Lagebild",
+  "OFFICIAL STATUS": "OFFIZIELLER STATUS",
+  "Fire Service auto · latest 112 instruction remains manual":
+    "Feuerwehr automatisch · letzte 112-Anweisung bleibt manuell",
+  "SATELLITE THERMAL": "SATELLITENTHERMIK",
+  "CHECKING FIRMS": "FIRMS WIRD GEPRÜFT",
+  "POINT FEED UNAVAILABLE": "PUNKTFEED NICHT VERFÜGBAR",
+  "No historical points substituted · raster is a separate layer":
+    "Keine historischen Punkte ersetzt · Raster ist eine separate Ebene",
+  "Zero detections is not an all-clear":
+    "Null Detektionen sind keine Entwarnung",
+  "FIRE-GRID MODEL": "MODELL BRANDGEBIET",
+  Gust: "Böe",
+  "model, not sensor": "Modell, kein Sensor",
+  "POLLING 60 SECONDS": "ABFRAGE ALLE 60 SEKUNDEN",
+  "Confidence legend": "Konfidenz-Legende",
+  REPORTED: "GEMELDET",
+  "MODELED / SIM": "MODELLIERT / SIM",
+  "NOT AN OFFICIAL EMERGENCY PRODUCT":
+    "KEIN OFFIZIELLES NOTFALLPRODUKT",
+  "Interface baseline inspired by": "Oberflächenbasis inspiriert von",
+  "Authorities override every map layer.":
+    "Die Behörden haben Vorrang vor jeder Kartenebene.",
+
+  // Ternary-resolved strings
+  "Official alert feed. ": "Offizieller Warnfeed. ",
+  "Official information feed; only 112 alerts are public protective instructions. ":
+    "Offizieller Informationsfeed; nur 112-Warnungen sind öffentliche Schutzanweisungen. ",
+  "Publisher feed item; publication time is unavailable, so recency is not verified. ":
+    "Feed-Eintrag des Herausgebers; Veröffentlichungszeit nicht verfügbar, Aktualität daher nicht verifiziert. ",
+  "Near-real-time local reporting; not independently confirmed. ":
+    "Lokale Berichterstattung nahezu in Echtzeit; nicht unabhängig bestätigt. ",
+  "Live-source retry in progress":
+    "Neuer Verbindungsversuch zu Live-Quellen läuft",
+  "No current live item returned":
+    "Kein aktueller Live-Eintrag zurückgegeben",
+  "Checking live sources": "Live-Quellen werden geprüft",
+  "One local report referenced scattered activity near Agios Antonios at 20:50.":
+    "Ein lokaler Bericht erwähnte um 20:50 verstreute Aktivität nahe Agios Antonios.",
+  "The same report described activity in the direction of Megalochori; this second area is a broad reference zone.":
+    "Derselbe Bericht beschrieb Aktivität in Richtung Megalochori; dieses zweite Gebiet ist eine grobe Referenzzone.",
+  pass: "Überflug",
+  passes: "Überflüge",
+  "Checking official and local sources · Greece timestamps":
+    "Offizielle und lokale Quellen werden geprüft · griechische Zeitstempel",
+
+  // Static intel timeline (labels + details)
+  "Aerial drops ended; scattered hotspots remain":
+    "Löschflüge beendet; verstreute Glutnester verbleiben",
+  "Local field reporting says aerial operations ended for the night, with scattered active hotspots around Agios Antonios and toward Megalochori. Strong winds are hampering ground crews. This is not an official containment statement.":
+    "Laut lokaler Berichterstattung vor Ort wurden die Lufteinsätze für die Nacht beendet; verstreute aktive Glutnester verbleiben um Agios Antonios und Richtung Megalochori. Starker Wind behindert die Bodenkräfte. Dies ist keine offizielle Eindämmungsmeldung.",
+  "No continuous front reported; rekindling risk":
+    "Keine durchgehende Front gemeldet; Gefahr des Wiederaufflammens",
+  "The deputy regional governor reported no active continuous front, but numerous scattered hotspots remained in difficult terrain. Crews stayed alert for rekindling. This was a local official statement, not a Fire Service all-clear.":
+    "Der stellvertretende Regionalgouverneur meldete keine aktive durchgehende Front, aber zahlreiche verstreute Glutnester in schwierigem Gelände. Die Einsatzkräfte blieben wegen Wiederaufflammens wachsam. Dies war eine lokale offizielle Erklärung, keine Entwarnung der Feuerwehr.",
+  "Hotspots reported near holiday homes":
+    "Glutnester nahe Ferienhäusern gemeldet",
+  "Local reporting said hotspots remained above Plomari near holiday homes. Residents and volunteers reportedly prevented flames from reaching houses.":
+    "Lokale Berichte meldeten verbleibende Glutnester oberhalb von Plomari nahe Ferienhäusern. Anwohner und Freiwillige verhinderten demnach, dass Flammen die Häuser erreichten.",
+  "Regional satellite smoke observed":
+    "Regionaler Rauch per Satellit beobachtet",
+  "Satellite imagery showed smoke from the Plomari incident and a major Turkish fire transported across Lesvos. This is a regional smoke snapshot, not a ground-level PM2.5 measurement.":
+    "Satellitenbilder zeigten Rauch vom Plomari-Ereignis und einem großen türkischen Brand, der über Lesbos zog. Dies ist ein regionaler Rauch-Snapshot, keine PM2,5-Bodenmessung.",
+  "Official 112 alert issued at 16:58":
+    "Offizielle 112-Warnung um 16:58 ausgegeben",
+  "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued at 16:58; check the incident wire and authorities for any newer instruction.":
+    "Personen im Gebiet Plomari wurden angewiesen, sich zum Strand von Plomari in Richtung Agios Isidoros zu begeben. Dies gibt die um 16:58 ausgegebene Warnung wieder; prüfen Sie den Ereignis-Ticker und die Behörden auf neuere Anweisungen.",
+  "Fire Service response reinforced":
+    "Feuerwehreinsatz verstärkt",
+  "Fire Service reported 50 firefighters, two 12th EMODE teams, volunteers, 13 vehicles, three aircraft and three helicopters.":
+    "Die Feuerwehr meldete 50 Feuerwehrleute, zwei Teams der 12. EMODE, Freiwillige, 13 Fahrzeuge, drei Flugzeuge und drei Hubschrauber.",
+  "Latest satellite heat": "Neueste Satellitenwärme",
+  "Aqua MODIS detected active heat near Chalkelia. A satellite point is an observed hot pixel, not a fire perimeter.":
+    "Aqua MODIS erkannte aktive Wärme nahe Chalkelia. Ein Satellitenpunkt ist ein beobachtetes heißes Pixel, kein Brandperimeter.",
+  "NOAA-20 pass": "NOAA-20-Überflug",
+  "Six VIIRS hot pixels were detected near the incident, including three high-confidence detections.":
+    "Sechs heiße VIIRS-Pixel wurden nahe dem Ereignis erkannt, darunter drei Detektionen hoher Konfidenz.",
+  "Fire reported": "Brand gemeldet",
+  "The incident was reported around the restored Chalkelia landfill, north-east of Plomari.":
+    "Das Ereignis wurde im Bereich der sanierten Deponie Chalkelia nordöstlich von Plomari gemeldet.",
+
+  // Sources list (labels + kinds)
+  "Fire Service board": "Feuerwehr-Einsatztafel",
+  "Official incident status · automatic":
+    "Offizieller Ereignisstatus · automatisch",
+  "112 Greece": "112 Griechenland",
+  "Protective guidance": "Schutzhinweise",
+  "Official safety instructions": "Offizielle Sicherheitsanweisungen",
+  "Official response · 16:34": "Offizielle Reaktion · 16:34",
+  "StoNisi overnight": "StoNisi über Nacht",
+  "Local field report · 20:50": "Lokaler Feldbericht · 20:50",
+  Aeolos: "Aeolos",
+  "Local reporting · repeated rekindling":
+    "Lokale Berichterstattung · wiederholtes Wiederaufflammen",
+  "Satellite smoke": "Satellitenrauch",
+  "Regional smoke report · 17:50": "Regionaler Rauchbericht · 17:50",
+  "NASA FIRMS": "NASA FIRMS",
+  "Thermal points · server-side API": "Thermalpunkte · serverseitige API",
+  "NASA GIBS": "NASA GIBS",
+  "No-key thermal / aerosol overlay":
+    "Thermal-/Aerosol-Ebene ohne Schlüssel",
+  "Open-Meteo": "Open-Meteo",
+  "Detailed point wind model": "Detailliertes Punkt-Windmodell",
+  AviationWeather: "AviationWeather",
+  "Measured LGMT airport METAR": "Gemessenes METAR des Flughafens LGMT",
+
+  // Live feed summaries (from the updates API)
+  "Item from an official source. Open the direct source for the full statement and any instructions.":
+    "Eintrag aus offizieller Quelle. Öffnen Sie die direkte Quelle für die vollständige Erklärung und etwaige Anweisungen.",
+  "Headline link from the publisher; open the direct source for the full report.":
+    "Schlagzeilen-Link des Herausgebers; öffnen Sie die direkte Quelle für den vollständigen Bericht.",
+  "Live local-reporting page; open the direct source for the full chronology and field details.":
+    "Lokale Live-Berichtsseite; öffnen Sie die direkte Quelle für die vollständige Chronologie und Felddetails.",
+  "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
+    "Direkter Beitrag eines offiziellen Kontos. Folgen Sie der verlinkten Anweisung und den Behörden vor Ort.",
+};
+
+export const IT: TranslationMap = {
+  // Air quality bands (EEA scale)
+  GOOD: "BUONA",
+  FAIR: "DISCRETA",
+  MODERATE: "MODERATA",
+  POOR: "SCARSA",
+  "VERY POOR": "MOLTO SCARSA",
+  "EXTREMELY POOR": "ESTREMAMENTE SCARSA",
+
+  // Confidence labels
+  OFFICIAL: "UFFICIALE",
+  OBSERVED: "OSSERVATO",
+  "LOCAL REPORT": "SEGNALAZIONE LOCALE",
+  MODELED: "MODELLIZZATO",
+  "age unknown": "età sconosciuta",
+  High: "Alta",
+  Nominal: "Nominale",
+  Low: "Bassa",
+  Unknown: "Sconosciuta",
+
+  // Update categories
+  Evacuation: "Evacuazione",
+  Readiness: "Allerta",
+  Road: "Rete stradale",
+  Smoke: "Fumo",
+  Rekindling: "Ripresa del fuoco",
+  Control: "Controllo",
+  Response: "Intervento",
+  Incident: "Evento",
+
+  // Fire service / incident wire
+  "Fire Service": "Vigili del Fuoco",
+  "STATUS PENDING": "STATO IN ATTESA",
+  "The official incident board lists the Plomari landfill fire as":
+    "Il quadro ufficiale degli eventi classifica l'incendio della discarica di Plomari come",
+  "The board does not provide a perimeter or public route instruction.":
+    "Il quadro non fornisce un perimetro né istruzioni pubbliche sui percorsi.",
+  "No archived chronology item is selected by default. Dated archive entries remain available in the list while current sources are checked.":
+    "Nessun elemento archiviato della cronologia è selezionato per impostazione predefinita. Le voci datate dell'archivio restano disponibili nell'elenco mentre si verificano le fonti attuali.",
+  "Loading FIRMS point feed": "Caricamento del flusso di punti FIRMS",
+  "FIRMS point feed unavailable": "Flusso di punti FIRMS non disponibile",
+  "latest detecting pass": "ultimo passaggio con rilevamenti",
+  "last 6 hours": "ultime 6 ore",
+  "last 24 hours": "ultime 24 ore",
+
+  // Place labels
+  MELINTA: "MELINTA",
+  "PLOMARI BEACH": "SPIAGGIA DI PLOMARI",
+  MILIES: "MILIES",
+  PLAGIA: "PLAGIA",
+  "AGIOS ISIDOROS": "AGIOS ISIDOROS",
+  "AGIOS ANTONIOS": "AGIOS ANTONIOS",
+  MEGALOCHORI: "MEGALOCHORI",
+  PERAMA: "PERAMA",
+  PLOMARI: "PLOMARI",
+
+  // Map annotations
+  "Restored Chalkelia landfill footprint · not the fire perimeter":
+    "Area della discarica bonificata di Chalkelia · non è il perimetro dell'incendio",
+  "REPORTED INCIDENT AREA": "AREA DELL'EVENTO SEGNALATA",
+  "Restored Chalkelia landfill.": "Discarica bonificata di Chalkelia.",
+  "Site location only · perimeter not published.":
+    "Solo posizione del sito · perimetro non pubblicato.",
+  INCIDENT: "EVENTO",
+  "16:58 official 112 direction: Plomari beach → Agios Isidoros · historical alert, verify any newer instruction":
+    "Istruzione ufficiale 112 delle 16:58: spiaggia di Plomari → Agios Isidoros · allerta storica, verificare eventuali istruzioni più recenti",
+  "112 · 16:58 →": "112 · 16:58 →",
+  "nominal 375 m pixel": "pixel nominale di 375 m",
+  "SATELLITE THERMAL DETECTION": "RILEVAMENTO TERMICO SATELLITARE",
+  "Greece time": "ora della Grecia",
+  "Detection confidence": "Affidabilità del rilevamento",
+  "of incident reference": "dal riferimento dell'evento",
+  "Marker is the pixel center. The halo approximates pixel dimensions, not a fire perimeter. FRP is pixel-integrated radiative power—not flame height or total fire intensity.":
+    "Il marcatore è il centro del pixel. L'alone approssima le dimensioni del pixel, non un perimetro dell'incendio. La FRP è la potenza radiativa integrata del pixel — non l'altezza delle fiamme né l'intensità totale del fuoco.",
+  "FIELD-REPORTED AREA (APPROXIMATE)": "AREA SEGNALATA SUL CAMPO (APPROSSIMATIVA)",
+  "Approximate only · not an official perimeter or live flame location.":
+    "Solo approssimativa · non è un perimetro ufficiale né la posizione in tempo reale delle fiamme.",
+  "FIELD REPORT · 20:50": "RAPPORTO DAL CAMPO · 20:50",
+  "LGMT MEASURED WIND": "VENTO MISURATO LGMT",
+  gust: "raffica",
+  "NASA VIIRS daylight aerosol classification · smoke retrieval is coarse, cloud-sensitive and not surface PM2.5":
+    "Classificazione diurna degli aerosol NASA VIIRS · il rilevamento del fumo è grossolano, sensibile alle nubi e non corrisponde al PM2,5 al suolo",
+  "Higher-confidence centerline of an illustrative wind-driven envelope · terrain and fire behavior are not modeled":
+    "Linea centrale a maggiore affidabilità di un inviluppo illustrativo guidato dal vento · terreno e comportamento del fuoco non sono modellizzati",
+  "Interactive Plomari wildfire operational map":
+    "Mappa operativa interattiva dell'incendio di Plomari",
+  "ACQUIRING MAP…": "CARICAMENTO MAPPA…",
+  "OFFLINE — DISPLAYING THE LAST AVAILABLE SNAPSHOT":
+    "OFFLINE — VISUALIZZAZIONE DELL'ULTIMA ISTANTANEA DISPONIBILE",
+  "LOCAL INCIDENT PICTURE · MULTISOURCE OSINT":
+    "QUADRO LOCALE DELL'EVENTO · OSINT MULTIFONTE",
+  "FIRE SERVICE": "VIGILI DEL FUOCO",
+  "GREECE LOCAL": "ORA LOCALE DELLA GRECIA",
+  Language: "Lingua",
+  "FIRE BOARD AUTO · 112 MANUAL": "QUADRO INCENDI AUTO · 112 MANUALE",
+  "Archived 112 instruction issued at 16:58; not a current verification":
+    "Istruzione 112 archiviata emessa alle 16:58; non è una verifica attuale",
+  "ARCHIVED 112 · ISSUED 16:58 · NOT LIVE":
+    "112 ARCHIVIATO · EMESSO 16:58 · NON IN DIRETTA",
+  "Archived instruction — not a current verification. Follow newer 112 messages.":
+    "Istruzione archiviata — non è una verifica attuale. Seguire i messaggi 112 più recenti.",
+  source: "fonte",
+  "Official alert": "Allerta ufficiale",
+  "Call 112": "Chiamare il 112",
+  CALL: "CHIAMA",
+  "Map style": "Stile mappa",
+  dark: "scuro",
+  satellite: "satellite",
+  terrain: "terreno",
+  "Close panel": "Chiudi pannello",
+  "HIDE LAYERS": "NASCONDI LIVELLI",
+  LAYERS: "LIVELLI",
+  "Data layers": "Livelli di dati",
+  "DATA LAYERS": "LIVELLI DI DATI",
+  "8 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "8 LIVELLI // FONTE + AGGIORNAMENTO VISIBILI",
+  FRAME: "INQUADRA",
+  "Close layers": "Chiudi livelli",
+  "112 evacuation": "Evacuazione 112",
+  "Original official alert · 16:58": "Allerta ufficiale originale · 16:58",
+  "Satellite thermal detections": "Rilevamenti termici satellitari",
+  "Daily thermal raster": "Raster termico giornaliero",
+  "NASA GIBS imagery · not extra points":
+    "Immagini NASA GIBS · nessun punto aggiuntivo",
+  "Field-reported areas (approx.)": "Aree segnalate sul campo (appross.)",
+  "1 report · 2 reference areas · 20:50":
+    "1 rapporto · 2 aree di riferimento · 20:50",
+  "Wind profile": "Profilo del vento",
+  "Satellite aerosol / smoke": "Aerosol / fumo satellitare",
+  "NASA VIIRS NRT · daylight snapshot":
+    "NASA VIIRS NRT · istantanea diurna",
+  "Smoke transport proxy": "Modello indicativo di trasporto del fumo",
+  "Modeled wind envelope · not PM2.5":
+    "Inviluppo di vento modellizzato · non PM2,5",
+  "What-if envelope": "Inviluppo ipotetico",
+  "Simulation · never route from this":
+    "Simulazione · non pianificare mai percorsi da questa",
+  "Satellite thermal detection key": "Legenda rilevamento termico satellitare",
+  "SATELLITE DETECTION KEY": "LEGENDA RILEVAMENTO SATELLITARE",
+  LOADING: "CARICAMENTO",
+  UNAVAILABLE: "NON DISPONIBILE",
+  RETRYING: "NUOVO TENTATIVO",
+  PARTIAL: "PARZIALE",
+  AVAILABLE: "DISPONIBILE",
+  "Thermal observation window": "Finestra di osservazione termica",
+  "LATEST DETECTING PASS": "ULTIMO PASSAGGIO CON RILEVAMENTI",
+  "6 HOURS": "6 ORE",
+  "24 HOURS": "24 ORE",
+  "detection records": "record di rilevamento",
+  Window: "Finestra",
+  "latest observation": "ultima osservazione",
+  "Each marker is the center of a satellite pixel where a thermal anomaly was detected during one overpass. It is not a live flame location, a fire perimeter, or a count of fires.":
+    "Ogni marcatore è il centro di un pixel satellitare in cui è stata rilevata un'anomalia termica durante un passaggio. Non è una posizione in tempo reale delle fiamme, né un perimetro dell'incendio, né un conteggio degli incendi.",
+  "FIRMS point feed unavailable — showing no point count. The optional NASA daily raster can be enabled separately.":
+    "Flusso di punti FIRMS non disponibile — nessun conteggio di punti mostrato. Il raster giornaliero opzionale della NASA può essere attivato separatamente.",
+  "No thermal detections were returned for this area in the selected window. This does not mean the fire is out; clouds, satellite timing, and sensor limits can hide activity.":
+    "Nessun rilevamento termico restituito per quest'area nella finestra selezionata. Ciò non significa che l'incendio sia spento; nubi, orari dei satelliti e limiti dei sensori possono nascondere l'attività.",
+  HIGH: "ALTA",
+  "saturated fire pixel": "pixel di fuoco saturo",
+  NOMINAL: "NOMINALE",
+  "strong anomaly; no daytime sun-glint flag":
+    "anomalia forte; nessun indicatore diurno di riflesso solare",
+  LOW: "BASSA",
+  "lower confidence / sun-glint prone":
+    "affidabilità inferiore / soggetto a riflessi solari",
+  "Confidence describes detection quality, not fire severity. FRP is pixel-integrated radiative power; not flame height or total fire intensity.":
+    "L'affidabilità descrive la qualità del rilevamento, non la gravità dell'incendio. La FRP è la potenza radiativa integrata del pixel; non l'altezza delle fiamme né l'intensità totale del fuoco.",
+  Retrieved: "Recuperato",
+  "app checks every 5 min; satellite passes are not continuous":
+    "l'app verifica ogni 5 min; i passaggi satellitari non sono continui",
+  "FIRE-GRID WIND MODEL": "MODELLO DEL VENTO NELL'AREA DELL'INCENDIO",
+  "SNAPSHOT / RETRYING": "ISTANTANEA / NUOVO TENTATIVO",
+  FROM: "DA",
+  GUST: "RAFFICA",
+  MODEL: "MODELLO",
+  "FIRE AREA": "AREA DELL'INCENDIO",
+  "LGMT MEASURED": "MISURATO LGMT",
+  "Smoke proxy horizon": "Orizzonte del modello di fumo",
+  min: "min",
+  "HIDE UPDATES": "NASCONDI AGGIORNAMENTI",
+  UPDATES: "AGGIORNAMENTI",
+  "Mobile map navigation": "Navigazione mobile della mappa",
+  MAP: "MAPPA",
+  "Incident updates": "Aggiornamenti sull'evento",
+  "INCIDENT WIRE": "CANALE DELL'EVENTO",
+  "GREECE TIME": "ORA DELLA GRECIA",
+  "SNAPSHOT · RETRYING": "ISTANTANEA · NUOVO TENTATIVO",
+  REC: "REC",
+  "Close updates": "Chiudi aggiornamenti",
+  "29 JUL 2026": "29 LUG 2026",
+  ARCHIVE: "ARCHIVIO",
+  "ARCHIVE · 29 JUL 2026": "ARCHIVIO · 29 LUG 2026",
+  ACTION: "AZIONE",
+  "Direct source": "Fonte diretta",
+  "SOURCE HEALTH": "STATO DELLE FONTI",
+  reachable: "raggiungibili",
+  failed: "non riuscite",
+  "optional unconfigured": "opzionali non configurate",
+  CHECKING: "VERIFICA",
+  "Reachable means the source responded—not that it published a new Plomari update.":
+    "Raggiungibile significa che la fonte ha risposto — non che abbia pubblicato un nuovo aggiornamento su Plomari.",
+  "What-if simulation controls": "Controlli della simulazione ipotetica",
+  "SCENARIO ENGINE": "MOTORE DI SCENARI",
+  "WHAT-IF ONLY · NOT A FORECAST":
+    "SOLO IPOTETICO · NON È UNA PREVISIONE",
+  Horizon: "Orizzonte",
+  h: "h",
+  Wind: "Vento",
+  Heading: "Direzione",
+  "SW · modeled downwind": "SO · sottovento modellizzato",
+  "S · Plomari": "S · Plomari",
+  "W · Melinta": "O · Melinta",
+  "SE · Agios Isidoros": "SE · Agios Isidoros",
+  "Illustrative head": "Fronte illustrativo",
+  "Current operating picture": "Quadro operativo attuale",
+  "OFFICIAL STATUS": "STATO UFFICIALE",
+  "Fire Service auto · latest 112 instruction remains manual":
+    "Vigili del Fuoco automatico · l'ultima istruzione 112 resta manuale",
+  "SATELLITE THERMAL": "TERMICO SATELLITARE",
+  "CHECKING FIRMS": "VERIFICA FIRMS",
+  "POINT FEED UNAVAILABLE": "FLUSSO DI PUNTI NON DISPONIBILE",
+  "No historical points substituted · raster is a separate layer":
+    "Nessun punto storico sostituito · il raster è un livello separato",
+  "Zero detections is not an all-clear":
+    "Zero rilevamenti non significa cessata allerta",
+  "FIRE-GRID MODEL": "MODELLO DELL'AREA DELL'INCENDIO",
+  Gust: "Raffica",
+  "model, not sensor": "modello, non sensore",
+  "POLLING 60 SECONDS": "INTERROGAZIONE OGNI 60 SECONDI",
+  "Confidence legend": "Legenda dell'affidabilità",
+  REPORTED: "SEGNALATO",
+  "MODELED / SIM": "MODELLIZZATO / SIM",
+  "NOT AN OFFICIAL EMERGENCY PRODUCT":
+    "NON È UN PRODOTTO UFFICIALE DI EMERGENZA",
+  "Interface baseline inspired by": "Interfaccia di base ispirata a",
+  "Authorities override every map layer.":
+    "Le autorità prevalgono su ogni livello della mappa.",
+
+  // Ternary-resolved strings
+  "Official alert feed. ": "Flusso ufficiale di allerte. ",
+  "Official information feed; only 112 alerts are public protective instructions. ":
+    "Flusso ufficiale di informazioni; solo le allerte 112 sono istruzioni pubbliche di protezione. ",
+  "Publisher feed item; publication time is unavailable, so recency is not verified. ":
+    "Elemento del flusso dell'editore; l'ora di pubblicazione non è disponibile, quindi l'attualità non è verificata. ",
+  "Near-real-time local reporting; not independently confirmed. ":
+    "Informazione locale quasi in tempo reale; non confermata in modo indipendente. ",
+  "Live-source retry in progress":
+    "Nuovo tentativo di connessione alle fonti in diretta in corso",
+  "No current live item returned":
+    "Nessun elemento in diretta attuale restituito",
+  "Checking live sources": "Verifica delle fonti in diretta",
+  "One local report referenced scattered activity near Agios Antonios at 20:50.":
+    "Una segnalazione locale ha riferito attività sparsa vicino ad Agios Antonios alle 20:50.",
+  "The same report described activity in the direction of Megalochori; this second area is a broad reference zone.":
+    "La stessa segnalazione ha descritto attività in direzione di Megalochori; questa seconda area è un'ampia zona di riferimento.",
+  pass: "passaggio",
+  passes: "passaggi",
+  "Checking official and local sources · Greece timestamps":
+    "Verifica delle fonti ufficiali e locali · orari della Grecia",
+
+  // Static intel timeline (labels + details)
+  "Aerial drops ended; scattered hotspots remain":
+    "Terminati i lanci aerei; restano focolai sparsi",
+  "Local field reporting says aerial operations ended for the night, with scattered active hotspots around Agios Antonios and toward Megalochori. Strong winds are hampering ground crews. This is not an official containment statement.":
+    "Secondo le informazioni locali dal campo, le operazioni aeree sono terminate per la notte, con focolai attivi sparsi intorno ad Agios Antonios e verso Megalochori. I venti forti ostacolano le squadre a terra. Non è una dichiarazione ufficiale di contenimento.",
+  "No continuous front reported; rekindling risk":
+    "Nessun fronte continuo segnalato; rischio di riprese del fuoco",
+  "The deputy regional governor reported no active continuous front, but numerous scattered hotspots remained in difficult terrain. Crews stayed alert for rekindling. This was a local official statement, not a Fire Service all-clear.":
+    "Il vicegovernatore regionale ha riferito che non c'era un fronte continuo attivo, ma restavano numerosi focolai sparsi su terreno difficile. Le squadre sono rimaste in allerta per le riprese del fuoco. Era una dichiarazione ufficiale locale, non un cessato allarme dei Vigili del Fuoco.",
+  "Hotspots reported near holiday homes":
+    "Focolai segnalati vicino a case vacanza",
+  "Local reporting said hotspots remained above Plomari near holiday homes. Residents and volunteers reportedly prevented flames from reaching houses.":
+    "La stampa locale ha riferito che restavano focolai sopra Plomari, vicino a case vacanza. Secondo le segnalazioni, residenti e volontari hanno impedito alle fiamme di raggiungere le abitazioni.",
+  "Regional satellite smoke observed":
+    "Fumo regionale osservato da satellite",
+  "Satellite imagery showed smoke from the Plomari incident and a major Turkish fire transported across Lesvos. This is a regional smoke snapshot, not a ground-level PM2.5 measurement.":
+    "Le immagini satellitari hanno mostrato fumo dall'evento di Plomari e da un grande incendio turco trasportato su Lesbo. È un'istantanea regionale del fumo, non una misurazione del PM2,5 al suolo.",
+  "Official 112 alert issued at 16:58":
+    "Allerta ufficiale 112 emessa alle 16:58",
+  "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued at 16:58; check the incident wire and authorities for any newer instruction.":
+    "Alle persone nell'area di Plomari è stato indicato di dirigersi verso la spiaggia di Plomari in direzione di Agios Isidoros. Questo riproduce l'allerta emessa alle 16:58; consultare il canale dell'evento e le autorità per eventuali istruzioni più recenti.",
+  "Fire Service response reinforced":
+    "Rafforzata la risposta dei Vigili del Fuoco",
+  "Fire Service reported 50 firefighters, two 12th EMODE teams, volunteers, 13 vehicles, three aircraft and three helicopters.":
+    "I Vigili del Fuoco hanno riferito di 50 vigili, due squadre della 12ª EMODE, volontari, 13 veicoli, tre aerei e tre elicotteri.",
+  "Latest satellite heat": "Ultimo calore satellitare",
+  "Aqua MODIS detected active heat near Chalkelia. A satellite point is an observed hot pixel, not a fire perimeter.":
+    "Aqua MODIS ha rilevato calore attivo vicino a Chalkelia. Un punto satellitare è un pixel caldo osservato, non un perimetro dell'incendio.",
+  "NOAA-20 pass": "Passaggio di NOAA-20",
+  "Six VIIRS hot pixels were detected near the incident, including three high-confidence detections.":
+    "Sei pixel caldi VIIRS sono stati rilevati vicino all'evento, di cui tre rilevamenti ad alta affidabilità.",
+  "Fire reported": "Incendio segnalato",
+  "The incident was reported around the restored Chalkelia landfill, north-east of Plomari.":
+    "L'evento è stato segnalato nell'area della discarica bonificata di Chalkelia, a nord-est di Plomari.",
+
+  // Sources list (labels + kinds)
+  "Fire Service board": "Quadro dei Vigili del Fuoco",
+  "Official incident status · automatic":
+    "Stato ufficiale dell'evento · automatico",
+  "112 Greece": "112 Grecia",
+  "Protective guidance": "Indicazioni di protezione",
+  "Official safety instructions": "Istruzioni ufficiali di sicurezza",
+  "Official response · 16:34": "Risposta ufficiale · 16:34",
+  "StoNisi overnight": "StoNisi durante la notte",
+  "Local field report · 20:50": "Rapporto locale dal campo · 20:50",
+  Aeolos: "Aeolos",
+  "Local reporting · repeated rekindling":
+    "Stampa locale · riprese del fuoco ripetute",
+  "Satellite smoke": "Fumo satellitare",
+  "Regional smoke report · 17:50": "Rapporto regionale sul fumo · 17:50",
+  "NASA FIRMS": "NASA FIRMS",
+  "Thermal points · server-side API": "Punti termici · API lato server",
+  "NASA GIBS": "NASA GIBS",
+  "No-key thermal / aerosol overlay":
+    "Livello termico / aerosol senza chiave",
+  "Open-Meteo": "Open-Meteo",
+  "Detailed point wind model": "Modello di vento puntuale dettagliato",
+  AviationWeather: "AviationWeather",
+  "Measured LGMT airport METAR": "METAR misurato dell'aeroporto LGMT",
+
+  // Live feed summaries (from the updates API)
+  "Item from an official source. Open the direct source for the full statement and any instructions.":
+    "Elemento da una fonte ufficiale. Aprire la fonte diretta per la dichiarazione completa ed eventuali istruzioni.",
+  "Headline link from the publisher; open the direct source for the full report.":
+    "Link del titolo dall'editore; aprire la fonte diretta per il servizio completo.",
+  "Live local-reporting page; open the direct source for the full chronology and field details.":
+    "Pagina locale di informazione in diretta; aprire la fonte diretta per la cronologia completa e i dettagli dal campo.",
+  "Direct post from an official account. Follow the linked instruction and authorities on the ground.":
+    "Post diretto da un account ufficiale. Seguire l'istruzione collegata e le autorità sul territorio.",
+};

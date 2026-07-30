@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ES, FR } from "./translations";
+import { DE, ES, FR, IT } from "./translations";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -12,15 +12,26 @@ import "leaflet/dist/leaflet.css";
 
 type LatLngTuple = [number, number];
 type Confidence = "official" | "observed" | "reported" | "modeled";
-type Language = "en" | "el" | "es" | "fr";
+type Language = "en" | "el" | "es" | "fr" | "de" | "it";
 
-const LANGUAGES: Language[] = ["en", "el", "es", "fr"];
+const LANGUAGES: Language[] = ["en", "el", "es", "fr", "de", "it"];
 
 const LOCALES: Record<Language, string> = {
   en: "en-GB",
   el: "el-GR",
   es: "es-ES",
   fr: "fr-FR",
+  de: "de-DE",
+  it: "it-IT",
+};
+
+const LANGUAGE_NAMES: Record<Language, string> = {
+  en: "English",
+  el: "Ελληνικά",
+  es: "Español",
+  fr: "Français",
+  de: "Deutsch",
+  it: "Italiano",
 };
 
 function isLanguage(value: unknown): value is Language {
@@ -675,10 +686,15 @@ function markerHtml(
 
 // Spanish/French come from the dictionaries in app/translations.ts, keyed
 // by the English source string; a missing entry falls back to English.
+const DICTIONARIES: Partial<Record<Language, Record<string, string>>> = {
+  es: ES,
+  fr: FR,
+  de: DE,
+  it: IT,
+};
+
 function translate(language: Language, english: string) {
-  if (language === "es") return ES[english] ?? english;
-  if (language === "fr") return FR[english] ?? english;
-  return english;
+  return DICTIONARIES[language]?.[english] ?? english;
 }
 
 function localize(language: Language, english: string, greek: string) {
@@ -771,6 +787,8 @@ function ageLabel(
       el: `πριν από ${ageMinutes} λεπτά`,
       es: `hace ${ageMinutes} min`,
       fr: `il y a ${ageMinutes} min`,
+      de: `vor ${ageMinutes} Min.`,
+      it: `${ageMinutes} min fa`,
     });
   }
   const hours = Math.floor(ageMinutes / 60);
@@ -781,6 +799,8 @@ function ageLabel(
       el: `πριν από ${hours}ω${minutes ? ` ${minutes}λ` : ""}`,
       es: `hace ${hours}h${minutes ? ` ${minutes}m` : ""}`,
       fr: `il y a ${hours}h${minutes ? ` ${minutes}m` : ""}`,
+      de: `vor ${hours}h${minutes ? ` ${minutes}m` : ""}`,
+      it: `${hours}h${minutes ? ` ${minutes}m` : ""} fa`,
     });
   }
   const days = Math.floor(hours / 24);
@@ -789,6 +809,8 @@ function ageLabel(
     el: `πριν από ${days}η ${hours % 24}ω`,
     es: `hace ${days}d ${hours % 24}h`,
     fr: `il y a ${days}j ${hours % 24}h`,
+    de: `vor ${days}T ${hours % 24}h`,
+    it: `${days}g ${hours % 24}h fa`,
   });
 }
 
@@ -841,9 +863,11 @@ function compass(degrees: number, language: Language = "en") {
   const points =
     language === "el"
       ? ["Β", "ΒΑ", "Α", "ΝΑ", "Ν", "ΝΔ", "Δ", "ΒΔ"]
-      : language === "es" || language === "fr"
+      : language === "es" || language === "fr" || language === "it"
         ? ["N", "NE", "E", "SE", "S", "SO", "O", "NO"]
-        : ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+        : language === "de"
+          ? ["N", "NO", "O", "SO", "S", "SW", "W", "NW"]
+          : ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   return points[Math.round((((degrees % 360) + 360) % 360) / 45) % 8];
 }
 
@@ -861,24 +885,32 @@ function localizeFireStatus(
       el: "ΣΕ ΕΞΕΛΙΞΗ",
       es: "EN CURSO",
       fr: "EN COURS",
+      de: "IM GANGE",
+      it: "IN CORSO",
     },
     "partial-control": {
       en: "PARTIAL CONTROL",
       el: "ΜΕΡΙΚΟΣ ΕΛΕΓΧΟΣ",
       es: "CONTROL PARCIAL",
       fr: "MAÎTRISE PARTIELLE",
+      de: "TEILWEISE UNTER KONTROLLE",
+      it: "CONTROLLO PARZIALE",
     },
     "full-control": {
       en: "UNDER CONTROL",
       el: "ΥΠΟ ΕΛΕΓΧΟ",
       es: "BAJO CONTROL",
       fr: "SOUS CONTRÔLE",
+      de: "UNTER KONTROLLE",
+      it: "SOTTO CONTROLLO",
     },
     ended: {
       en: "ENDED",
       el: "ΛΗΞΗ ΣΥΜΒΑΝΤΟΣ",
       es: "FINALIZADO",
       fr: "TERMINÉ",
+      de: "BEENDET",
+      it: "CONCLUSO",
     },
   } as const;
   return labels[status][language];
@@ -1030,6 +1062,8 @@ export default function Home() {
                     el: `· ηλικία ενημέρωσης πηγής ${updatesData.fireServiceIncident.sourceAge}`,
                     es: `; antigüedad del dato según la fuente ${updatesData.fireServiceIncident.sourceAge}`,
                     fr: `; ancienneté de la mise à jour selon la source ${updatesData.fireServiceIncident.sourceAge}`,
+                    de: `; Alter der Quellenmeldung ${updatesData.fireServiceIncident.sourceAge}`,
+                    it: `; età dell'aggiornamento secondo la fonte ${updatesData.fireServiceIncident.sourceAge}`,
                   })
                 : ""
             }. ${localize(
@@ -1161,6 +1195,8 @@ export default function Home() {
             el: `Τελευταία απόκριση · αποτυχία ανανέωσης · ${thermalLatestAge}`,
             es: `Última respuesta · fallo de actualización · ${thermalLatestAge}`,
             fr: `Dernière réponse · échec d'actualisation · ${thermalLatestAge}`,
+            de: `Letzte Antwort · Aktualisierung fehlgeschlagen · ${thermalLatestAge}`,
+            it: `Ultima risposta · aggiornamento non riuscito · ${thermalLatestAge}`,
           })
       : thermalData?.status === "partial"
         ? pick(language, {
@@ -1168,12 +1204,16 @@ export default function Home() {
             el: `Μερική απόκριση FIRMS · ${thermalLatestAge}`,
             es: `Respuesta parcial de FIRMS · ${thermalLatestAge}`,
             fr: `Réponse partielle FIRMS · ${thermalLatestAge}`,
+            de: `Teilweise FIRMS-Antwort · ${thermalLatestAge}`,
+            it: `Risposta parziale FIRMS · ${thermalLatestAge}`,
           })
         : pick(language, {
             en: `NASA FIRMS · ${thermalLatestAge}`,
             el: `NASA FIRMS · ${thermalLatestAge}`,
             es: `NASA FIRMS · ${thermalLatestAge}`,
             fr: `NASA FIRMS · ${thermalLatestAge}`,
+            de: `NASA FIRMS · ${thermalLatestAge}`,
+            it: `NASA FIRMS · ${thermalLatestAge}`,
           });
   const thermalWindowName = {
     latest: localize(
@@ -1724,6 +1764,8 @@ export default function Home() {
               el: `${label} σημειακό μοντέλο Open-Meteo: από ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) προς ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · ισχύει για ${windObservedTime} ώρα Ελλάδας`,
               es: `${label} modelo puntual Open-Meteo: desde ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) hacia ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · válido ${windObservedTime} hora de Grecia`,
               fr: `${label} modèle ponctuel Open-Meteo : depuis ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) vers ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · valable ${windObservedTime} heure de Grèce`,
+              de: `${label} Open-Meteo-Punktmodell: aus ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) nach ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · gültig ${windObservedTime} griechische Zeit`,
+              it: `${label} modello puntuale Open-Meteo: da ${String(Math.round(vector.directionDeg)).padStart(3, "0")}° (${compass(vector.directionDeg, language)}) verso ${compass(toward, language)} · ${vector.speedKmh.toFixed(1)} km/h · valido ${windObservedTime} ora della Grecia`,
             }),
             { sticky: true },
           )
@@ -1770,6 +1812,8 @@ export default function Home() {
               el: `Παρατήρηση ${formatGreeceTime(metar.observedAt)} ώρα Ελλάδας στο αεροδρόμιο Μυτιλήνης· οι συνθήκες στην πυρκαγιά μπορεί να διαφέρουν.`,
               es: `Observado a las ${formatGreeceTime(metar.observedAt)} hora de Grecia en el aeropuerto de Mitilene; las condiciones en el incendio pueden diferir.`,
               fr: `Observé à ${formatGreeceTime(metar.observedAt)} heure de Grèce à l'aéroport de Mytilène ; les conditions sur l'incendie peuvent différer.`,
+              de: `Beobachtet ${formatGreeceTime(metar.observedAt)} griechische Zeit am Flughafen Mytilini; die Bedingungen am Brand können abweichen.`,
+              it: `Osservato alle ${formatGreeceTime(metar.observedAt)} ora della Grecia all'aeroporto di Mitilene; le condizioni sull'incendio possono differire.`,
             })}<br>${metar.raw}</span></div>`,
           )
           .addTo(group);
@@ -1829,6 +1873,8 @@ export default function Home() {
             el: `Ενδεικτικό μοντέλο μεταφοράς καπνού · ${smokeMinutes} λεπτά · ${smokeDistance.toFixed(1)} km με μοντέλο ανέμου στα 10 m · όχι μέτρηση PM2.5 ούτε πρόγνωση εξάπλωσης πυρκαγιάς`,
             es: `Modelo indicativo de transporte de humo · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km con viento del modelo a 10 m · no es PM2.5 medido ni propagación del fuego`,
             fr: `Modèle indicatif de transport de fumée · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km au vent modélisé à 10 m · ni PM2,5 mesurées ni propagation du feu`,
+            de: `Indikatives Rauchtransportmodell · ${smokeMinutes} Min. · ${smokeDistance.toFixed(1)} km bei 10-m-Modellwind · kein gemessenes PM2,5 und keine Feuerausbreitung`,
+            it: `Modello indicativo di trasporto del fumo · ${smokeMinutes} min · ${smokeDistance.toFixed(1)} km con vento del modello a 10 m · non è PM2,5 misurato né propagazione del fuoco`,
           }),
           { sticky: true },
         )
@@ -1866,6 +1912,8 @@ export default function Home() {
             el: `ΜΟΝΟ ΥΠΟΘΕΤΙΚΟ ΣΕΝΑΡΙΟ · +${hour}ω · ${beaufort} Bft · όχι πρόγνωση`,
             es: `SOLO HIPOTÉTICO · +${hour}h · ${beaufort} Bft · no es un pronóstico`,
             fr: `HYPOTHÈSE UNIQUEMENT · +${hour}h · ${beaufort} Bft · pas une prévision`,
+            de: `NUR HYPOTHETISCH · +${hour}h · ${beaufort} Bft · keine Vorhersage`,
+            it: `SOLO IPOTETICO · +${hour}h · ${beaufort} Bft · non è una previsione`,
           }),
           { sticky: true },
         )
@@ -1981,47 +2029,20 @@ export default function Home() {
           </span>
           <div className="clock-line">
             <strong aria-live="polite">{clock || "--:--:--"}</strong>
-            <div
-              className="language-switch"
-              role="group"
-              aria-label={localize(language, "Language", "Γλώσσα")}
-            >
-              <button
-                type="button"
-                className={language === "el" ? "is-active" : ""}
-                onClick={() => changeLanguage("el")}
-                aria-pressed={language === "el"}
-                lang="el"
+            <div className="language-switch">
+              <select
+                value={language}
+                onChange={(event) =>
+                  changeLanguage(event.target.value as Language)
+                }
+                aria-label={localize(language, "Language", "Γλώσσα")}
               >
-                ΕΛ
-              </button>
-              <button
-                type="button"
-                className={language === "en" ? "is-active" : ""}
-                onClick={() => changeLanguage("en")}
-                aria-pressed={language === "en"}
-                lang="en"
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                className={language === "es" ? "is-active" : ""}
-                onClick={() => changeLanguage("es")}
-                aria-pressed={language === "es"}
-                lang="es"
-              >
-                ES
-              </button>
-              <button
-                type="button"
-                className={language === "fr" ? "is-active" : ""}
-                onClick={() => changeLanguage("fr")}
-                aria-pressed={language === "fr"}
-                lang="fr"
-              >
-                FR
-              </button>
+                {LANGUAGES.map((code) => (
+                  <option key={code} value={code} lang={code}>
+                    {LANGUAGE_NAMES[code]}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <small>
@@ -2078,6 +2099,8 @@ export default function Home() {
               el: `Η αρχική ειδοποίηση εκδόθηκε στις 16:58 · τελευταίος χειροκίνητος έλεγχος αρχείου ${officialVerifiedTime === "—" ? "εκκρεμεί" : `στις ${officialVerifiedTime}`}. Το πλαίσιο αναπαράγει εκείνη την οδηγία· δεν αποδεικνύει ότι παραμένει σε ισχύ. Ακολουθείτε κάθε νεότερο μήνυμα 112 και τις επί τόπου οδηγίες των Αρχών.`,
               es: `Alerta original emitida a las 16:58 · última revisión manual del registro ${officialVerifiedTime === "—" ? "pendiente" : officialVerifiedTime}. Este aviso reproduce aquella instrucción; no demuestra que siga vigente. Siga cualquier mensaje 112 más reciente y a las autoridades sobre el terreno.`,
               fr: `Alerte initiale émise à 16h58 · dernière revue manuelle du registre ${officialVerifiedTime === "—" ? "en attente" : officialVerifiedTime}. Ce bandeau reproduit cette consigne ; il ne prouve pas qu'elle reste en vigueur. Suivez tout message 112 plus récent et les autorités sur le terrain.`,
+              de: `Ursprüngliche Warnung ausgegeben 16:58 · letzte manuelle Prüfung des Eintrags ${officialVerifiedTime === "—" ? "ausstehend" : officialVerifiedTime}. Dieses Banner gibt jene Anweisung wieder; es belegt nicht, dass sie weiterhin gilt. Befolgen Sie jede neuere 112-Meldung und die Behörden vor Ort.`,
+              it: `Allerta originale emessa alle 16:58 · ultima revisione manuale del registro ${officialVerifiedTime === "—" ? "in attesa" : officialVerifiedTime}. Questo avviso riproduce quell'istruzione; non dimostra che sia ancora in vigore. Seguire ogni messaggio 112 più recente e le autorità sul territorio.`,
             })}{" "}
             <a
               className="official-alert-link"
@@ -2262,6 +2285,8 @@ export default function Home() {
                   el: `Μοντέλο για ${windObservedTime} · ενημέρωση κάθε 5 λεπτά`,
                   es: `Modelo válido ${windObservedTime} · sondeo cada 5 min`,
                   fr: `Modèle valable ${windObservedTime} · sondage toutes les 5 min`,
+                  de: `Modell gültig ${windObservedTime} · Abfrage alle 5 Min.`,
+                  it: `Modello valido ${windObservedTime} · interrogazione ogni 5 min`,
                 }),
                 count: "4",
               },
@@ -2544,6 +2569,8 @@ export default function Home() {
                       el: `ΕΓΚΥΡΟ ΓΙΑ ${windObservedTime}`,
                       es: `VÁLIDO ${windObservedTime}`,
                       fr: `VALABLE ${windObservedTime}`,
+                      de: `GÜLTIG ${windObservedTime}`,
+                      it: `VALIDO ${windObservedTime}`,
                     })}
               </strong>
             </div>
@@ -2650,6 +2677,12 @@ export default function Home() {
                 fr: `Depuis ${compass(fireWind.wind10.directionDeg, language)} vers ${compass(downwindHeading, language)}. Le vent du modèle ponctuel n'est pas la propagation du feu ; le terrain et les rafales peuvent modifier l'écoulement local. Récupéré ${
                   retrievedTime === "—" ? "en attente" : `${retrievedTime} heure de Grèce`
                 }.`,
+                de: `Aus ${compass(fireWind.wind10.directionDeg, language)} nach ${compass(downwindHeading, language)}. Punktmodell-Wind ist keine Feuerausbreitung; Gelände und Böen können die lokale Strömung ändern. Abgerufen ${
+                  retrievedTime === "—" ? "ausstehend" : `${retrievedTime} griechische Zeit`
+                }.`,
+                it: `Da ${compass(fireWind.wind10.directionDeg, language)} verso ${compass(downwindHeading, language)}. Il vento del modello puntuale non è la propagazione del fuoco; terreno e raffiche possono modificare il flusso locale. Recuperato ${
+                  retrievedTime === "—" ? "in attesa" : `${retrievedTime} ora della Grecia`
+                }.`,
               })}
             </p>
           </div>
@@ -2748,6 +2781,8 @@ export default function Home() {
                       el: `ΕΛΕΓΧΟΣ RSS ${updatesRetrievedTime}`,
                       es: `SONDEO RSS ${updatesRetrievedTime}`,
                       fr: `SONDAGE RSS ${updatesRetrievedTime}`,
+                      de: `RSS-ABFRAGE ${updatesRetrievedTime}`,
+                      it: `INTERROGAZIONE RSS ${updatesRetrievedTime}`,
                     })}
               </small>
             </div>
@@ -3014,6 +3049,8 @@ export default function Home() {
                     el: `${thermalDetections.length} ΕΓΓΡΑΦΕΣ · ${visibleThermalPasses} ΔΙΕΛΕΥΣΕΙΣ`,
                     es: `${thermalDetections.length} REGISTROS · ${visibleThermalPasses} PASADAS`,
                     fr: `${thermalDetections.length} ENREGISTREMENTS · ${visibleThermalPasses} PASSAGES`,
+                    de: `${thermalDetections.length} DATENSÄTZE · ${visibleThermalPasses} ÜBERFLÜGE`,
+                    it: `${thermalDetections.length} RECORD · ${visibleThermalPasses} PASSAGGI`,
                   })}
           </strong>
           <small>
@@ -3034,6 +3071,8 @@ export default function Home() {
                     el: `${thermalWindowName} · ${thermalLatestAge} · δορυφορικά στιγμιότυπα`,
                     es: `${thermalWindowName} · ${thermalLatestAge} · capturas orbitales`,
                     fr: `${thermalWindowName} · ${thermalLatestAge} · instantanés orbitaux`,
+                    de: `${thermalWindowName} · ${thermalLatestAge} · Orbital-Snapshots`,
+                    it: `${thermalWindowName} · ${thermalLatestAge} · istantanee orbitali`,
                   })}
           </small>
         </div>
@@ -3089,6 +3128,12 @@ export default function Home() {
               fr: sourceHealth
                 ? `${sourceHealth.online}/${sourceHealth.total} sources joignables · heures de Grèce`
                 : "Vérification des sources officielles et locales · heures de Grèce",
+              de: sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} Quellen erreichbar · griechische Zeitstempel`
+                : "Offizielle und lokale Quellen werden geprüft · griechische Zeitstempel",
+              it: sourceHealth
+                ? `${sourceHealth.online}/${sourceHealth.total} fonti raggiungibili · orari della Grecia`
+                : "Verifica delle fonti ufficiali e locali · orari della Grecia",
             })}
           </small>
         </div>
