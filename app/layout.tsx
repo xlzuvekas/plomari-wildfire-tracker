@@ -31,6 +31,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://server.arcgisonline.com" />
+        <link rel="preconnect" href="https://services.arcgisonline.com" />
+        <link rel="dns-prefetch" href="https://server.arcgisonline.com" />
+        <link rel="dns-prefetch" href="https://services.arcgisonline.com" />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -100,15 +100,15 @@ button {
 
 /* Keep the HUD tint subtle: heavy darkening made satellite imagery hard to
    read outdoors in sunlight, which is exactly when this map matters. */
-.map--dark .leaflet-tile {
+.map--dark .firewatch-basemap-tile {
   filter: saturate(0.6) brightness(0.92) contrast(1.14) hue-rotate(150deg);
 }
 
-.map--satellite .leaflet-tile {
+.map--satellite .firewatch-basemap-tile {
   filter: saturate(0.9) brightness(0.9) contrast(1.08) hue-rotate(3deg);
 }
 
-.map--terrain .leaflet-tile {
+.map--terrain .firewatch-basemap-tile {
   filter: saturate(0.55) brightness(0.85) contrast(1.12) hue-rotate(138deg);
 }
 
@@ -123,6 +123,21 @@ button {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.74rem;
   letter-spacing: 0.1em;
+}
+
+.map-tile-warning {
+  position: absolute;
+  z-index: 1200;
+  right: 12px;
+  bottom: 40px;
+  padding: 6px 8px;
+  color: #ffd699;
+  border: 1px solid rgba(255, 179, 71, 0.45);
+  background: rgba(35, 22, 6, 0.9);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  pointer-events: none;
 }
 
 .offline-banner {
@@ -2801,6 +2816,10 @@ button {
   font-size: 0.62rem;
 }
 
+.locate-readout__privacy-short {
+  display: none;
+}
+
 .locate-readout--error {
   border-color: rgba(255, 179, 71, 0.4);
   border-left-color: var(--amber);
@@ -3042,15 +3061,26 @@ button {
 
   .locate-readout {
     z-index: 1200;
-    top: calc(
-      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 12px
-    );
+    top: auto;
     left: 8px;
     bottom: calc(var(--mobile-dock) + 12px);
     max-width: min(300px, calc(100vw - 96px));
+    max-height: min(248px, 40dvh);
+    padding: 8px 9px;
     overflow: auto;
     font-size: 0.6875rem;
     overscroll-behavior: contain;
+  }
+
+  .locate-readout__privacy-long,
+  .locate-readout__route,
+  .locate-readout__distance-note {
+    display: none;
+  }
+
+  .locate-readout .locate-readout__privacy-short {
+    display: inline;
+    color: var(--green);
   }
 
   .locate-readout small {

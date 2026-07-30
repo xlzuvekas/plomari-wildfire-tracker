@@ -666,23 +666,34 @@ function isBeaufort(value: number): value is Beaufort {
 
 const BASEMAPS: Record<
   BaseMode,
-  { url: string; attribution: string; maxZoom: number }
+  {
+    url: string;
+    attribution: string;
+    maxZoom: number;
+    subdomains: string | string[];
+  }
 > = {
   dark: {
     url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     maxZoom: 19,
+    subdomains: "abcd",
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
   satellite: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    // Both public ArcGIS service hosts serve the same World
+    // Imagery tiles. Alternating them avoids one HTTP/1.1 connection queue on
+    // large screens while preserving the provider and attribution.
+    url: "https://{s}.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     maxZoom: 19,
+    subdomains: ["server", "services"],
     attribution:
       "Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community",
   },
   terrain: {
     url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
     maxZoom: 17,
+    subdomains: "abc",
     attribution:
       'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, contours &copy; OpenTopoMap',
   },
@@ -1185,6 +1196,8 @@ export default function Home() {
   const panelElement = useRef<HTMLElement | null>(null);
 
   const [ready, setReady] = useState(false);
+  const [baseTilesReady, setBaseTilesReady] = useState(false);
+  const [baseTilesFailed, setBaseTilesFailed] = useState(false);
   const [clockEpoch, setClockEpoch] = useState<number | null>(null);
   const [ageEpoch, setAgeEpoch] = useState(() => Date.now());
   const [asOfEpoch, setAsOfEpoch] = useState<number | null>(null);
@@ -2384,17 +2397,57 @@ export default function Home() {
   useEffect(() => {
     if (!ready || !mapRef.current || !leafletRef.current) return;
     const L = leafletRef.current;
-    if (baseLayerRef.current) {
-      mapRef.current.removeLayer(baseLayerRef.current);
-    }
+    const map = mapRef.current;
+    const previousLayer = baseLayerRef.current;
     const config = BASEMAPS[baseMode];
-    baseLayerRef.current = L.tileLayer(config.url, {
+    const nextLayer = L.tileLayer(config.url, {
       maxZoom: config.maxZoom,
       attribution: config.attribution,
-      subdomains: baseMode === "dark" || baseMode === "terrain" ? "abc" : "",
+      subdomains: config.subdomains,
+      className: "firewatch-basemap-tile",
+      keepBuffer: 1,
+      updateWhenIdle: true,
     });
-    baseLayerRef.current.addTo(mapRef.current);
-    baseLayerRef.current.bringToBack();
+    let firstTileLoaded = false;
+    const markReady = () => {
+      if (firstTileLoaded) return;
+      firstTileLoaded = true;
+      setBaseTilesReady(true);
+      setBaseTilesFailed(false);
+    };
+    const markFailed = () => {
+      if (firstTileLoaded) return;
+      setBaseTilesFailed(true);
+    };
+    const finishSwap = () => {
+      if (!firstTileLoaded) {
+        setBaseTilesFailed(true);
+        if (map.hasLayer(nextLayer)) map.removeLayer(nextLayer);
+        if (baseLayerRef.current === nextLayer) {
+          baseLayerRef.current = previousLayer;
+        }
+        return;
+      }
+      if (previousLayer && map.hasLayer(previousLayer)) {
+        map.removeLayer(previousLayer);
+      }
+    };
+    nextLayer.once("tileload", markReady);
+    nextLayer.once("load", finishSwap);
+    nextLayer.once("tileerror", markFailed);
+    nextLayer.addTo(map);
+    nextLayer.bringToBack();
+    baseLayerRef.current = nextLayer;
+
+    // Keep the previous basemap visible until the replacement has finished,
+    // instead of flashing the empty map background during a style switch.
+    if (previousLayer) previousLayer.bringToBack();
+
+    return () => {
+      nextLayer.off("tileload", markReady);
+      nextLayer.off("load", finishSwap);
+      nextLayer.off("tileerror", markFailed);
+    };
   }, [baseMode, ready]);
 
   useEffect(() => {
@@ -2545,7 +2598,7 @@ export default function Home() {
       ].forEach((layerName) => {
         L.tileLayer
           .wms(
-            "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi",
+            "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi",
             {
               layers: layerName,
               format: "image/png",
@@ -2963,9 +3016,22 @@ export default function Home() {
             "Διαδραστικός επιχειρησιακός χάρτης δασικής πυρκαγιάς Πλωμαρίου",
           )}
         />
-        {!ready && (
-          <div className="map-loading">
-            {localize(language, "ACQUIRING MAP…", "ΦΟΡΤΩΣΗ ΧΑΡΤΗ…")}
+        {(!ready || (!baseTilesReady && !baseTilesFailed)) && (
+          <div className="map-loading" role="status" aria-live="polite">
+            {localize(
+              language,
+              ready ? "LOADING SATELLITE MAP…" : "ACQUIRING MAP…",
+              ready ? "ΦΟΡΤΩΣΗ ΔΟΡΥΦΟΡΙΚΟΥ ΧΑΡΤΗ…" : "ΦΟΡΤΩΣΗ ΧΑΡΤΗ…",
+            )}
+          </div>
+        )}
+        {baseTilesFailed && (
+          <div className="map-tile-warning" role="status">
+            {localize(
+              language,
+              "SOME MAP TILES ARE DELAYED",
+              "ΚΑΘΥΣΤΕΡΟΥΝ ΟΡΙΣΜΕΝΑ ΠΛΑΚΙΔΙΑ ΧΑΡΤΗ",
+            )}
           </div>
         )}
         <div className="scanline" aria-hidden="true" />
@@ -3303,7 +3369,10 @@ export default function Home() {
             type="button"
             key={mode}
             className={baseMode === mode ? "is-active" : ""}
-            onClick={() => setBaseMode(mode)}
+            onClick={() => {
+              setBaseTilesFailed(false);
+              setBaseMode(mode);
+            }}
             aria-pressed={baseMode === mode}
           >
             {
@@ -3339,11 +3408,16 @@ export default function Home() {
             <>
               <strong>
                 GPS ±{Math.round(userPosition.accuracyM)} m ·{" "}
-                {localize(
-                  language,
-                  "not sent to Firewatch; centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA",
-                  "δεν αποστέλλεται στο Firewatch· το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA",
-                )}
+                <span className="locate-readout__privacy-long">
+                  {localize(
+                    language,
+                    "not sent to Firewatch; centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA",
+                    "δεν αποστέλλεται στο Firewatch· το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA",
+                  )}
+                </span>
+                <span className="locate-readout__privacy-short">
+                  {localize(language, "ON DEVICE", "ΣΤΗ ΣΥΣΚΕΥΗ")}
+                </span>
               </strong>
               {userReadout.nearest ? (
                 <span>
@@ -3374,7 +3448,7 @@ export default function Home() {
                   )}
                 </span>
               )}
-              <span>
+              <span className="locate-readout__route">
                 {userReadout.routeKm.toFixed(1)} km {userReadout.routeDir} →{" "}
                 {localize(
                   language,
@@ -3391,7 +3465,7 @@ export default function Home() {
                   "σημείο αναφοράς συμβάντος",
                 )}
               </span>
-              <small>
+              <small className="locate-readout__distance-note">
                 {localize(
                   language,
                   "Distances are straight-line, not road distance.",
