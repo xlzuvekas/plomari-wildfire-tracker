@@ -227,6 +227,19 @@ application cadence.
 - category, severity, and action-required metadata without changing the
   original source title or link.
 
+## Data truth layer
+
+The next architecture phase moves source collection and incident history out of
+request-time API composition and into an append-only, auditable data layer.
+
+- [Data truth layer specification](docs/data-truth-layer-spec.md)
+- [`lib/truth`](lib/truth) contains the initial shared domain contracts,
+  source-authority registry, and deterministic freshness calculation.
+
+The scaffold does not yet provision a database or change production ingestion.
+Those changes will run in shadow mode before the public map switches to the
+version 3 read model.
+
 ## Project structure
 
 ```text

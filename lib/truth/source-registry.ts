@@ -1,0 +1,291 @@
+import type { SourceDefinition } from "./domain";
+
+export const SOURCE_REGISTRY = [
+  {
+    key: "fire-service-board",
+    name: "Hellenic Fire Service incident board",
+    sourceKind: "official_status",
+    authorityScopes: ["incident_status"],
+    homepageUrl: "https://www.fireservice.gr/",
+    dataUrl: "https://www.fireservice.gr/apps/fire2019/symvanta/page.php",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "fire-service-board",
+    contentPolicy: "official_content",
+    notes:
+      "Authoritative only for the incident status published on the board; it does not provide a perimeter or route.",
+  },
+  {
+    key: "112-greece",
+    name: "112 Greece",
+    sourceKind: "official_alert",
+    authorityScopes: ["protective_instruction"],
+    homepageUrl: "https://civilprotection.gov.gr/112",
+    dataUrl: "https://x.com/112Greece",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 180,
+    enabledByDefault: false,
+    credentialEnv: "X_BEARER_TOKEN",
+    adapterName: "x-official-account",
+    contentPolicy: "official_content",
+    notes:
+      "Optional API feed. Phone cell broadcast and authorities remain the primary alert path.",
+  },
+  {
+    key: "hellenic-fire-service-x",
+    name: "Hellenic Fire Service official account",
+    sourceKind: "official_status",
+    authorityScopes: ["incident_status", "local_context"],
+    homepageUrl: "https://www.fireservice.gr/",
+    dataUrl: "https://x.com/pyrosvestiki",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: false,
+    credentialEnv: "X_BEARER_TOKEN",
+    adapterName: "x-official-account",
+    contentPolicy: "official_content",
+    notes:
+      "Optional official-account context; protective actions remain restricted to validated alert sources.",
+  },
+  {
+    key: "civil-protection",
+    name: "Greek Civil Protection press feed",
+    sourceKind: "official_context",
+    authorityScopes: ["local_context"],
+    homepageUrl: "https://civilprotection.gov.gr/",
+    dataUrl: "https://civilprotection.gov.gr/deltia-tupou.rss",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-official-context",
+    contentPolicy: "official_content",
+    notes:
+      "Press context only unless an item is independently validated as an official protective instruction.",
+  },
+  {
+    key: "mytilene-civil-protection",
+    name: "Municipality of Mytilene Civil Protection",
+    sourceKind: "official_context",
+    authorityScopes: ["local_context", "road_status"],
+    homepageUrl: "https://www.mytilene.gr/",
+    dataUrl: "https://www.mytilene.gr/category/politiki-prostasia/feed/",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-official-context",
+    contentPolicy: "official_content",
+    notes:
+      "Municipal context and explicitly published municipal road information.",
+  },
+  {
+    key: "mytilene-plomari",
+    name: "Municipality of Mytilene · Plomari",
+    sourceKind: "official_context",
+    authorityScopes: ["local_context", "road_status"],
+    homepageUrl: "https://www.mytilene.gr/",
+    dataUrl:
+      "https://www.mytilene.gr/category/dimos/dimotiki-enotita-plomariou/feed/",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-official-context",
+    contentPolicy: "official_content",
+    notes: "Plomari municipal context feed.",
+  },
+  {
+    key: "ert-north-aegean",
+    name: "ERT North Aegean",
+    sourceKind: "public_broadcaster",
+    authorityScopes: ["local_context"],
+    homepageUrl: "https://www.ertnews.gr/",
+    dataUrl:
+      "https://www.ertnews.gr/news/perifereiakoi-stathmoi/voreio_aigaio/feed/",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-publisher",
+    contentPolicy: "headline_link_excerpt",
+    notes:
+      "Public-broadcaster reporting; it does not create official protective actions.",
+  },
+  {
+    key: "stonisi",
+    name: "StoNisi",
+    sourceKind: "publisher",
+    authorityScopes: ["local_context"],
+    homepageUrl: "https://www.stonisi.gr/",
+    dataUrl: "https://feeds.feedburner.com/stonisigr",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-publisher",
+    contentPolicy: "headline_link_excerpt",
+    notes:
+      "Local reporting. Live-story metadata can be collected as a version of the same publisher source.",
+  },
+  {
+    key: "aeolos-lesvos",
+    name: "Aeolos Lesvos",
+    sourceKind: "publisher",
+    authorityScopes: ["local_context"],
+    homepageUrl: "https://aeolos.tv/",
+    dataUrl: "https://aeolos.tv/category/voreio-aigaio/lesvos/feed/",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-publisher",
+    contentPolicy: "headline_link_excerpt",
+    notes: "Local publisher reporting.",
+  },
+  {
+    key: "aeolos-breaking",
+    name: "Aeolos Breaking",
+    sourceKind: "publisher",
+    authorityScopes: ["local_context"],
+    homepageUrl: "https://aeolos.tv/",
+    dataUrl: "https://aeolos.tv/category/ektakto/feed/",
+    expectedCadenceSeconds: 60,
+    staleAfterSeconds: 300,
+    enabledByDefault: true,
+    adapterName: "rss-publisher",
+    contentPolicy: "headline_link_excerpt",
+    notes: "Breaking-news publisher reporting.",
+  },
+  {
+    key: "firms-noaa20",
+    name: "NASA FIRMS · NOAA-20 VIIRS",
+    sourceKind: "sensor",
+    authorityScopes: ["thermal_anomaly"],
+    homepageUrl: "https://firms.modaps.eosdis.nasa.gov/",
+    dataUrl: "https://firms.modaps.eosdis.nasa.gov/api/area/csv",
+    expectedCadenceSeconds: 300,
+    staleAfterSeconds: 900,
+    enabledByDefault: true,
+    credentialEnv: "FIRMS_MAP_KEY",
+    adapterName: "firms-area-csv",
+    contentPolicy: "structured_data",
+    notes:
+      "Orbital thermal-anomaly detections, not a continuous flame location or fire perimeter.",
+  },
+  {
+    key: "firms-noaa21",
+    name: "NASA FIRMS · NOAA-21 VIIRS",
+    sourceKind: "sensor",
+    authorityScopes: ["thermal_anomaly"],
+    homepageUrl: "https://firms.modaps.eosdis.nasa.gov/",
+    dataUrl: "https://firms.modaps.eosdis.nasa.gov/api/area/csv",
+    expectedCadenceSeconds: 300,
+    staleAfterSeconds: 900,
+    enabledByDefault: true,
+    credentialEnv: "FIRMS_MAP_KEY",
+    adapterName: "firms-area-csv",
+    contentPolicy: "structured_data",
+    notes:
+      "Orbital thermal-anomaly detections, not a continuous flame location or fire perimeter.",
+  },
+  {
+    key: "firms-snpp",
+    name: "NASA FIRMS · Suomi-NPP VIIRS",
+    sourceKind: "sensor",
+    authorityScopes: ["thermal_anomaly"],
+    homepageUrl: "https://firms.modaps.eosdis.nasa.gov/",
+    dataUrl: "https://firms.modaps.eosdis.nasa.gov/api/area/csv",
+    expectedCadenceSeconds: 300,
+    staleAfterSeconds: 900,
+    enabledByDefault: true,
+    credentialEnv: "FIRMS_MAP_KEY",
+    adapterName: "firms-area-csv",
+    contentPolicy: "structured_data",
+    notes:
+      "Orbital thermal-anomaly detections, not a continuous flame location or fire perimeter.",
+  },
+  {
+    key: "nasa-gibs",
+    name: "NASA GIBS imagery",
+    sourceKind: "sensor",
+    authorityScopes: ["satellite_imagery"],
+    homepageUrl: "https://www.earthdata.nasa.gov/eosdis/science-system-description/eosdis-components/gibs",
+    dataUrl: "https://gibs.earthdata.nasa.gov/",
+    expectedCadenceSeconds: 300,
+    staleAfterSeconds: 1800,
+    enabledByDefault: true,
+    adapterName: "gibs-imagery-metadata",
+    contentPolicy: "structured_data",
+    notes:
+      "Daily imagery layer. Raster imagery remains separate from FIRMS point detections.",
+  },
+  {
+    key: "open-meteo-plomari",
+    name: "Open-Meteo · Plomari fire area",
+    sourceKind: "model",
+    authorityScopes: ["weather_model"],
+    homepageUrl: "https://open-meteo.com/",
+    dataUrl: "https://api.open-meteo.com/v1/forecast",
+    expectedCadenceSeconds: 300,
+    staleAfterSeconds: 900,
+    enabledByDefault: true,
+    adapterName: "open-meteo-forecast",
+    contentPolicy: "derived_model",
+    notes: "Modeled point conditions; not an on-site weather measurement.",
+  },
+  {
+    key: "aviation-weather-lgmt",
+    name: "AviationWeather · LGMT METAR",
+    sourceKind: "measurement",
+    authorityScopes: ["weather_measurement"],
+    homepageUrl: "https://aviationweather.gov/",
+    dataUrl: "https://aviationweather.gov/api/data/metar",
+    expectedCadenceSeconds: 300,
+    staleAfterSeconds: 1200,
+    enabledByDefault: true,
+    adapterName: "aviation-weather-metar",
+    contentPolicy: "structured_data",
+    notes:
+      "Measured airport conditions. Terrain at the fireground can differ materially.",
+  },
+] as const satisfies readonly SourceDefinition[];
+
+export type SourceKey = (typeof SOURCE_REGISTRY)[number]["key"];
+
+const sourceRegistryByKey = new Map(
+  SOURCE_REGISTRY.map((source) => [source.key, source]),
+);
+
+export function getSourceDefinition(key: string): SourceDefinition | null {
+  return sourceRegistryByKey.get(key as SourceKey) ?? null;
+}
+
+export function validateSourceRegistry(
+  registry: readonly SourceDefinition[] = SOURCE_REGISTRY,
+): readonly string[] {
+  const errors: string[] = [];
+  const keys = new Set<string>();
+
+  registry.forEach((source) => {
+    if (keys.has(source.key)) {
+      errors.push(`duplicate source key: ${source.key}`);
+    }
+    keys.add(source.key);
+
+    if (source.expectedCadenceSeconds <= 0) {
+      errors.push(`${source.key}: expected cadence must be positive`);
+    }
+    if (source.staleAfterSeconds < source.expectedCadenceSeconds) {
+      errors.push(`${source.key}: stale threshold must not precede cadence`);
+    }
+    if (source.authorityScopes.length === 0) {
+      errors.push(`${source.key}: at least one authority scope is required`);
+    }
+    if (!source.dataUrl.startsWith("https://")) {
+      errors.push(`${source.key}: data URL must use HTTPS`);
+    }
+  });
+
+  return errors;
+}
+
+const registryErrors = validateSourceRegistry();
+if (registryErrors.length > 0) {
+  throw new Error(`Invalid source registry: ${registryErrors.join("; ")}`);
+}
