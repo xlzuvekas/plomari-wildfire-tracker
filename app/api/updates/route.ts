@@ -1,3 +1,9 @@
+import {
+  FIRE_SERVICE_BOARD_URL,
+  parseFireServiceBoard,
+} from "./fireservice";
+import { normalizeSearch, plainText } from "./text";
+
 const INCIDENT_STARTED_AT = "2026-07-29T10:30:00Z";
 const INCIDENT_STARTED_MS = Date.parse(INCIDENT_STARTED_AT);
 const LOCAL_TIME_ZONE = "Europe/Athens";
@@ -109,8 +115,6 @@ const X_ACCOUNTS = [
 
 const STONISI_LIVE_URL =
   "https://www.stonisi.gr/post/114624/stamathsan-oi-ripseis-apo-aeros-sthn-fwtia-toy-plwmarioy";
-const FIRE_SERVICE_BOARD_URL =
-  "https://www.fireservice.gr/apps/fire2019/symvanta/page.php";
 
 type FeedConfig = (typeof FEEDS)[number];
 type XAccount = (typeof X_ACCOUNTS)[number];
@@ -156,37 +160,6 @@ type SourceSnapshot = {
     | "live-board-observation-at-fetch-time";
 };
 
-function decodeXml(value: string) {
-  const named: Record<string, string> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    nbsp: " ",
-    quot: '"',
-  };
-
-  return value
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&#(x?[0-9a-f]+);/gi, (_match, code: string) => {
-      const radix = code.toLowerCase().startsWith("x") ? 16 : 10;
-      const digits = radix === 16 ? code.slice(1) : code;
-      const point = Number.parseInt(digits, radix);
-      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
-    })
-    .replace(/&([a-z]+);/gi, (_match, entity: string) => named[entity] ?? "");
-}
-
-function plainText(value: string, limit = 500) {
-  return decodeXml(value)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, limit);
-}
-
 function tag(block: string, name: string) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return (
@@ -210,13 +183,6 @@ function tags(block: string, name: string) {
     ),
     (match) => match[1],
   );
-}
-
-function normalizeSearch(value: string) {
-  return plainText(value, 30_000)
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
 }
 
 function relevant(value: string) {
@@ -769,53 +735,8 @@ async function fetchXAccount(
 
 async function fetchFireServiceIncident() {
   const html = await fetchText(FIRE_SERVICE_BOARD_URL);
-  const text = normalizeSearch(html);
-  const incidentIndex = text.indexOf("δ. λεσβου - πλωμαριου");
-  if (incidentIndex < 0) {
-    throw new Error("Plomari row not found");
-  }
-
-  const before = text.slice(0, incidentIndex);
-  const headings = Array.from(
-    before.matchAll(
-      /(σε εξελιξη|μερικος ελεγχος|πληρης ελεγχος|ληξη)\s*\(\d+\)/g,
-    ),
-  );
-  const heading = headings.at(-1)?.[1];
-  const status =
-    heading === "σε εξελιξη"
-      ? "in-progress"
-      : heading === "μερικος ελεγχος"
-        ? "partial-control"
-        : heading === "πληρης ελεγχος"
-          ? "full-control"
-          : heading === "ληξη"
-            ? "ended"
-            : null;
-
-  if (!status) {
-    throw new Error("Plomari status not parsed");
-  }
-
-  const after = text.slice(incidentIndex, incidentIndex + 700);
-  const sourceAge =
-    after.match(
-      /τελευταια ενημερωση πριν απο\s+(\d+\s+(?:δευτερολεπτ(?:ο|α)|λεπτ(?:ο|α)|ωρ(?:α|ες)))/,
-    )?.[1] ?? null;
-
   return {
-    status,
-    statusLabel:
-      status === "in-progress"
-        ? "IN PROGRESS"
-        : status === "partial-control"
-          ? "PARTIAL CONTROL"
-          : status === "full-control"
-            ? "FULL CONTROL"
-            : "ENDED",
-    municipality: "Lesvos · Plomari",
-    incidentType: "Wildfire incident",
-    sourceAge,
+    ...parseFireServiceBoard(html),
     fetchedAt: new Date().toISOString(),
     sourceUrl: FIRE_SERVICE_BOARD_URL,
     official: true,
