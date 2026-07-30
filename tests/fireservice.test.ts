@@ -1,8 +1,7 @@
-import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { expect, test } from "vitest";
 
-import { parseFireServiceBoard } from "../app/api/updates/fireservice.ts";
+import { parseFireServiceBoard } from "../app/api/updates/fireservice";
 
 const fixture = readFileSync(
   new URL("./fixtures/fireservice-board.html", import.meta.url),
@@ -10,7 +9,7 @@ const fixture = readFileSync(
 );
 
 test("parses the Plomari row from a real board snapshot", () => {
-  assert.deepEqual(parseFireServiceBoard(fixture), {
+  expect(parseFireServiceBoard(fixture)).toEqual({
     status: "in-progress",
     statusLabel: "IN PROGRESS",
     municipality: "Lesvos · Plomari",
@@ -23,7 +22,7 @@ test("maps a different status heading and tolerates a missing age line", () => {
   const html =
     "<html><body><h3>ΛΗΞΗ (4)</h3>" +
     "<table><tr><td>Δ. ΛΕΣΒΟΥ - ΠΛΩΜΑΡΙΟΥ</td></tr></table></body></html>";
-  assert.deepEqual(parseFireServiceBoard(html), {
+  expect(parseFireServiceBoard(html)).toEqual({
     status: "ended",
     statusLabel: "ENDED",
     municipality: "Lesvos · Plomari",
@@ -33,18 +32,15 @@ test("maps a different status heading and tolerates a missing age line", () => {
 });
 
 test("throws when the Plomari row is missing so the source degrades to error", () => {
-  assert.throws(
-    () => parseFireServiceBoard("<html><body>unrelated page</body></html>"),
-    /Plomari row not found/,
-  );
+  expect(() =>
+    parseFireServiceBoard("<html><body>unrelated page</body></html>"),
+  ).toThrow(/Plomari row not found/);
 });
 
 test("throws when no status heading precedes the Plomari row", () => {
-  assert.throws(
-    () =>
-      parseFireServiceBoard(
-        "<html><body><td>Δ. ΛΕΣΒΟΥ - ΠΛΩΜΑΡΙΟΥ</td></body></html>",
-      ),
-    /Plomari status not parsed/,
-  );
+  expect(() =>
+    parseFireServiceBoard(
+      "<html><body><td>Δ. ΛΕΣΒΟΥ - ΠΛΩΜΑΡΙΟΥ</td></body></html>",
+    ),
+  ).toThrow(/Plomari status not parsed/);
 });

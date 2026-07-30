@@ -1,6 +1,4 @@
-// Explicit .ts extension so the Node test runner can import this module
-// without a build step; requires allowImportingTsExtensions in tsconfig.
-import { normalizeSearch } from "./text.ts";
+import { normalizeSearch } from "./text";
 
 export const FIRE_SERVICE_BOARD_URL =
   "https://www.fireservice.gr/apps/fire2019/symvanta/page.php";
