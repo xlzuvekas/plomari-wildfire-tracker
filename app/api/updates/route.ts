@@ -118,8 +118,6 @@ type XAccount = (typeof X_ACCOUNTS)[number];
 type FeedItem = {
   id: string;
   title: string;
-  /** @deprecated Use summaryEn or summaryEl. */
-  summary: string;
   summaryEn: string;
   summaryEl: string;
   url: string;
@@ -331,6 +329,8 @@ function dateKeyFromSource(value: string) {
     return `${yearFirst[1]}-${yearFirst[2].padStart(2, "0")}-${yearFirst[3].padStart(2, "0")}`;
   }
 
+  // Assumes DD/MM/YYYY (day first), which holds for the Greek-sourced feeds
+  // here; a MM/DD/YYYY source would be silently mis-parsed.
   const dayFirst = cleaned.match(
     /(?:^|\D)(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\D|$)/,
   );
@@ -527,7 +527,6 @@ async function fetchFeed(feed: FeedConfig) {
       return {
         id: `${feed.id}-${guid || url}`,
         title,
-        summary: summaryEn,
         summaryEn,
         summaryEl,
         url,
@@ -652,7 +651,6 @@ async function fetchStoNisiLiveStory(): Promise<FeedItem> {
   return {
     id: "stonisi-live-114624",
     title: plainText(headline, 240),
-    summary: summaryEn,
     summaryEn,
     summaryEl,
     url: STONISI_LIVE_URL,
@@ -720,7 +718,6 @@ async function fetchXAccount(
         return {
           id: `x-${account.username}-${post.id}`,
           title: plainText(post.text, 240),
-          summary: summaryEn,
           summaryEn,
           summaryEl,
           url: `https://x.com/${account.username}/status/${post.id}`,

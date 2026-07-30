@@ -175,9 +175,8 @@ type ThermalPayload = {
 type LiveUpdateItem = {
   id: string;
   title: string;
-  summary: string;
-  summaryEn?: string;
-  summaryEl?: string;
+  summaryEn: string;
+  summaryEl: string;
   url: string;
   sourceId: string;
   sourceLabel: string;
@@ -886,9 +885,7 @@ export default function Home() {
       updatesData?.items.slice(0, 6).map((item) => {
         const timestamp = item.modifiedAt ?? item.publishedAt;
         const localizedSummary =
-          language === "el"
-            ? item.summaryEl ?? item.summary
-            : item.summaryEn ?? item.summary;
+          language === "el" ? item.summaryEl : item.summaryEn;
         const detailPrefix =
           item.sourceTier === "official"
             ? localize(
