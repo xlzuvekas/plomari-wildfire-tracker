@@ -940,6 +940,7 @@ export default function Home() {
   const [ageEpoch, setAgeEpoch] = useState(() => Date.now());
   const [baseMode, setBaseMode] = useState<BaseMode>("satellite");
   const [language, setLanguage] = useState<Language>("en");
+  const [locatorOpen, setLocatorOpen] = useState(false);
   const [locatorQuery, setLocatorQuery] = useState("");
   const [locatorResults, setLocatorResults] = useState<GeocodeResult[]>([]);
   const [locatorBusy, setLocatorBusy] = useState(false);
@@ -1310,6 +1311,7 @@ export default function Home() {
   const closePanels = () => {
     setPanelOpen(false);
     setIntelOpen(false);
+    setLocatorOpen(false);
   };
 
   useEffect(() => {
@@ -2107,7 +2109,126 @@ export default function Home() {
     );
   };
 
-  const mobileSheetOpen = compact && (panelOpen || intelOpen);
+  const locatorBody = (
+    <>
+        <form className="locator-search" onSubmit={runLocatorSearch}>
+          <input
+            type="search"
+            value={locatorQuery}
+            onChange={(event) => setLocatorQuery(event.target.value)}
+            placeholder={localize(
+              language,
+              "Search address or place",
+              "Αναζήτηση διεύθυνσης ή τοποθεσίας",
+            )}
+            aria-label={localize(
+              language,
+              "Search address or place",
+              "Αναζήτηση διεύθυνσης ή τοποθεσίας",
+            )}
+          />
+          <button type="submit" disabled={locatorBusy}>
+            {localize(language, "SEARCH", "ΑΝΑΖΗΤΗΣΗ")}
+          </button>
+          <button type="button" onClick={useMyLocation} disabled={locatorBusy}>
+            {locatorBusy
+              ? localize(language, "Locating…", "Εντοπισμός…")
+              : localize(language, "MY LOCATION", "Η ΘΕΣΗ ΜΟΥ")}
+          </button>
+          {userPoint && (
+            <button type="button" onClick={clearLocator}>
+              {localize(language, "CLEAR", "ΚΑΘΑΡΙΣΜΟΣ")}
+            </button>
+          )}
+        </form>
+        {locatorError && (
+          <p className="locator-error" role="alert">
+            {locatorError === "empty"
+              ? localize(
+                  language,
+                  "No results — try a more specific place name.",
+                  "Κανένα αποτέλεσμα — δοκιμάστε πιο συγκεκριμένο όνομα τοποθεσίας.",
+                )
+              : locatorError === "geolocation"
+                ? localize(
+                    language,
+                    "Location unavailable — allow location access or search instead.",
+                    "Η τοποθεσία δεν είναι διαθέσιμη — επιτρέψτε την πρόσβαση τοποθεσίας ή χρησιμοποιήστε την αναζήτηση.",
+                  )
+                : localize(
+                    language,
+                    "Search failed — try again.",
+                    "Η αναζήτηση απέτυχε — δοκιμάστε ξανά.",
+                  )}
+          </p>
+        )}
+        {locatorResults.length > 0 && (
+          <ul className="locator-results">
+            {locatorResults.map((result) => (
+              <li key={`${result.lat},${result.lon}`}>
+                <button
+                  type="button"
+                  onClick={() => chooseLocatorResult(result)}
+                >
+                  {result.label}
+                </button>
+              </li>
+            ))}
+            <li className="locator-credit">
+              {localize(
+                language,
+                "Search data © OpenStreetMap",
+                "Δεδομένα αναζήτησης © OpenStreetMap",
+              )}
+            </li>
+          </ul>
+        )}
+        {userPoint && proximity && proximityLevelText && (
+          <div className={`locator-card locator-card--${proximity.level}`}>
+            <strong className="locator-level">
+              {proximityLevelText.label}
+            </strong>
+            <p className="locator-place">{userPoint.label}</p>
+            <p>
+              <strong>
+                {proximity.distanceToIncidentKm.toFixed(1)} km{" "}
+                {compass(proximity.bearingToIncidentDeg, language)}
+              </strong>{" "}
+              {localize(
+                language,
+                "to incident center",
+                "από το κέντρο του συμβάντος",
+              )}
+            </p>
+            <p>
+              {localize(
+                language,
+                "nearest satellite detection",
+                "πλησιέστερη δορυφορική ανίχνευση",
+              )}
+              :{" "}
+              {proximity.nearestDetectionKm !== null
+                ? `${proximity.nearestDetectionKm.toFixed(1)} km · ${Math.round(proximity.nearestDetectionAgeMinutes ?? 0)} min`
+                : localize(
+                    language,
+                    "no detections in the selected window",
+                    "καμία ανίχνευση στο επιλεγμένο παράθυρο",
+                  )}
+            </p>
+            <p className="locator-advice">{proximityLevelText.advice}</p>
+            <small>
+              {localize(
+                language,
+                "Indicative distance-based level · not an official warning. Follow 112 and authorities.",
+                "Ενδεικτικό επίπεδο βάσει απόστασης · όχι επίσημη προειδοποίηση. Ακολουθείτε το 112 και τις αρχές.",
+              )}
+            </small>
+          </div>
+        )}
+    </>
+  );
+
+  const mobileSheetOpen = compact && (panelOpen || intelOpen || locatorOpen);
 
   return (
     <main
@@ -2278,120 +2399,7 @@ export default function Home() {
           "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ",
         )}
       >
-        <form className="locator-search" onSubmit={runLocatorSearch}>
-          <input
-            type="search"
-            value={locatorQuery}
-            onChange={(event) => setLocatorQuery(event.target.value)}
-            placeholder={localize(
-              language,
-              "Search address or place",
-              "Αναζήτηση διεύθυνσης ή τοποθεσίας",
-            )}
-            aria-label={localize(
-              language,
-              "Search address or place",
-              "Αναζήτηση διεύθυνσης ή τοποθεσίας",
-            )}
-          />
-          <button type="submit" disabled={locatorBusy}>
-            {localize(language, "SEARCH", "ΑΝΑΖΗΤΗΣΗ")}
-          </button>
-          <button type="button" onClick={useMyLocation} disabled={locatorBusy}>
-            {locatorBusy
-              ? localize(language, "Locating…", "Εντοπισμός…")
-              : localize(language, "MY LOCATION", "Η ΘΕΣΗ ΜΟΥ")}
-          </button>
-          {userPoint && (
-            <button type="button" onClick={clearLocator}>
-              {localize(language, "CLEAR", "ΚΑΘΑΡΙΣΜΟΣ")}
-            </button>
-          )}
-        </form>
-        {locatorError && (
-          <p className="locator-error" role="alert">
-            {locatorError === "empty"
-              ? localize(
-                  language,
-                  "No results — try a more specific place name.",
-                  "Κανένα αποτέλεσμα — δοκιμάστε πιο συγκεκριμένο όνομα τοποθεσίας.",
-                )
-              : locatorError === "geolocation"
-                ? localize(
-                    language,
-                    "Location unavailable — allow location access or search instead.",
-                    "Η τοποθεσία δεν είναι διαθέσιμη — επιτρέψτε την πρόσβαση τοποθεσίας ή χρησιμοποιήστε την αναζήτηση.",
-                  )
-                : localize(
-                    language,
-                    "Search failed — try again.",
-                    "Η αναζήτηση απέτυχε — δοκιμάστε ξανά.",
-                  )}
-          </p>
-        )}
-        {locatorResults.length > 0 && (
-          <ul className="locator-results">
-            {locatorResults.map((result) => (
-              <li key={`${result.lat},${result.lon}`}>
-                <button
-                  type="button"
-                  onClick={() => chooseLocatorResult(result)}
-                >
-                  {result.label}
-                </button>
-              </li>
-            ))}
-            <li className="locator-credit">
-              {localize(
-                language,
-                "Search data © OpenStreetMap",
-                "Δεδομένα αναζήτησης © OpenStreetMap",
-              )}
-            </li>
-          </ul>
-        )}
-        {userPoint && proximity && proximityLevelText && (
-          <div className={`locator-card locator-card--${proximity.level}`}>
-            <strong className="locator-level">
-              {proximityLevelText.label}
-            </strong>
-            <p className="locator-place">{userPoint.label}</p>
-            <p>
-              <strong>
-                {proximity.distanceToIncidentKm.toFixed(1)} km{" "}
-                {compass(proximity.bearingToIncidentDeg, language)}
-              </strong>{" "}
-              {localize(
-                language,
-                "to incident center",
-                "από το κέντρο του συμβάντος",
-              )}
-            </p>
-            <p>
-              {localize(
-                language,
-                "nearest satellite detection",
-                "πλησιέστερη δορυφορική ανίχνευση",
-              )}
-              :{" "}
-              {proximity.nearestDetectionKm !== null
-                ? `${proximity.nearestDetectionKm.toFixed(1)} km · ${Math.round(proximity.nearestDetectionAgeMinutes ?? 0)} min`
-                : localize(
-                    language,
-                    "no detections in the selected window",
-                    "καμία ανίχνευση στο επιλεγμένο παράθυρο",
-                  )}
-            </p>
-            <p className="locator-advice">{proximityLevelText.advice}</p>
-            <small>
-              {localize(
-                language,
-                "Indicative distance-based level · not an official warning. Follow 112 and authorities.",
-                "Ενδεικτικό επίπεδο βάσει απόστασης · όχι επίσημη προειδοποίηση. Ακολουθείτε το 112 και τις αρχές.",
-              )}
-            </small>
-          </div>
-        )}
+        {locatorBody}
       </aside>
       </div>
 
@@ -2990,12 +2998,26 @@ export default function Home() {
       >
         <button
           type="button"
-          className={!panelOpen && !intelOpen ? "is-active" : ""}
+          className={!panelOpen && !intelOpen && !locatorOpen ? "is-active" : ""}
           onClick={closePanels}
-          aria-pressed={!panelOpen && !intelOpen}
+          aria-pressed={!panelOpen && !intelOpen && !locatorOpen}
         >
           <span aria-hidden="true">◎</span>
           <b>{localize(language, "MAP", "ΧΑΡΤΗΣ")}</b>
+        </button>
+        <button
+          type="button"
+          className={locatorOpen ? "is-active" : ""}
+          onClick={() => {
+            setLocatorOpen((value) => !value);
+            setPanelOpen(false);
+            setIntelOpen(false);
+          }}
+          aria-expanded={locatorOpen}
+          aria-controls="locator-sheet"
+        >
+          <span aria-hidden="true">⚲</span>
+          <b>{localize(language, "SEARCH", "ΑΝΑΖΗΤΗΣΗ")}</b>
         </button>
         <button
           type="button"
@@ -3003,6 +3025,7 @@ export default function Home() {
           onClick={() => {
             setPanelOpen((value) => !value);
             setIntelOpen(false);
+            setLocatorOpen(false);
           }}
           aria-expanded={panelOpen}
           aria-controls="layers-sheet"
@@ -3016,6 +3039,7 @@ export default function Home() {
           onClick={() => {
             setIntelOpen((value) => !value);
             setPanelOpen(false);
+            setLocatorOpen(false);
           }}
           aria-expanded={intelOpen}
           aria-controls="intel-sheet"
@@ -3024,6 +3048,34 @@ export default function Home() {
           <b>{localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")}</b>
         </button>
       </nav>
+
+      {compact && locatorOpen && (
+        <aside
+          className="locator-sheet"
+          id="locator-sheet"
+          aria-label={localize(
+            language,
+            "PROXIMITY CHECK",
+            "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ",
+          )}
+        >
+          <div className="hud-heading">
+            <div>
+              <span>
+                {localize(language, "PROXIMITY CHECK", "ΕΛΕΓΧΟΣ ΕΓΓΥΤΗΤΑΣ")}
+              </span>
+              <small>
+                {localize(
+                  language,
+                  "Search data © OpenStreetMap",
+                  "Δεδομένα αναζήτησης © OpenStreetMap",
+                )}
+              </small>
+            </div>
+          </div>
+          <div className="locator-sheet__body">{locatorBody}</div>
+        </aside>
+      )}
 
       {intelOpen && (
         <aside
