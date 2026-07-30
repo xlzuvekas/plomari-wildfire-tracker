@@ -336,8 +336,6 @@ export const ES: TranslationMap = {
     "Publicación directa de una cuenta oficial. Siga la instrucción enlazada y a las autoridades sobre el terreno.",
 
   // Locator / proximity check
-  LOCATE: "UBICAR",
-  "HIDE LOCATOR": "OCULTAR UBICACIÓN",
   "PROXIMITY CHECK": "COMPROBACIÓN DE PROXIMIDAD",
   "Search data © OpenStreetMap": "Datos de búsqueda © OpenStreetMap",
   "Search address or place": "Buscar dirección o lugar",
@@ -702,8 +700,6 @@ export const FR: TranslationMap = {
     "Publication directe d'un compte officiel. Suivez la consigne liée et les autorités sur le terrain.",
 
   // Locator / proximity check
-  LOCATE: "LOCALISER",
-  "HIDE LOCATOR": "MASQUER LA LOCALISATION",
   "PROXIMITY CHECK": "CONTRÔLE DE PROXIMITÉ",
   "Search data © OpenStreetMap": "Données de recherche © OpenStreetMap",
   "Search address or place": "Rechercher une adresse ou un lieu",
@@ -1068,8 +1064,6 @@ export const DE: TranslationMap = {
     "Direkter Beitrag eines offiziellen Kontos. Folgen Sie der verlinkten Anweisung und den Behörden vor Ort.",
 
   // Locator / proximity check
-  LOCATE: "ORTEN",
-  "HIDE LOCATOR": "ORTUNG AUSBLENDEN",
   "PROXIMITY CHECK": "NÄHE-CHECK",
   "Search data © OpenStreetMap": "Suchdaten © OpenStreetMap",
   "Search address or place": "Adresse oder Ort suchen",
@@ -1434,8 +1428,6 @@ export const IT: TranslationMap = {
     "Post diretto da un account ufficiale. Seguire l'istruzione collegata e le autorità sul territorio.",
 
   // Locator / proximity check
-  LOCATE: "LOCALIZZA",
-  "HIDE LOCATOR": "NASCONDI LOCALIZZAZIONE",
   "PROXIMITY CHECK": "CONTROLLO DI PROSSIMITÀ",
   "Search data © OpenStreetMap": "Dati di ricerca © OpenStreetMap",
   "Search address or place": "Cerca indirizzo o luogo",
