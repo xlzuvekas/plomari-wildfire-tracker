@@ -10,9 +10,9 @@
  *     capped so the cache cannot grow without bound.
  */
 
-// v2 retires the earlier broad /api/* data cache so responses outside the
-// explicit public-data allowlist cannot linger after this worker activates.
-const VERSION = "firewatch-v2";
+// v3 keeps cache writes off the response-critical path and retires earlier
+// caches whose misses could delay tiles while Cache Storage was updated.
+const VERSION = "firewatch-v3";
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 const DATA_CACHE = `${VERSION}-data`;
@@ -30,6 +30,7 @@ const PUBLIC_DATA_PATHS = new Set([
 const TILE_HOSTS = [
   "basemaps.cartocdn.com",
   "server.arcgisonline.com",
+  "services.arcgisonline.com",
   "tile.opentopomap.org",
   "gibs.earthdata.nasa.gov",
 ];
@@ -103,27 +104,57 @@ async function networkFirst(
   }
 }
 
+const activeTrims = new Map();
+
+async function trimCache(cacheName, limit) {
+  const active = activeTrims.get(cacheName);
+  if (active) return active;
+
+  // Let a burst of tile writes settle, then enumerate and prune once. Running
+  // cache.keys() after every tile made uncached imagery wait behind Cache
+  // Storage bookkeeping on the response-critical path.
+  const trim = new Promise((resolve) => setTimeout(resolve, 250))
+    .then(async () => {
+      const cache = await caches.open(cacheName);
+      const keys = await cache.keys();
+      const excess = keys.length - limit;
+      if (excess <= 0) return;
+      await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
+    })
+    .finally(() => {
+      activeTrims.delete(cacheName);
+    });
+
+  activeTrims.set(cacheName, trim);
+  return trim;
+}
+
 async function cacheFirst(request, cacheName, limit) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  if (cached) return cached;
-  const response = await fetch(request);
-  if (response.ok || response.type === "opaque") {
-    try {
-      await cache.put(request, response.clone());
-      if (limit) await trimCache(cache, limit);
-    } catch {
-      // A quota/cache failure must not replace a valid live response.
-    }
+  if (cached) {
+    return { response: cached, cacheWrite: Promise.resolve() };
   }
-  return response;
+
+  const response = await fetch(request);
+  let cacheWrite = Promise.resolve();
+  if (response.ok || response.type === "opaque") {
+    cacheWrite = cache
+      .put(request, response.clone())
+      .then(() => (limit ? trimCache(cacheName, limit) : undefined))
+      .catch(() => {
+        // A quota/cache failure must not replace a valid live response.
+      });
+  }
+  return { response, cacheWrite };
 }
 
-async function trimCache(cache, limit) {
-  const keys = await cache.keys();
-  if (keys.length <= limit) return;
-  await cache.delete(keys[0]);
-  await trimCache(cache, limit);
+function respondCacheFirst(event, request, cacheName, limit) {
+  const result = cacheFirst(request, cacheName, limit);
+  // Return the network response as soon as headers arrive. Cache population
+  // remains durable through waitUntil, but never delays the tile or JS chunk.
+  event.respondWith(result.then(({ response }) => response));
+  event.waitUntil(result.then(({ cacheWrite }) => cacheWrite).catch(() => {}));
 }
 
 self.addEventListener("fetch", (event) => {
@@ -139,7 +170,7 @@ self.addEventListener("fetch", (event) => {
       return;
     }
     if (url.pathname.startsWith("/_next/static/")) {
-      event.respondWith(cacheFirst(request, ASSET_CACHE, ASSET_LIMIT));
+      respondCacheFirst(event, request, ASSET_CACHE, ASSET_LIMIT);
       return;
     }
     if (request.mode === "navigate") {
@@ -154,6 +185,6 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (TILE_HOSTS.some((host) => url.hostname.endsWith(host))) {
-    event.respondWith(cacheFirst(request, TILE_CACHE, TILE_LIMIT));
+    respondCacheFirst(event, request, TILE_CACHE, TILE_LIMIT);
   }
 });
