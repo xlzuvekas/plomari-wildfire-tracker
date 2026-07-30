@@ -47,3 +47,61 @@ export const FIRE_REGIONS: FireRegion[] = [
 export function regionById(id: string | null): FireRegion | null {
   return FIRE_REGIONS.find((region) => region.id === id) ?? null;
 }
+
+// Verified official follow-up sources per region (issue #18 research).
+// X handles listed there as unconfirmed (e.g. Valencia's) are deliberately
+// excluded. `kind` is an English translation key resolved by localize().
+export type RegionLink = { label: string; href: string; kind: string };
+
+export const REGION_LINKS: Record<FireRegionId, RegionLink[]> = {
+  lesvos: [],
+  france: [
+    {
+      label: "Sécurité Civile",
+      href: "https://x.com/SecCivileFrance",
+      kind: "Official X account",
+    },
+    {
+      label: "Préfecture du Var",
+      href: "https://x.com/Prefet83",
+      kind: "Official X account",
+    },
+    {
+      label: "Météo des Forêts",
+      href: "https://meteofrance.com/meteo-des-forets",
+      kind: "Official fire-weather outlook",
+    },
+    {
+      label: "franceinfo · incendies",
+      href: "https://www.franceinfo.fr/monde/environnement/incendies-et-feux-de-foret/",
+      kind: "Curated national coverage",
+    },
+  ],
+  spain: [
+    {
+      label: "UME",
+      href: "https://x.com/UMEgob",
+      kind: "Official X account",
+    },
+    {
+      label: "Plan INFOCA",
+      href: "https://x.com/Plan_INFOCA",
+      kind: "Official X account",
+    },
+    {
+      label: "112 Castilla y León",
+      href: "https://x.com/112cyl",
+      kind: "Official X account",
+    },
+    {
+      label: "Junta de Andalucía · noticias",
+      href: "https://www.juntadeandalucia.es/noticias",
+      kind: "Official government news",
+    },
+    {
+      label: "INFORCYL open data",
+      href: "https://datosabiertos.jcyl.es/web/jcyl/set/es/medio-ambiente/incendios-forestales/1284941252651",
+      kind: "Official incident data",
+    },
+  ],
+};

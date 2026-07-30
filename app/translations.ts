@@ -393,6 +393,11 @@ export const ES: TranslationMap = {
   "Castilla y León + Andalucía · 14 days":
     "Castilla y León + Andalucía · 14 días",
   "aerial units": "medios aéreos",
+  "Official X account": "Cuenta oficial de X",
+  "Official fire-weather outlook": "Pronóstico oficial de meteorología de incendios",
+  "Curated national coverage": "Cobertura nacional seleccionada",
+  "Official government news": "Noticias oficiales del gobierno",
+  "Official incident data": "Datos oficiales de incidentes",
   "No recent fire headlines from the region packs.":
     "Sin titulares recientes de incendios en los paquetes de la región.",
   "REGION FIRE NEWS · CURATED RSS":
@@ -787,6 +792,11 @@ export const FR: TranslationMap = {
   "Castilla y León + Andalucía · 14 days":
     "Castille-et-León + Andalousie · 14 jours",
   "aerial units": "moyens aériens",
+  "Official X account": "Compte X officiel",
+  "Official fire-weather outlook": "Prévision officielle météo des forêts",
+  "Curated national coverage": "Couverture nationale sélectionnée",
+  "Official government news": "Actualités gouvernementales officielles",
+  "Official incident data": "Données officielles d'incidents",
   "No recent fire headlines from the region packs.":
     "Aucun titre d'incendie récent dans les flux de la région.",
   "REGION FIRE NEWS · CURATED RSS":
@@ -1181,6 +1191,11 @@ export const DE: TranslationMap = {
   "Castilla y León + Andalucía · 14 days":
     "Kastilien und León + Andalusien · 14 Tage",
   "aerial units": "Luftfahrzeuge",
+  "Official X account": "Offizielles X-Konto",
+  "Official fire-weather outlook": "Offizielle Feuerwetter-Vorhersage",
+  "Curated national coverage": "Kuratierte nationale Berichterstattung",
+  "Official government news": "Offizielle Regierungsnachrichten",
+  "Official incident data": "Offizielle Ereignisdaten",
   "No recent fire headlines from the region packs.":
     "Keine aktuellen Brandmeldungen aus den Regions-Feeds.",
   "REGION FIRE NEWS · CURATED RSS":
@@ -1575,6 +1590,11 @@ export const IT: TranslationMap = {
   "Castilla y León + Andalucía · 14 days":
     "Castiglia e León + Andalusia · 14 giorni",
   "aerial units": "mezzi aerei",
+  "Official X account": "Account X ufficiale",
+  "Official fire-weather outlook": "Previsione ufficiale di meteorologia degli incendi",
+  "Curated national coverage": "Copertura nazionale selezionata",
+  "Official government news": "Notizie ufficiali del governo",
+  "Official incident data": "Dati ufficiali degli eventi",
   "No recent fire headlines from the region packs.":
     "Nessun titolo recente sugli incendi dai pacchetti della regione.",
   "REGION FIRE NEWS · CURATED RSS":

@@ -8,6 +8,7 @@ export type NewsFeed = {
   id: string;
   label: string;
   url: string;
+  official?: boolean;
 };
 
 export const NEWS_FEEDS: Record<NewsCountry, NewsFeed[]> = {
@@ -60,6 +61,20 @@ export const NEWS_FEEDS: Record<NewsCountry, NewsFeed[]> = {
       label: "Levante-EMV",
       url: "https://www.levante-emv.com/rss/",
     },
+    // Official government voice: Junta de Andalucía press feeds (verified
+    // live; discovered via the /noticias page's alternate-link tags).
+    {
+      id: "junta-andalucia",
+      label: "Junta de Andalucía · Oficial",
+      url: "https://www.juntadeandalucia.es/presidencia/portavoz/rss?seccion=portadaprincipal",
+      official: true,
+    },
+    {
+      id: "junta-tierraymar",
+      label: "Junta de Andalucía · Tierra y Mar",
+      url: "https://www.juntadeandalucia.es/presidencia/portavoz/rss?seccion=tierraymar",
+      official: true,
+    },
   ],
 };
 
@@ -100,6 +115,7 @@ export type NewsItem = {
   publishedAt: string | null;
   sourceId: string;
   sourceLabel: string;
+  official: boolean;
 };
 
 function tag(block: string, name: string) {
@@ -139,13 +155,18 @@ export function parseFeedItems(xml: string, feed: NewsFeed): NewsItem[] {
         : null,
       sourceId: feed.id,
       sourceLabel: feed.label,
+      official: feed.official === true,
     });
   }
   return items;
 }
 
+// Official statements post far less often than media headlines; without a
+// reserved quota they never survive the newest-first cap during a busy fire.
+const OFFICIAL_RESERVED_SLOTS = 3;
+
 export function mergeNews(batches: NewsItem[][], limit = 16): NewsItem[] {
-  return batches
+  const deduped = batches
     .flat()
     .filter(
       (item, index, rows) =>
@@ -153,6 +174,14 @@ export function mergeNews(batches: NewsItem[][], limit = 16): NewsItem[] {
     )
     .sort((left, right) =>
       (right.publishedAt ?? "").localeCompare(left.publishedAt ?? ""),
-    )
-    .slice(0, limit);
+    );
+  const head = deduped.slice(0, limit);
+  const missingOfficials = deduped
+    .filter((item) => item.official && !head.includes(item))
+    .slice(0, OFFICIAL_RESERVED_SLOTS);
+  if (missingOfficials.length === 0) return head;
+  return [...head.slice(0, limit - missingOfficials.length), ...missingOfficials]
+    .sort((left, right) =>
+      (right.publishedAt ?? "").localeCompare(left.publishedAt ?? ""),
+    );
 }

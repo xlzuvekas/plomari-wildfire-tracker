@@ -9,7 +9,11 @@ import type { AlertSummary } from "./api/alerts/meteoalarm";
 import type { SpainIncident } from "./api/spain-incidents/inforcyl";
 import type { NewsItem } from "./api/regionnews/feeds";
 import type { NormalizedAirQuality } from "./api/wind/airquality";
-import { FIRE_REGIONS, type FireRegionId } from "./lib/regions";
+import {
+  FIRE_REGIONS,
+  REGION_LINKS,
+  type FireRegionId,
+} from "./lib/regions";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -3598,6 +3602,8 @@ export default function Home() {
             </div>
           )}
 
+          {region === "lesvos" ? (
+            <>
           <div className="source-health">
             <span>
               {localize(language, "SOURCE HEALTH", "ΚΑΤΑΣΤΑΣΗ ΠΗΓΩΝ")}
@@ -3638,6 +3644,53 @@ export default function Home() {
               </a>
             ))}
           </div>
+            </>
+          ) : (
+            <div className="source-links">
+              {REGION_LINKS[region].map((link) => (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span>{link.label}</span>
+                  <small>
+                    {
+                      {
+                        "Official X account": localize(
+                          language,
+                          "Official X account",
+                          "Επίσημος λογαριασμός X",
+                        ),
+                        "Official fire-weather outlook": localize(
+                          language,
+                          "Official fire-weather outlook",
+                          "Επίσημη πρόγνωση πυρομετεωρολογίας",
+                        ),
+                        "Curated national coverage": localize(
+                          language,
+                          "Curated national coverage",
+                          "Επιμελημένη εθνική κάλυψη",
+                        ),
+                        "Official government news": localize(
+                          language,
+                          "Official government news",
+                          "Επίσημες κυβερνητικές ειδήσεις",
+                        ),
+                        "Official incident data": localize(
+                          language,
+                          "Official incident data",
+                          "Επίσημα δεδομένα συμβάντων",
+                        ),
+                      }[link.kind]
+                    }{" "}
+                    ↗
+                  </small>
+                </a>
+              ))}
+            </div>
+          )}
         </aside>
       )}
 
