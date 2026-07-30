@@ -663,13 +663,15 @@ function localize(language: Language, english: string, greek: string) {
   return language === "el" ? greek : english;
 }
 
-// European Air Quality Index bands (EEA scale).
+// European Air Quality Index bands (EEA scale). Boundary values belong to
+// the lower band: 0-20 good, 20-40 fair, ..., 80-100 very poor, >100
+// extremely poor.
 function eaqiBand(language: Language, value: number) {
-  if (value < 20) return localize(language, "GOOD", "ΚΑΛΗ");
-  if (value < 40) return localize(language, "FAIR", "ΙΚΑΝΟΠΟΙΗΤΙΚΗ");
-  if (value < 60) return localize(language, "MODERATE", "ΜΕΤΡΙΑ");
-  if (value < 80) return localize(language, "POOR", "ΚΑΚΗ");
-  if (value < 100) return localize(language, "VERY POOR", "ΠΟΛΥ ΚΑΚΗ");
+  if (value <= 20) return localize(language, "GOOD", "ΚΑΛΗ");
+  if (value <= 40) return localize(language, "FAIR", "ΙΚΑΝΟΠΟΙΗΤΙΚΗ");
+  if (value <= 60) return localize(language, "MODERATE", "ΜΕΤΡΙΑ");
+  if (value <= 80) return localize(language, "POOR", "ΚΑΚΗ");
+  if (value <= 100) return localize(language, "VERY POOR", "ΠΟΛΥ ΚΑΚΗ");
   return localize(language, "EXTREMELY POOR", "ΕΞΑΙΡΕΤΙΚΑ ΚΑΚΗ");
 }
 
