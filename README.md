@@ -158,6 +158,31 @@ Thermal responses expose one of four explicit states:
 Basemaps use OpenStreetMap/CARTO, Esri World Imagery, and OpenTopoMap, with
 provider attribution displayed on the map.
 
+## Persistence and history (optional Postgres)
+
+With a server-side `FIREWATCH_DATABASE_URL` configured (see
+[docs/db/README.md](docs/db/README.md)), the app gains:
+
+- A **shared read-through cache** across all serverless instances, so each
+  upstream is polled once per TTL globally instead of once per instance —
+  the Hellenic Fire Service board drops from ~1 scrape per origin request to
+  ~1 per 5 minutes. On upstream failure, the newest stored payload is served
+  within a hard staleness cap and labeled `servedFrom: "store-stale"`.
+- An **append-only historical record**: response snapshots (content-hash
+  deduplicated), every normalized FIRMS detection beyond FIRMS's own 24-hour
+  window, and the incident wire beyond RSS roll-off — served by
+  **`/api/history`** (`?kind=thermal-passes|snapshots|wire&sinceHours=&limit=`).
+- Collection scheduled **database-side** (pg_cron + pg_net GETs against the
+  routes with `?collect=1`), so history accumulates with zero visitors —
+  paste-ready SQL in [docs/db/cron.sql](docs/db/cron.sql).
+
+Every route's response carries an additive `store` key
+(`configured / servedFrom / storedAt / ageSeconds / ttlSeconds / error`).
+Without the variable the app behaves exactly as before; the layer never runs
+DDL and a store failure can never delay a response by more than 1.5 s.
+`npm run test:db` runs the store suite against in-process Postgres (PGlite,
+Node ≥ 22.18).
+
 ## Run locally
 
 Requirements: Node.js 20.9 or newer.

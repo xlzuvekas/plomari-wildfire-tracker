@@ -1,3 +1,9 @@
+import { readThrough } from "@/lib/db/read-through";
+import {
+  upsertThermalDetections,
+  type ThermalDetectionRow,
+} from "@/lib/db/store";
+
 const FIRMS_AREA_ENDPOINT =
   "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
 const FIRMS_DOCS =
@@ -408,7 +414,7 @@ function responseHeaders() {
   };
 }
 
-export async function GET() {
+async function fetchThermal() {
   const requestStartedAt = new Date().toISOString();
   const nowMs = Date.now();
   const mapKey = process.env.FIRMS_MAP_KEY?.trim();
@@ -422,8 +428,7 @@ export async function GET() {
   };
 
   if (!mapKey) {
-    return Response.json(
-      {
+    return {
         schemaVersion: 2,
         status: "unconfigured" satisfies ThermalStatus,
         requestStartedAt,
@@ -470,9 +475,7 @@ export async function GET() {
           observationCadenceNote:
             "Orbital snapshots; the three-satellite constellation typically provides several looks per day, not a continuous live feed.",
         },
-      },
-      { headers: responseHeaders() },
-    );
+      };
   }
 
   const results = await Promise.all(
@@ -540,8 +543,7 @@ export async function GET() {
     incidentDetections[0]?.observedAt ?? null;
   const retrievedAt = new Date().toISOString();
 
-  return Response.json(
-    {
+  return {
       schemaVersion: 2,
       status,
       requestStartedAt,
@@ -594,7 +596,59 @@ export async function GET() {
         observationCadenceNote:
           "Orbital snapshots; the three-satellite constellation typically provides several looks per day, not a continuous live feed.",
       },
+    };
+}
+
+function toDetectionRow(detection: ThermalDetection): ThermalDetectionRow {
+  return {
+    routeId: detection.id,
+    passId: detection.passId,
+    lat: detection.lat,
+    lon: detection.lon,
+    sensor: detection.sensor,
+    satellite: detection.satellite,
+    product: detection.product,
+    version: detection.version,
+    observedAt: detection.observedAt,
+    confidence: detection.confidence,
+    confidenceCode: detection.confidenceCode,
+    frpMw: detection.frpMw,
+    scanKm: detection.scanKm,
+    trackKm: detection.trackKm,
+    daynight: detection.daynight,
+    distanceFromIncidentKm: detection.distanceFromIncidentKm,
+    bearingFromIncidentDeg: detection.bearingFromIncidentDeg,
+    scope: detection.scope,
+  };
+}
+
+export async function GET(request: Request) {
+  const collect = new URL(request.url).searchParams.has("collect");
+  const { payload, store } = await readThrough({
+    key: "thermal",
+    ttlSeconds: 120,
+    staleMaxSeconds: 3 * 3600,
+    fetchUpstream: fetchThermal,
+    upstreamOk: (p) => p.status === "ok" || p.status === "partial",
+    status: (p) => p.status,
+    skipStore: (p) => p.status === "unconfigured",
+    // The normalized table holds detections; the snapshot log keeps the
+    // lighter summary/dataset view of each distinct response.
+    snapshotPayload: (p) => ({ ...p, detections: [] }),
+    snapshotSignature: (p) =>
+      p.datasets.map((dataset) => [
+        dataset.id,
+        dataset.status,
+        dataset.records,
+        dataset.latestObservedAt,
+      ]),
+    onUpstreamSuccess: (db, p) =>
+      upsertThermalDetections(db, p.detections.map(toDetectionRow)),
+  });
+  return Response.json(
+    { ...payload, store },
+    {
+      headers: collect ? { "Cache-Control": "no-store" } : responseHeaders(),
     },
-    { headers: responseHeaders() },
   );
 }

@@ -1,3 +1,5 @@
+import { readThrough } from "@/lib/db/read-through";
+
 const OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_DOCS = "https://open-meteo.com/en/docs";
 const AVIATION_WEATHER_ENDPOINT =
@@ -401,7 +403,7 @@ function safeError(source: string, error: unknown): string {
   return `${source}: upstream data is temporarily unavailable`;
 }
 
-export async function GET() {
+async function fetchWind() {
   const errors: string[] = [];
   const [locationResults, metarResult] = await Promise.all([
     Promise.allSettled(LOCATIONS.map((location) => fetchLocation(location))),
@@ -432,28 +434,52 @@ export async function GET() {
     errors.push(safeError("AviationWeather LGMT", result.reason));
   }
 
-  return Response.json(
-    {
-      generatedAt: new Date().toISOString(),
-      sources: {
-        openMeteo: {
-          data: OPEN_METEO_ENDPOINT,
-          documentation: OPEN_METEO_DOCS,
-        },
-        aviationWeather: {
-          data: AVIATION_WEATHER_ENDPOINT,
-          documentation: AVIATION_WEATHER_DOCS,
-        },
+  return {
+    generatedAt: new Date().toISOString(),
+    sources: {
+      openMeteo: {
+        data: OPEN_METEO_ENDPOINT,
+        documentation: OPEN_METEO_DOCS,
       },
-      locations,
-      metar,
-      errors,
+      aviationWeather: {
+        data: AVIATION_WEATHER_ENDPOINT,
+        documentation: AVIATION_WEATHER_DOCS,
+      },
     },
+    locations,
+    metar,
+    errors,
+  };
+}
+
+export async function GET(request: Request) {
+  const collect = new URL(request.url).searchParams.has("collect");
+  const { payload, store } = await readThrough({
+    key: "wind",
+    ttlSeconds: 240,
+    staleMaxSeconds: 1_800,
+    fetchUpstream: fetchWind,
+    upstreamOk: (p) => p.locations.length > 0 || p.metar !== null,
+    status: (p) =>
+      p.errors.length === 0
+        ? "ok"
+        : p.locations.length > 0
+          ? "partial"
+          : "upstream-error",
+    snapshotSignature: (p) => [
+      p.locations.map((location) => [location.id, location.modelTime]),
+      p.metar?.observedAt ?? null,
+    ],
+  });
+  return Response.json(
+    { ...payload, store },
     {
-      headers: {
-        "Cache-Control":
-          "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
-      },
+      headers: collect
+        ? { "Cache-Control": "no-store" }
+        : {
+            "Cache-Control":
+              "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+          },
     },
   );
 }

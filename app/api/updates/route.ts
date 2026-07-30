@@ -1,3 +1,9 @@
+import {
+  readThrough,
+  readThroughThrowing,
+} from "@/lib/db/read-through";
+import { upsertWireItems, type WireItemRow } from "@/lib/db/store";
+
 const INCIDENT_STARTED_AT = "2026-07-29T10:30:00Z";
 const INCIDENT_STARTED_MS = Date.parse(INCIDENT_STARTED_AT);
 const LOCAL_TIME_ZONE = "Europe/Athens";
@@ -832,7 +838,7 @@ function normalizeTitle(value: string) {
     .trim();
 }
 
-export async function GET() {
+async function fetchUpdates() {
   const requestStartedAt = new Date().toISOString();
   const xBearerToken = process.env.X_BEARER_TOKEN?.trim();
   const [feedResults, liveStoryResult, fireServiceResult, xResults] =
@@ -842,7 +848,7 @@ export async function GET() {
         (value) => ({ status: "fulfilled" as const, value }),
         (reason) => ({ status: "rejected" as const, reason }),
       ),
-      fetchFireServiceIncident().then(
+      cachedFireService().then(
         (value) => ({ status: "fulfilled" as const, value }),
         (reason) => ({ status: "rejected" as const, reason }),
       ),
@@ -1029,8 +1035,7 @@ export async function GET() {
       ? officialAlertSource.fetchedAt
       : null;
 
-  return Response.json(
-    {
+  return {
       schemaVersion: 2,
       requestStartedAt,
       retrievedAt,
@@ -1092,12 +1097,75 @@ export async function GET() {
             ]
           : []),
       ],
-    },
+    };
+}
+
+// Inner read-through for the Fire Service board: the board itself refreshes
+// roughly every 15 minutes, so one scrape per 5 minutes globally is honest
+// and avoids the rate limiting observed at per-instance 60 s polling. The
+// stored payload's fetchedAt remains the true observation time.
+function cachedFireService() {
+  return readThroughThrowing({
+    key: "fire-service-board",
+    source: "fire-service-board",
+    ttlSeconds: 300,
+    staleMaxSeconds: 3_600,
+    fetchUpstream: fetchFireServiceIncident,
+    snapshotSignature: (value) => value.status,
+  });
+}
+
+function toWireItemRow(item: FeedItem): WireItemRow {
+  return {
+    id: item.id,
+    url: item.url,
+    title: item.title,
+    sourceId: item.sourceId,
+    sourceLabel: item.sourceLabel,
+    sourceKind: item.sourceKind,
+    sourceTier: item.sourceTier,
+    publishedAt: item.publishedAt,
+    modifiedAt: item.modifiedAt,
+    category: item.category,
+    severity: item.severity,
+    actionRequired: item.actionRequired,
+    payload: item,
+  };
+}
+
+export async function GET(request: Request) {
+  const collect = new URL(request.url).searchParams.has("collect");
+  const { payload, store } = await readThrough({
+    key: "updates",
+    ttlSeconds: 45,
+    staleMaxSeconds: 900,
+    fetchUpstream: fetchUpdates,
+    upstreamOk: (p) => p.sourceSummary.online > 0,
+    status: (p) =>
+      p.sourceSummary.failed === 0
+        ? "ok"
+        : p.sourceSummary.online > 0
+          ? "partial"
+          : "upstream-error",
+    // Stable content only: fetch-time fields (retrievedAt, ageMinutes) never
+    // enter the signature, so quiet hours confirm instead of appending.
+    snapshotSignature: (p) => ({
+      items: p.items.map((item) => item.id),
+      fireService: p.fireServiceIncident?.status ?? null,
+      sources: p.sources.map((source) => [source.id, source.status]),
+    }),
+    onUpstreamSuccess: (db, p) =>
+      upsertWireItems(db, p.items.map(toWireItemRow)),
+  });
+  return Response.json(
+    { ...payload, store },
     {
-      headers: {
-        "Cache-Control":
-          "public, max-age=10, s-maxage=45, stale-while-revalidate=120",
-      },
+      headers: collect
+        ? { "Cache-Control": "no-store" }
+        : {
+            "Cache-Control":
+              "public, max-age=10, s-maxage=45, stale-while-revalidate=120",
+          },
     },
   );
 }
