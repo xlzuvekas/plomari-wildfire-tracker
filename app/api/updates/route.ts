@@ -380,6 +380,9 @@ function sourceErrorCode(error: unknown) {
   if (error instanceof Error && /HTTP 401|HTTP 403/.test(error.message)) {
     return "authentication";
   }
+  if (error instanceof Error && /HTTP 402/.test(error.message)) {
+    return "api_credits_depleted";
+  }
   if (error instanceof Error && /HTTP 429/.test(error.message)) {
     return "rate_limit";
   }
@@ -432,13 +435,15 @@ async function fetchText(
 async function fetchJson<T>(
   url: string,
   headers: Record<string, string>,
-  cache: RequestCache = "no-store",
+  cache: RequestCache | { revalidateSeconds: number } = "no-store",
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9_000);
   try {
     const response = await fetch(url, {
-      cache,
+      ...(typeof cache === "string"
+        ? { cache }
+        : { next: { revalidate: cache.revalidateSeconds } }),
       headers: {
         Accept: "application/json",
         "User-Agent": "PlomariFirewatch/2.0 public-safety-feed-reader",
@@ -686,9 +691,12 @@ async function fetchXAccount(
     exclude: "retweets,replies",
     "tweet.fields": "created_at,lang",
   });
+  // X reads are credit-metered; a 10-minute server-side cache keeps the
+  // account pair under ~9k reads/month regardless of client poll rate.
   const timeline = await fetchJson<XTimeline>(
     `https://api.x.com/2/users/${userId}/tweets?${timelineQuery.toString()}`,
     headers,
+    { revalidateSeconds: 600 },
   );
   const items =
     timeline.data
