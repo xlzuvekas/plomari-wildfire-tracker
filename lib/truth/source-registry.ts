@@ -1,4 +1,5 @@
 import type { SourceDefinition } from "./domain";
+import { validateSourceRegistryDefinitions } from "./v1/semantics";
 
 export const SOURCE_REGISTRY = [
   {
@@ -12,6 +13,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "fire-service-board",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "official_content",
     notes:
       "Authoritative only for the incident status published on the board; it does not provide a perimeter or route.",
@@ -28,6 +31,8 @@ export const SOURCE_REGISTRY = [
     enabledByDefault: false,
     credentialEnv: "X_BEARER_TOKEN",
     adapterName: "x-official-account",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "official_content",
     notes:
       "Optional API feed. Phone cell broadcast and authorities remain the primary alert path.",
@@ -44,6 +49,8 @@ export const SOURCE_REGISTRY = [
     enabledByDefault: false,
     credentialEnv: "X_BEARER_TOKEN",
     adapterName: "x-official-account",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "official_content",
     notes:
       "Optional official-account context; protective actions remain restricted to validated alert sources.",
@@ -59,6 +66,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-official-context",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "official_content",
     notes:
       "Press context only unless an item is independently validated as an official protective instruction.",
@@ -74,6 +83,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-official-context",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "official_content",
     notes:
       "Municipal context and explicitly published municipal road information.",
@@ -90,6 +101,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-official-context",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "official_content",
     notes: "Plomari municipal context feed.",
   },
@@ -105,6 +118,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-publisher",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "headline_link_excerpt",
     notes:
       "Public-broadcaster reporting; it does not create official protective actions.",
@@ -120,6 +135,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-publisher",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "headline_link_excerpt",
     notes:
       "Local reporting. Live-story metadata can be collected as a version of the same publisher source.",
@@ -135,6 +152,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-publisher",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "headline_link_excerpt",
     notes: "Local publisher reporting.",
   },
@@ -149,6 +168,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 300,
     enabledByDefault: true,
     adapterName: "rss-publisher",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "headline_link_excerpt",
     notes: "Breaking-news publisher reporting.",
   },
@@ -164,6 +185,8 @@ export const SOURCE_REGISTRY = [
     enabledByDefault: true,
     credentialEnv: "FIRMS_MAP_KEY",
     adapterName: "firms-area-csv",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "structured_data",
     notes:
       "Orbital thermal-anomaly detections, not a continuous flame location or fire perimeter.",
@@ -180,6 +203,8 @@ export const SOURCE_REGISTRY = [
     enabledByDefault: true,
     credentialEnv: "FIRMS_MAP_KEY",
     adapterName: "firms-area-csv",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "structured_data",
     notes:
       "Orbital thermal-anomaly detections, not a continuous flame location or fire perimeter.",
@@ -196,6 +221,8 @@ export const SOURCE_REGISTRY = [
     enabledByDefault: true,
     credentialEnv: "FIRMS_MAP_KEY",
     adapterName: "firms-area-csv",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "structured_data",
     notes:
       "Orbital thermal-anomaly detections, not a continuous flame location or fire perimeter.",
@@ -211,6 +238,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 1800,
     enabledByDefault: true,
     adapterName: "gibs-imagery-metadata",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "structured_data",
     notes:
       "Daily imagery layer. Raster imagery remains separate from FIRMS point detections.",
@@ -226,6 +255,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 900,
     enabledByDefault: true,
     adapterName: "open-meteo-forecast",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "derived_model",
     notes: "Modeled point conditions; not an on-site weather measurement.",
   },
@@ -240,6 +271,8 @@ export const SOURCE_REGISTRY = [
     staleAfterSeconds: 1200,
     enabledByDefault: true,
     adapterName: "aviation-weather-metar",
+    adapterVersion: "1.0.0",
+    licensePolicy: "source_terms_apply",
     contentPolicy: "structured_data",
     notes:
       "Measured airport conditions. Terrain at the fireground can differ materially.",
@@ -259,30 +292,7 @@ export function getSourceDefinition(key: string): SourceDefinition | null {
 export function validateSourceRegistry(
   registry: readonly SourceDefinition[] = SOURCE_REGISTRY,
 ): readonly string[] {
-  const errors: string[] = [];
-  const keys = new Set<string>();
-
-  registry.forEach((source) => {
-    if (keys.has(source.key)) {
-      errors.push(`duplicate source key: ${source.key}`);
-    }
-    keys.add(source.key);
-
-    if (source.expectedCadenceSeconds <= 0) {
-      errors.push(`${source.key}: expected cadence must be positive`);
-    }
-    if (source.staleAfterSeconds < source.expectedCadenceSeconds) {
-      errors.push(`${source.key}: stale threshold must not precede cadence`);
-    }
-    if (source.authorityScopes.length === 0) {
-      errors.push(`${source.key}: at least one authority scope is required`);
-    }
-    if (!source.dataUrl.startsWith("https://")) {
-      errors.push(`${source.key}: data URL must use HTTPS`);
-    }
-  });
-
-  return errors;
+  return validateSourceRegistryDefinitions(registry);
 }
 
 const registryErrors = validateSourceRegistry();
