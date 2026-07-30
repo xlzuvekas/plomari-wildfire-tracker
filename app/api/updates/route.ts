@@ -286,23 +286,35 @@ const INCIDENT_STARTED_ATHENS_DATE = athensDateKey(
   new Date(INCIDENT_STARTED_AT),
 );
 
+function dateKeyFromParts(year?: string, month?: string, day?: string) {
+  return year && month && day
+    ? `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
+    : null;
+}
+
 function dateKeyFromSource(value: string) {
   const cleaned = plainText(value, 120);
   const yearFirst = cleaned.match(
     /(?:^|\D)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\D|$)/,
   );
-  if (yearFirst) {
-    return `${yearFirst[1]}-${yearFirst[2].padStart(2, "0")}-${yearFirst[3].padStart(2, "0")}`;
-  }
+  const yearFirstKey = dateKeyFromParts(
+    yearFirst?.[1],
+    yearFirst?.[2],
+    yearFirst?.[3],
+  );
+  if (yearFirstKey) return yearFirstKey;
 
   // Assumes DD/MM/YYYY (day first), which holds for the Greek-sourced feeds
   // here; a MM/DD/YYYY source would be silently mis-parsed.
   const dayFirst = cleaned.match(
     /(?:^|\D)(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\D|$)/,
   );
-  if (dayFirst) {
-    return `${dayFirst[3]}-${dayFirst[2].padStart(2, "0")}-${dayFirst[1].padStart(2, "0")}`;
-  }
+  const dayFirstKey = dateKeyFromParts(
+    dayFirst?.[3],
+    dayFirst?.[2],
+    dayFirst?.[1],
+  );
+  if (dayFirstKey) return dayFirstKey;
 
   const timestamp = Date.parse(cleaned);
   return Number.isFinite(timestamp) ? athensDateKey(new Date(timestamp)) : null;
@@ -310,7 +322,14 @@ function dateKeyFromSource(value: string) {
 
 function athensNoonIso(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
-  if (![year, month, day].every(Number.isFinite)) return null;
+  if (
+    year === undefined ||
+    month === undefined ||
+    day === undefined ||
+    ![year, month, day].every(Number.isFinite)
+  ) {
+    return null;
+  }
 
   const desiredUtcShape = Date.UTC(year, month - 1, day, 12);
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -457,7 +476,7 @@ async function fetchFeed(feed: FeedConfig) {
 
   const items = blocks
     .map((match): FeedItem | null => {
-      const block = match[1];
+      const block = match[1] ?? "";
       const title = plainText(tag(block, "title"), 240);
       const description =
         tag(block, "content:encoded") || tag(block, "description");
@@ -591,7 +610,7 @@ async function fetchStoNisiLiveStory(): Promise<FeedItem> {
 
   for (const script of scripts) {
     try {
-      article = findArticle(JSON.parse(script[1]));
+      article = findArticle(JSON.parse(script[1] ?? ""));
       if (article) break;
     } catch {
       // Ignore unrelated malformed metadata blocks.
@@ -773,30 +792,35 @@ export async function GET() {
         : Promise.resolve(null),
     ]);
 
-  const sources: SourceSnapshot[] = feedResults.map((result, index) => {
-    if (result.status === "fulfilled") return result.value.source;
-    const feed = FEEDS[index];
-    return {
-      id: feed.id,
-      label: feed.label,
-      url: feed.url,
-      kind: feed.kind,
-      tier: feed.tier,
-      timeQuality: feed.timeQuality,
-      fetchedAt: null,
-      channelUpdatedAt: null,
-      latestItemAt: null,
-      status: "error",
-      itemCount: 0,
-      errorCode: sourceErrorCode(result.reason),
-      freshnessPolicy:
-        feed.timeQuality === "date-only"
-          ? "athens-calendar-date-at-or-after-incident-start"
-          : feed.timeQuality === "feed-order-only"
-            ? "undated-items-excluded"
-            : "source-timestamp-at-or-after-incident-start",
-    };
-  });
+  const sources: SourceSnapshot[] = feedResults.flatMap(
+    (result, index): SourceSnapshot[] => {
+      if (result.status === "fulfilled") return [result.value.source];
+      const feed = FEEDS[index];
+      if (feed === undefined) return [];
+      return [
+        {
+          id: feed.id,
+          label: feed.label,
+          url: feed.url,
+          kind: feed.kind,
+          tier: feed.tier,
+          timeQuality: feed.timeQuality,
+          fetchedAt: null,
+          channelUpdatedAt: null,
+          latestItemAt: null,
+          status: "error",
+          itemCount: 0,
+          errorCode: sourceErrorCode(result.reason),
+          freshnessPolicy:
+            feed.timeQuality === "date-only"
+              ? "athens-calendar-date-at-or-after-incident-start"
+              : feed.timeQuality === "feed-order-only"
+                ? "undated-items-excluded"
+                : "source-timestamp-at-or-after-incident-start",
+        },
+      ];
+    },
+  );
 
   if (fireServiceResult.status === "fulfilled") {
     sources.push({
@@ -839,6 +863,7 @@ export async function GET() {
         return;
       }
       const account = X_ACCOUNTS[index];
+      if (account === undefined) return;
       sources.push({
         id: account.id,
         label: account.label,

@@ -875,7 +875,7 @@ export default function Home() {
   const [smokeMinutes, setSmokeMinutes] = useState(15);
 
   const scenarioDistance = useMemo(
-    () => Number((spreadRates[beaufort] * hour).toFixed(1)),
+    () => Number(((spreadRates[beaufort] ?? 0) * hour).toFixed(1)),
     [beaufort, hour],
   );
   const staticIntel = language === "el" ? intelEl : intelEn;

@@ -106,16 +106,16 @@ function parseCsvLine(line: string) {
 }
 
 function parseCsv(csv: string): CsvRow[] {
-  const lines = csv
+  const [headerLine, ...lines] = csv
     .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
     .filter((line) => line.trim() !== "");
 
-  if (lines.length === 0) {
+  if (headerLine === undefined) {
     throw new UpstreamError("invalid_response", "FIRMS returned no CSV");
   }
 
-  const headers = parseCsvLine(lines[0]).map((header) =>
+  const headers = parseCsvLine(headerLine).map((header) =>
     header.trim().toLowerCase(),
   );
   const requiredHeaders = [
@@ -132,7 +132,7 @@ function parseCsv(csv: string): CsvRow[] {
     );
   }
 
-  return lines.slice(1).map((line) => {
+  return lines.map((line) => {
     const values = parseCsvLine(line);
     return Object.fromEntries(
       headers.map((header, index) => [header, values[index]?.trim() ?? ""]),
@@ -213,12 +213,14 @@ function bearingDegrees(
 }
 
 function median(values: number[]) {
-  if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
+  const upper = sorted[middle];
+  if (upper === undefined) return null;
+  const lower = sorted[middle - 1];
+  return sorted.length % 2 === 0 && lower !== undefined
+    ? (lower + upper) / 2
+    : upper;
 }
 
 function errorCode(error: unknown): ErrorCode {
@@ -508,27 +510,31 @@ export async function GET() {
       return groups;
     }, new Map<string, ThermalDetection[]>()),
   )
-    .map(([id, records]) => {
+    .flatMap(([id, records]) => {
+      const first = records[0];
+      if (first === undefined) return [];
       const frpValues = records
         .map((record) => record.frpMw)
         .filter((value): value is number => value !== null);
       const incidentRecordCount = records.filter(
         (record) => record.scope === "incident",
       ).length;
-      return {
-        id,
-        platform: records[0].sensor,
-        satellite: records[0].satellite,
-        product: records[0].product,
-        observedAt: records[0].observedAt,
-        ageMinutes: records[0].ageMinutes,
-        recordCount: records.length,
-        incidentRecordCount,
-        byConfidence: confidenceCounts(records),
-        maxFrpMw: frpValues.length ? Math.max(...frpValues) : null,
-        medianFrpMw: median(frpValues),
-        dayNight: records[0].daynight,
-      };
+      return [
+        {
+          id,
+          platform: first.sensor,
+          satellite: first.satellite,
+          product: first.product,
+          observedAt: first.observedAt,
+          ageMinutes: first.ageMinutes,
+          recordCount: records.length,
+          incidentRecordCount,
+          byConfidence: confidenceCounts(records),
+          maxFrpMw: frpValues.length ? Math.max(...frpValues) : null,
+          medianFrpMw: median(frpValues),
+          dayNight: first.daynight,
+        },
+      ];
     })
     .sort(
       (left, right) =>
