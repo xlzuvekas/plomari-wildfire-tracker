@@ -722,7 +722,7 @@ describe("CMR production wiring", () => {
         readFile(resolve(root, "package.json"), "utf8"),
       ]);
 
-    expect(indexSource).toContain('auth: "secret:cmr-cron"');
+    expect(indexSource).toContain('auth: "secret:cmr_cron"');
     expect(indexSource).toMatch(/max:\s*1/u);
     expect(indexSource).toMatch(/prepare:\s*false/u);
     expect(indexSource).not.toContain("service_role");

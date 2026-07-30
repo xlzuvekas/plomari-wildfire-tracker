@@ -3,7 +3,7 @@
 The collector code is deployable, but the catalog is intentionally **disabled**.
 Do not activate it until all four release identities exist: a reviewed adapter
 artifact SHA-256, its Git commit, a dedicated database login, and the named
-`cmr-cron` Supabase secret API key. The checked-in bootstrap does not invent
+`cmr_cron` Supabase secret API key. The checked-in bootstrap does not invent
 those production values.
 
 The runtime performs one global, three-product CMR catalog scan every five
@@ -163,9 +163,9 @@ as the database password.
 ## 3. Configure named caller authentication
 
 In the Supabase API Keys dashboard, create a **secret** API key whose exact name
-is `cmr-cron`. Supabase Edge must expose it in the platform-provided
+is `cmr_cron`. Supabase Edge must expose it in the platform-provided
 `SUPABASE_SECRET_KEYS` JSON under that name. The function uses
-`auth: 'secret:cmr-cron'`; it does not accept the default secret key, a
+`auth: 'secret:cmr_cron'`; it does not accept the default secret key, a
 publishable key, or a user JWT. The handler never uses the middleware's admin
 client.
 
@@ -300,7 +300,7 @@ authorize the previously normalized identity without mutating either run.
 
 First unschedule the cron job. Then, in one catalog-admin transaction, set the
 endpoint state, source, and target `enabled` flags false and disable/retire the
-adapter release state. Revoke the named `cmr-cron` API key and set the runtime
+adapter release state. Revoke the named `cmr_cron` API key and set the runtime
 login `NOLOGIN` after in-flight work has drained. Do not delete or rewrite jobs,
 runs, HTTP exchanges, raw objects, source revisions, observations, rejections,
 health samples, or completion rows; they are the audit trail.
