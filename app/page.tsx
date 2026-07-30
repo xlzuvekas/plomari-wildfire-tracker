@@ -66,6 +66,14 @@ type WindPayload = {
     dewpointC: number;
     pressureHpa: number;
   } | null;
+  airQuality?: Array<{
+    id: string;
+    label: string;
+    time: string | null;
+    pm25: number | null;
+    pm10: number | null;
+    europeanAqi: number | null;
+  }>;
   errors: string[];
 };
 
@@ -175,9 +183,8 @@ type ThermalPayload = {
 type LiveUpdateItem = {
   id: string;
   title: string;
-  summary: string;
-  summaryEn?: string;
-  summaryEl?: string;
+  summaryEn: string;
+  summaryEl: string;
   url: string;
   sourceId: string;
   sourceLabel: string;
@@ -656,6 +663,18 @@ function localize(language: Language, english: string, greek: string) {
   return language === "el" ? greek : english;
 }
 
+// European Air Quality Index bands (EEA scale). Boundary values belong to
+// the lower band: 0-20 good, 20-40 fair, ..., 80-100 very poor, >100
+// extremely poor.
+function eaqiBand(language: Language, value: number) {
+  if (value <= 20) return localize(language, "GOOD", "ΚΑΛΗ");
+  if (value <= 40) return localize(language, "FAIR", "ΙΚΑΝΟΠΟΙΗΤΙΚΗ");
+  if (value <= 60) return localize(language, "MODERATE", "ΜΕΤΡΙΑ");
+  if (value <= 80) return localize(language, "POOR", "ΚΑΚΗ");
+  if (value <= 100) return localize(language, "VERY POOR", "ΠΟΛΥ ΚΑΚΗ");
+  return localize(language, "EXTREMELY POOR", "ΕΞΑΙΡΕΤΙΚΑ ΚΑΚΗ");
+}
+
 function confidenceLabel(confidence: Confidence, language: Language) {
   if (confidence === "official") {
     return localize(language, "OFFICIAL", "ΕΠΙΣΗΜΗ ΠΗΓΗ");
@@ -876,7 +895,7 @@ export default function Home() {
   const [smokeMinutes, setSmokeMinutes] = useState(15);
 
   const scenarioDistance = useMemo(
-    () => Number((spreadRates[beaufort] * hour).toFixed(1)),
+    () => Number(((spreadRates[beaufort] ?? 0) * hour).toFixed(1)),
     [beaufort, hour],
   );
   const staticIntel = language === "el" ? intelEl : intelEn;
@@ -886,9 +905,7 @@ export default function Home() {
       updatesData?.items.slice(0, 6).map((item) => {
         const timestamp = item.modifiedAt ?? item.publishedAt;
         const localizedSummary =
-          language === "el"
-            ? item.summaryEl ?? item.summary
-            : item.summaryEn ?? item.summary;
+          language === "el" ? item.summaryEl : item.summaryEn;
         const detailPrefix =
           item.sourceTier === "official"
             ? localize(
@@ -2472,6 +2489,31 @@ export default function Home() {
               <b>{fireWind.rhPct}%</b>
               <strong>{Math.round(fireWind.pblM)} m</strong>
             </div>
+            {(windData?.airQuality ?? [])
+              .filter((entry) => entry.pm25 !== null)
+              .map((entry) => (
+                <div
+                  className={`wind-row${
+                    entry.europeanAqi !== null && entry.europeanAqi >= 60
+                      ? " wind-row--hazard"
+                      : ""
+                  }`}
+                  key={`aq-${entry.id}`}
+                >
+                  <span>
+                    PM2.5 ·{" "}
+                    {entry.id === "fire"
+                      ? localize(language, "FIRE AREA", "ΕΣΤΙΑ")
+                      : localize(language, "PERAMA", "ΠΕΡΑΜΑ")}
+                  </span>
+                  <b>
+                    {entry.europeanAqi !== null
+                      ? eaqiBand(language, entry.europeanAqi)
+                      : "—"}
+                  </b>
+                  <strong>{entry.pm25} µg/m³</strong>
+                </div>
+              ))}
             {windData?.metar && (
               <div className="metar-line">
                 <span>
