@@ -66,6 +66,14 @@ type WindPayload = {
     dewpointC: number;
     pressureHpa: number;
   } | null;
+  airQuality?: Array<{
+    id: string;
+    label: string;
+    time: string | null;
+    pm25: number | null;
+    pm10: number | null;
+    europeanAqi: number | null;
+  }>;
   errors: string[];
 };
 
@@ -653,6 +661,16 @@ function markerHtml(
 
 function localize(language: Language, english: string, greek: string) {
   return language === "el" ? greek : english;
+}
+
+// European Air Quality Index bands (EEA scale).
+function eaqiBand(language: Language, value: number) {
+  if (value < 20) return localize(language, "GOOD", "ΚΑΛΗ");
+  if (value < 40) return localize(language, "FAIR", "ΙΚΑΝΟΠΟΙΗΤΙΚΗ");
+  if (value < 60) return localize(language, "MODERATE", "ΜΕΤΡΙΑ");
+  if (value < 80) return localize(language, "POOR", "ΚΑΚΗ");
+  if (value < 100) return localize(language, "VERY POOR", "ΠΟΛΥ ΚΑΚΗ");
+  return localize(language, "EXTREMELY POOR", "ΕΞΑΙΡΕΤΙΚΑ ΚΑΚΗ");
 }
 
 function confidenceLabel(confidence: Confidence, language: Language) {
@@ -2469,6 +2487,31 @@ export default function Home() {
               <b>{fireWind.rhPct}%</b>
               <strong>{Math.round(fireWind.pblM)} m</strong>
             </div>
+            {(windData?.airQuality ?? [])
+              .filter((entry) => entry.pm25 !== null)
+              .map((entry) => (
+                <div
+                  className={`wind-row${
+                    entry.europeanAqi !== null && entry.europeanAqi >= 60
+                      ? " wind-row--hazard"
+                      : ""
+                  }`}
+                  key={`aq-${entry.id}`}
+                >
+                  <span>
+                    PM2.5 ·{" "}
+                    {entry.id === "fire"
+                      ? localize(language, "FIRE AREA", "ΕΣΤΙΑ")
+                      : localize(language, "PERAMA", "ΠΕΡΑΜΑ")}
+                  </span>
+                  <b>
+                    {entry.europeanAqi !== null
+                      ? eaqiBand(language, entry.europeanAqi)
+                      : "—"}
+                  </b>
+                  <strong>{entry.pm25} µg/m³</strong>
+                </div>
+              ))}
             {windData?.metar && (
               <div className="metar-line">
                 <span>
