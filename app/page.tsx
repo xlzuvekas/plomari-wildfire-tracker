@@ -8,6 +8,7 @@ import type {
   WMSOptions,
 } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { INCIDENT_CENTER } from "@/app/lib/incident";
 
 type LatLngTuple = [number, number];
 type Confidence = "official" | "observed" | "reported" | "modeled";
@@ -265,7 +266,7 @@ type UpdatesPayload = {
   }>;
 };
 
-const INCIDENT: LatLngTuple = [38.989013, 26.382489];
+const INCIDENT: LatLngTuple = [INCIDENT_CENTER.lat, INCIDENT_CENTER.lon];
 const PLOMARI_BEACH: LatLngTuple = [38.9752, 26.3714];
 const AGIOS_ISIDOROS: LatLngTuple = [38.9702, 26.3927];
 const MELINTA: LatLngTuple = [38.9875, 26.3131];

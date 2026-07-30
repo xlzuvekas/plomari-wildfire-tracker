@@ -1,3 +1,5 @@
+import { INCIDENT_CENTER, INCIDENT_RADIUS_KM } from "@/app/lib/incident";
+
 const FIRMS_AREA_ENDPOINT =
   "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
 const FIRMS_DOCS =
@@ -6,9 +8,9 @@ const FIRMS_VIIRS_DOCS =
   "https://firms.modaps.eosdis.nasa.gov/content/descriptions/FIRMS_VIIRS_Firehotspots.html";
 
 const INCIDENT = {
-  lat: 38.989013,
-  lon: 26.382489,
-  radiusKm: 8,
+  lat: INCIDENT_CENTER.lat,
+  lon: INCIDENT_CENTER.lon,
+  radiusKm: INCIDENT_RADIUS_KM,
 };
 
 const BOUNDS = {

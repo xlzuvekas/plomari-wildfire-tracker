@@ -1,3 +1,5 @@
+import { INCIDENT_CENTER } from "@/app/lib/incident";
+
 const OPEN_METEO_ENDPOINT = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_DOCS = "https://open-meteo.com/en/docs";
 const AVIATION_WEATHER_ENDPOINT =
@@ -24,8 +26,8 @@ const LOCATIONS = [
   {
     id: "fire",
     label: "Plomari fire area",
-    lat: 38.989013,
-    lon: 26.382489,
+    lat: INCIDENT_CENTER.lat,
+    lon: INCIDENT_CENTER.lon,
   },
   {
     id: "perama",
