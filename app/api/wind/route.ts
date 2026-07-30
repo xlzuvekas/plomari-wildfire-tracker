@@ -42,6 +42,29 @@ type WindLayer = {
   directionDeg: number | null;
 };
 
+type OutlookHour = {
+  /** Local Europe/Athens naive ISO hour as returned by Open-Meteo. */
+  time: string;
+  speedKmh: number | null;
+  gustKmh: number | null;
+  directionDeg: number | null;
+  rhPct: number | null;
+  tempC: number | null;
+};
+
+type DaylightDay = {
+  date: string;
+  sunrise: string | null;
+  sunset: string | null;
+};
+
+type Outlook = {
+  provider: "open-meteo";
+  kind: "model-forecast";
+  hours: OutlookHour[];
+  daylight: DaylightDay[];
+};
+
 type NormalizedLocation = {
   id: string;
   label: string;
@@ -62,6 +85,7 @@ type NormalizedLocation = {
     wind120: WindLayer;
     wind180: WindLayer;
   };
+  outlook: Outlook | null;
 };
 
 type NormalizedMetar = {
@@ -186,15 +210,85 @@ function windLayer(
   };
 }
 
+const OUTLOOK_HOURS = 12;
+const OUTLOOK_FIELDS = [
+  "wind_speed_10m",
+  "wind_gusts_10m",
+  "wind_direction_10m",
+  "relative_humidity_2m",
+  "temperature_2m",
+];
+
+function hourlySeries(hourlyValue: unknown, field: string) {
+  const hourly = record(hourlyValue);
+  return { times: list(hourly?.time), values: list(hourly?.[field]) };
+}
+
+function buildOutlook(
+  hourlyValue: unknown,
+  dailyValue: unknown,
+  currentTime: string | null,
+): Outlook | null {
+  const { times } = hourlySeries(hourlyValue, "time");
+  if (!currentTime || times.length === 0) return null;
+
+  const series = Object.fromEntries(
+    OUTLOOK_FIELDS.map((field) => [
+      field,
+      hourlySeries(hourlyValue, field).values,
+    ]),
+  );
+
+  // Open-Meteo returns naive local ISO strings in the requested timezone;
+  // lexicographic comparison is safe for the shared YYYY-MM-DDTHH:mm shape.
+  const hours: OutlookHour[] = [];
+  times.forEach((value, index) => {
+    const time = string(value);
+    if (!time || time <= currentTime || hours.length >= OUTLOOK_HOURS) return;
+    hours.push({
+      time,
+      speedKmh: number(series.wind_speed_10m[index]),
+      gustKmh: number(series.wind_gusts_10m[index]),
+      directionDeg: number(series.wind_direction_10m[index]),
+      rhPct: number(series.relative_humidity_2m[index]),
+      tempC: number(series.temperature_2m[index]),
+    });
+  });
+
+  const daily = record(dailyValue);
+  const dates = list(daily?.time);
+  const sunrises = list(daily?.sunrise);
+  const sunsets = list(daily?.sunset);
+  const daylight: DaylightDay[] = dates
+    .map((value, index) => {
+      const date = string(value);
+      if (!date) return null;
+      return {
+        date,
+        sunrise: string(sunrises[index]),
+        sunset: string(sunsets[index]),
+      };
+    })
+    .filter((day): day is DaylightDay => day !== null);
+
+  if (hours.length === 0 && daylight.length === 0) return null;
+
+  return { provider: "open-meteo", kind: "model-forecast", hours, daylight };
+}
+
 async function fetchLocation(
   location: (typeof LOCATIONS)[number],
 ): Promise<NormalizedLocation> {
+  const withOutlook = location.id === "fire";
   const params = new URLSearchParams({
     latitude: String(location.lat),
     longitude: String(location.lon),
     current: CURRENT_FIELDS,
-    hourly: "boundary_layer_height",
-    forecast_days: "1",
+    hourly: withOutlook
+      ? ["boundary_layer_height", ...OUTLOOK_FIELDS].join(",")
+      : "boundary_layer_height",
+    forecast_days: withOutlook ? "2" : "1",
+    ...(withOutlook ? { daily: "sunrise,sunset" } : {}),
     timezone: "Europe/Athens",
     temperature_unit: "celsius",
     wind_speed_unit: "kmh",
@@ -235,6 +329,9 @@ async function fetchLocation(
         "wind_direction_180m",
       ),
     },
+    outlook: withOutlook
+      ? buildOutlook(payload.hourly, payload.daily, time)
+      : null,
   };
 }
 

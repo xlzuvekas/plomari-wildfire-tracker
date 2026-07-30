@@ -39,8 +39,17 @@ language on first load, remembers the selected language, and keeps the original
 - Source-labeled local reports, with official, observed, reported, and modeled
   information visually distinguished. Feed health, source tier, category,
   severity, publication time, and action-required status remain separate.
+- A Copernicus EFFIS/GWIS near-real-time burnt-area overlay (VIIRS hotspots
+  clustered into polygons, refreshed up to 14 passes per day). It legitimately
+  stays empty until EFFIS has clustered a fire's scar, and it is an estimate of
+  fire-affected area, not an official perimeter.
 - Open-Meteo wind at 10 m, 80 m, 120 m, and 180 m above ground for the incident
   area, plus gusts, humidity, pressure, and boundary-layer height.
+- A 12-hour hourly wind outlook for the fire grid (speed, gusts, direction,
+  relative humidity) with hours of strong modeled wind highlighted, plus the
+  local daylight window, since aerial drops usually pause during darkness. The
+  outlook is the same point model as the current wind — a forecast, not a
+  measurement.
 - The latest available measured METAR from Mytilene Airport (LGMT), shown with
   its own observation time.
 - A wind-driven smoke exposure envelope and selectable time horizon. It is
@@ -104,6 +113,8 @@ one.
 | Layer | Application check | Underlying data cadence | Important limitation |
 | --- | --- | --- | --- |
 | Detailed wind | Every 5 minutes while the page is open | Open-Meteo model cycles update less often | Point forecast/model, not an on-site anemometer |
+| 12 h wind outlook + daylight window | Refreshed with the same 5-minute wind poll | Open-Meteo hourly forecast; sunrise/sunset are astronomical times | A model forecast, not a measurement; conditions can diverge from it quickly |
+| EFFIS NRT burnt area | WMS tiles reloaded about every 5 minutes | EFFIS clusters VIIRS hotspots up to 14 times per day | Estimate of fire-affected area, not an official perimeter; can lag hours and stays empty until the scar is first clustered |
 | LGMT METAR | Every 5 minutes through the server route | Usually observed about every 30 minutes; provider cache updates about once a minute | Airport is not the fireground; terrain can produce very different local wind |
 | Smoke envelope | Recomputed whenever wind data or the selected horizon changes | Derived from the current 10 m model wind | Not observed smoke, PM2.5, or a dispersion model |
 | NASA FIRMS points | Every 5 minutes while the page is open; shared response cache 2 minutes | FIRMS services refresh about every 15 minutes after satellite processing | Orbital snapshots, typically available globally within about 3 hours; point age is observation age, not API age |
@@ -138,6 +149,7 @@ Thermal responses expose one of four explicit states:
 - [NASA FIRMS Area API](https://firms.modaps.eosdis.nasa.gov/api/area/)
 - [NASA FIRMS map keys](https://firms.modaps.eosdis.nasa.gov/api/map_key/)
 - [NASA GIBS vector/WMS guidance](https://nasa-gibs.github.io/gibs-api-docs/access-advanced-topics/#vector-visualizations)
+- [Copernicus EFFIS](https://forest-fire.emergency.copernicus.eu/) (NRT burnt-area WMS overlay, © European Union)
 - [Open-Meteo forecast API](https://open-meteo.com/en/docs)
 - [AviationWeather API](https://aviationweather.gov/data/api/)
 - [StoNisi local fire reporting](https://www.stonisi.gr/post/114624/stamathsan-oi-ripseis-apo-aeros-sthn-fwtia-toy-plwmarioy)

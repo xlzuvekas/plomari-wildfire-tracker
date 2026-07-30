@@ -954,6 +954,105 @@ button {
   text-align: right;
 }
 
+.outlook-block {
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.outlook-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+}
+
+.outlook-block__head span {
+  color: var(--cyan);
+}
+
+.outlook-block__head b {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.45rem;
+  white-space: nowrap;
+}
+
+.outlook-strip {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.outlook-cell {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  min-width: 56px;
+  padding: 5px 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: rgba(1, 8, 12, 0.45);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.45rem;
+  color: var(--muted);
+}
+
+.outlook-cell time {
+  color: var(--ink);
+  letter-spacing: 0.06em;
+}
+
+.outlook-cell .outlook-dir {
+  color: var(--cyan);
+  white-space: nowrap;
+}
+
+.outlook-cell .outlook-speed {
+  color: var(--cyan);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.outlook-cell .outlook-gust {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.outlook-cell.is-strong {
+  border-color: rgba(255, 179, 71, 0.45);
+}
+
+.outlook-cell.is-strong .outlook-speed,
+.outlook-cell.is-strong .outlook-gust {
+  color: var(--amber);
+}
+
+.daylight-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.47rem;
+  color: var(--muted);
+}
+
+.daylight-line strong {
+  color: var(--green);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .smoke-horizon {
   display: block;
   padding-top: 7px;

@@ -16,6 +16,7 @@ type LayerKey =
   | "official"
   | "satellite"
   | "satelliteRaster"
+  | "burntArea"
   | "local"
   | "wind"
   | "smokeObserved"
@@ -43,6 +44,26 @@ type WindCurrent = {
   wind180: WindVector;
 };
 
+type OutlookHour = {
+  time: string;
+  speedKmh: number | null;
+  gustKmh: number | null;
+  directionDeg: number | null;
+  rhPct: number | null;
+  tempC: number | null;
+};
+
+type WindOutlook = {
+  provider: string;
+  kind: string;
+  hours: OutlookHour[];
+  daylight: Array<{
+    date: string;
+    sunrise: string | null;
+    sunset: string | null;
+  }>;
+};
+
 type WindPayload = {
   generatedAt: string;
   locations: Array<{
@@ -52,6 +73,7 @@ type WindPayload = {
     lon: number;
     provider: string;
     current: WindCurrent;
+    outlook?: WindOutlook | null;
   }>;
   metar: {
     station: string;
@@ -498,9 +520,14 @@ const sourcesEn = [
     kind: "No-key thermal / aerosol overlay",
   },
   {
+    label: "Copernicus EFFIS",
+    href: "https://forest-fire.emergency.copernicus.eu/",
+    kind: "NRT burnt-area polygons · WMS overlay",
+  },
+  {
     label: "Open-Meteo",
     href: "https://open-meteo.com/en/docs",
-    kind: "Detailed point wind model",
+    kind: "Detailed point wind model + 12 h outlook",
   },
   {
     label: "AviationWeather",
@@ -556,9 +583,14 @@ const sourcesEl = [
     kind: "Θερμικό / αερολυματικό επίπεδο χωρίς κλειδί",
   },
   {
+    label: "Copernicus EFFIS",
+    href: "https://forest-fire.emergency.copernicus.eu/",
+    kind: "Πολύγωνα καμένης έκτασης NRT · επίπεδο WMS",
+  },
+  {
     label: "Open-Meteo",
     href: "https://open-meteo.com/en/docs",
-    kind: "Λεπτομερές σημειακό μοντέλο ανέμου",
+    kind: "Λεπτομερές σημειακό μοντέλο ανέμου + 12ωρη πρόγνωση",
   },
   {
     label: "AviationWeather",
@@ -864,6 +896,7 @@ export default function Home() {
     official: true,
     satellite: true,
     satelliteRaster: false,
+    burntArea: true,
     local: true,
     wind: true,
     smokeObserved: false,
@@ -1016,6 +1049,15 @@ export default function Home() {
   );
   const windObservedTime = formatGreeceTime(fireWind.time);
   const retrievedTime = formatGreeceTime(windData?.generatedAt);
+  const fireOutlook =
+    windData?.locations.find((location) => location.id === "fire")?.outlook ??
+    null;
+  // Naive local Europe/Athens ISO strings share one shape, so lexicographic
+  // comparison safely picks the day whose sunset is still ahead.
+  const nextDaylight =
+    fireOutlook?.daylight.find((day) => (day.sunset ?? "") > fireWind.time) ??
+    fireOutlook?.daylight.at(-1) ??
+    null;
   const incidentThermalDetections = useMemo(
     () =>
       thermalData?.detections.filter(
@@ -1482,6 +1524,24 @@ export default function Home() {
           )
           .addTo(group);
       });
+    }
+
+    if (layers.burntArea) {
+      // Copernicus EFFIS/GWIS near-real-time burnt area: VIIRS hotspots
+      // clustered into polygons, refreshed up to 14 passes per day. The layer
+      // is legitimately empty until EFFIS has clustered this fire's scar.
+      L.tileLayer
+        .wms("https://maps.effis.emergency.copernicus.eu/effis", {
+          layers: "effis.nrt.ba.poly,effis.nrt.ba.point",
+          format: "image/png",
+          transparent: true,
+          version: "1.1.1",
+          opacity: 0.8,
+          attribution:
+            '&copy; European Union, <a href="https://forest-fire.emergency.copernicus.eu/">Copernicus EFFIS</a>',
+          refresh: String(Math.floor(satelliteEpoch / 300_000)),
+        } as WMSOptions)
+        .addTo(group);
     }
 
     if (layers.satellite) {
@@ -2063,8 +2123,8 @@ export default function Home() {
               <small>
                 {localize(
                   language,
-                  "8 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                  "8 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                  "9 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                  "9 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
                 )}
               </small>
             </div>
@@ -2132,6 +2192,21 @@ export default function Home() {
                   "Εικόνα NASA GIBS · όχι πρόσθετα σημεία",
                 ),
                 count: "IMG",
+              },
+              {
+                key: "burntArea" as LayerKey,
+                icon: "▰",
+                label: localize(
+                  language,
+                  "Burnt area (EFFIS NRT)",
+                  "Καμένη έκταση (EFFIS NRT)",
+                ),
+                detail: localize(
+                  language,
+                  "Copernicus clustered VIIRS · empty until mapped",
+                  "Copernicus από VIIRS · κενό μέχρι τη χαρτογράφηση",
+                ),
+                count: "EU",
               },
               {
                 key: "local" as LayerKey,
@@ -2488,6 +2563,77 @@ export default function Home() {
                 </strong>
               </div>
             )}
+            {fireOutlook && fireOutlook.hours.length > 0 && (
+              <div className="outlook-block">
+                <div className="outlook-block__head">
+                  <span>
+                    {localize(
+                      language,
+                      "12 H WIND OUTLOOK",
+                      "ΠΡΟΓΝΩΣΗ ΑΝΕΜΟΥ 12 ΩΡΩΝ",
+                    )}
+                  </span>
+                  <b>
+                    {localize(
+                      language,
+                      "MODEL · NOT MEASURED",
+                      "ΜΟΝΤΕΛΟ · ΟΧΙ ΜΕΤΡΗΣΗ",
+                    )}
+                  </b>
+                </div>
+                <div className="outlook-strip">
+                  {fireOutlook.hours.map((hourEntry) => {
+                    const strong =
+                      (hourEntry.gustKmh ?? 0) >= 60 ||
+                      (hourEntry.speedKmh ?? 0) >= 40;
+                    return (
+                      <div
+                        className={`outlook-cell${strong ? " is-strong" : ""}`}
+                        key={hourEntry.time}
+                      >
+                        <time>{formatGreeceTime(hourEntry.time)}</time>
+                        <span className="outlook-dir">
+                          {hourEntry.directionDeg === null
+                            ? "—"
+                            : `${compass(hourEntry.directionDeg, language)} ${String(Math.round(hourEntry.directionDeg)).padStart(3, "0")}°`}
+                        </span>
+                        <span className="outlook-speed">
+                          {hourEntry.speedKmh === null
+                            ? "—"
+                            : Math.round(hourEntry.speedKmh)}{" "}
+                          km/h
+                        </span>
+                        <span className="outlook-gust">
+                          G{" "}
+                          {hourEntry.gustKmh === null
+                            ? "—"
+                            : Math.round(hourEntry.gustKmh)}
+                        </span>
+                        <span className="outlook-rh">
+                          RH{" "}
+                          {hourEntry.rhPct === null
+                            ? "—"
+                            : `${Math.round(hourEntry.rhPct)}%`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {nextDaylight && (
+                  <div className="daylight-line">
+                    <span>
+                      {localize(language, "DAYLIGHT", "ΦΩΣ ΗΜΕΡΑΣ")} ·{" "}
+                      {nextDaylight.date.slice(8, 10)}/
+                      {nextDaylight.date.slice(5, 7)}
+                    </span>
+                    <strong>
+                      {formatGreeceTime(nextDaylight.sunrise ?? undefined)}–
+                      {formatGreeceTime(nextDaylight.sunset ?? undefined)}
+                    </strong>
+                  </div>
+                )}
+              </div>
+            )}
             <label className="smoke-horizon">
               <span>
                 {localize(
@@ -2511,10 +2657,10 @@ export default function Home() {
             <p>
               {localize(
                 language,
-                `From ${compass(fireWind.wind10.directionDeg, language)} toward ${compass(downwindHeading, language)}. Point-model wind is not fire spread; terrain and gusts can change local flow. Retrieved ${
+                `From ${compass(fireWind.wind10.directionDeg, language)} toward ${compass(downwindHeading, language)}. Point-model wind is not fire spread; terrain and gusts can change local flow. The hourly outlook is the same model, not a measurement, and aerial drops usually pause during darkness. Retrieved ${
                   retrievedTime === "—" ? "pending" : `${retrievedTime} Greece`
                 }.`,
-                `Από ${compass(fireWind.wind10.directionDeg, language)} προς ${compass(downwindHeading, language)}. Το μοντέλο ανέμου σε σημείο δεν προβλέπει την εξάπλωση της φωτιάς· το ανάγλυφο και οι ριπές μπορούν να μεταβάλουν την τοπική ροή. Ανάκτηση ${
+                `Από ${compass(fireWind.wind10.directionDeg, language)} προς ${compass(downwindHeading, language)}. Το μοντέλο ανέμου σε σημείο δεν προβλέπει την εξάπλωση της φωτιάς· το ανάγλυφο και οι ριπές μπορούν να μεταβάλουν την τοπική ροή. Η ωριαία πρόγνωση προέρχεται από το ίδιο μοντέλο, δεν είναι μέτρηση, και οι εναέριες ρίψεις συνήθως διακόπτονται στο σκοτάδι. Ανάκτηση ${
                   retrievedTime === "—" ? "εκκρεμεί" : `${retrievedTime} ώρα Ελλάδας`
                 }.`,
               )}
