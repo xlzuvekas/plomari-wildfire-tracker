@@ -130,8 +130,9 @@ one.
 | 112 instruction | Optional official-account check every 60 seconds when `X_BEARER_TOKEN` is configured; the original 16:58 permalink remains visible as an archived alert | Cell broadcast and official publisher | The archived banner is not proof that the instruction remains current; phone alerts and authorities remain authoritative, and X API availability is not guaranteed |
 
 Every live data panel exposes its model/observation time. If live wind retrieval
-fails, the interface marks the data stale and retains a timestamped fallback so
-the failure is visible rather than silently presenting it as current.
+fails, the interface marks the model unavailable and withholds wind vectors,
+smoke proxies, and model values rather than silently presenting a fallback as
+current.
 
 Thermal responses expose one of four explicit states:
 
@@ -262,6 +263,9 @@ request-time API composition and into an append-only, auditable data layer.
 - [Data truth layer specification](docs/data-truth-layer-spec.md)
 - [Production architecture and rollout gates](docs/production-architecture.md)
 - [Source integration roadmap and Godseye gap audit](docs/source-integration-roadmap.md)
+- [Global Explore and localization roadmap](docs/global-explore-roadmap.md)
+- [AI-assisted OODA architecture](docs/ai-ooda-architecture.md)
+- [Operational ontology and graph roadmap](docs/ontology-roadmap.md)
 - [`lib/truth`](lib/truth) contains the initial shared domain contracts,
   provider/endpoint/target registries, source-authority rules, global
   observation contracts, and deterministic freshness calculation.
