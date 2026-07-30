@@ -180,8 +180,8 @@ export function groupFirmsDetectionsIntoPasses(
     let current: FirmsDetectionIdentityInput[] = [];
 
     const commitCurrent = () => {
-      if (current.length === 0) return;
       const first = current[0];
+      if (first === undefined) return;
       passes.push({
         product: first.product,
         satellite: first.satellite,

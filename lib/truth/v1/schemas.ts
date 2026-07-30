@@ -53,6 +53,9 @@ export const localDateSchema = z
   .regex(LOCAL_DATE_PATTERN, "Expected a calendar date in YYYY-MM-DD form")
   .refine((value) => {
     const [year, month, day] = value.split("-").map(Number);
+    if (year === undefined || month === undefined || day === undefined) {
+      return false;
+    }
     const date = new Date(Date.UTC(year, month - 1, day));
     return (
       date.getUTCFullYear() === year &&
@@ -132,6 +135,7 @@ const polygonRingSchema = z
   .refine((ring) => {
     const first = ring[0];
     const last = ring[ring.length - 1];
+    if (first === undefined || last === undefined) return false;
     return first[0] === last[0] && first[1] === last[1];
   }, "Polygon rings must be closed");
 
