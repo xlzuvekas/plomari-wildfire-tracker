@@ -119,8 +119,8 @@ export const ES: TranslationMap = {
   LAYERS: "CAPAS",
   "Data layers": "Capas de datos",
   "DATA LAYERS": "CAPAS DE DATOS",
-  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "9 CAPAS // FUENTE + ACTUALIDAD VISIBLES",
+  "10 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "10 CAPAS // FUENTE + ACTUALIDAD VISIBLES",
   FRAME: "ENCUADRE",
   "Close layers": "Cerrar capas",
   "112 evacuation": "Evacuación 112",
@@ -383,6 +383,18 @@ export const ES: TranslationMap = {
   "No active fire-weather warnings":
     "Sin avisos activos de meteorología de incendios",
   "Meteoalarm unavailable": "Meteoalarm no disponible",
+
+  // Spain incidents / region news
+  level: "nivel",
+  "Official Castilla y León record": "Registro oficial de Castilla y León",
+  "INFORCYL incidents (Castilla y León)":
+    "Incidentes INFORCYL (Castilla y León)",
+  "Official records · Spain region · 14 days":
+    "Registros oficiales · región de España · 14 días",
+  "No recent fire headlines from the region packs.":
+    "Sin titulares recientes de incendios en los paquetes de la región.",
+  "REGION FIRE NEWS · CURATED RSS":
+    "NOTICIAS DE INCENDIOS DE LA REGIÓN · RSS SELECCIONADO",
 };
 
 export const FR: TranslationMap = {
@@ -499,8 +511,8 @@ export const FR: TranslationMap = {
   LAYERS: "COUCHES",
   "Data layers": "Couches de données",
   "DATA LAYERS": "COUCHES DE DONNÉES",
-  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "9 COUCHES // SOURCE + FRAÎCHEUR VISIBLES",
+  "10 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "10 COUCHES // SOURCE + FRAÎCHEUR VISIBLES",
   FRAME: "CADRAGE",
   "Close layers": "Fermer les couches",
   "112 evacuation": "Évacuation 112",
@@ -763,6 +775,18 @@ export const FR: TranslationMap = {
   "No active fire-weather warnings":
     "Aucune alerte météo-incendie active",
   "Meteoalarm unavailable": "Meteoalarm indisponible",
+
+  // Spain incidents / region news
+  level: "niveau",
+  "Official Castilla y León record": "Registre officiel de Castille-et-León",
+  "INFORCYL incidents (Castilla y León)":
+    "Incidents INFORCYL (Castille-et-León)",
+  "Official records · Spain region · 14 days":
+    "Registres officiels · région Espagne · 14 jours",
+  "No recent fire headlines from the region packs.":
+    "Aucun titre d'incendie récent dans les flux de la région.",
+  "REGION FIRE NEWS · CURATED RSS":
+    "ACTUALITÉS INCENDIES DE LA RÉGION · RSS SÉLECTIONNÉ",
 };
 
 export const DE: TranslationMap = {
@@ -879,8 +903,8 @@ export const DE: TranslationMap = {
   LAYERS: "EBENEN",
   "Data layers": "Datenebenen",
   "DATA LAYERS": "DATENEBENEN",
-  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "9 EBENEN // QUELLE + AKTUALITÄT SICHTBAR",
+  "10 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "10 EBENEN // QUELLE + AKTUALITÄT SICHTBAR",
   FRAME: "AUSRICHTEN",
   "Close layers": "Ebenen schließen",
   "112 evacuation": "112-Evakuierung",
@@ -1143,6 +1167,18 @@ export const DE: TranslationMap = {
   "No active fire-weather warnings":
     "Keine aktiven Feuerwetter-Warnungen",
   "Meteoalarm unavailable": "Meteoalarm nicht verfügbar",
+
+  // Spain incidents / region news
+  level: "Stufe",
+  "Official Castilla y León record": "Offizieller Eintrag aus Kastilien und León",
+  "INFORCYL incidents (Castilla y León)":
+    "INFORCYL-Ereignisse (Kastilien und León)",
+  "Official records · Spain region · 14 days":
+    "Offizielle Einträge · Region Spanien · 14 Tage",
+  "No recent fire headlines from the region packs.":
+    "Keine aktuellen Brandmeldungen aus den Regions-Feeds.",
+  "REGION FIRE NEWS · CURATED RSS":
+    "BRANDNACHRICHTEN DER REGION · KURATIERTES RSS",
 };
 
 export const IT: TranslationMap = {
@@ -1259,8 +1295,8 @@ export const IT: TranslationMap = {
   LAYERS: "LIVELLI",
   "Data layers": "Livelli di dati",
   "DATA LAYERS": "LIVELLI DI DATI",
-  "9 LAYERS // SOURCE + FRESHNESS VISIBLE":
-    "9 LIVELLI // FONTE + AGGIORNAMENTO VISIBILI",
+  "10 LAYERS // SOURCE + FRESHNESS VISIBLE":
+    "10 LIVELLI // FONTE + AGGIORNAMENTO VISIBILI",
   FRAME: "INQUADRA",
   "Close layers": "Chiudi livelli",
   "112 evacuation": "Evacuazione 112",
@@ -1523,4 +1559,16 @@ export const IT: TranslationMap = {
   "No active fire-weather warnings":
     "Nessun avviso attivo di meteorologia degli incendi",
   "Meteoalarm unavailable": "Meteoalarm non disponibile",
+
+  // Spain incidents / region news
+  level: "livello",
+  "Official Castilla y León record": "Registro ufficiale di Castiglia e León",
+  "INFORCYL incidents (Castilla y León)":
+    "Eventi INFORCYL (Castiglia e León)",
+  "Official records · Spain region · 14 days":
+    "Registri ufficiali · regione Spagna · 14 giorni",
+  "No recent fire headlines from the region packs.":
+    "Nessun titolo recente sugli incendi dai pacchetti della regione.",
+  "REGION FIRE NEWS · CURATED RSS":
+    "NOTIZIE INCENDI DELLA REGIONE · RSS SELEZIONATO",
 };

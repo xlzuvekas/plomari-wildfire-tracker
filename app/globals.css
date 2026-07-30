@@ -2465,3 +2465,15 @@ button {
     text-align: left;
   }
 }
+
+a.intel-item {
+  text-decoration: none;
+  color: inherit;
+}
+
+.intel-empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.6rem;
+}

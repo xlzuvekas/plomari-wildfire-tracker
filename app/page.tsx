@@ -6,6 +6,9 @@ import type { GeocodeResult } from "./api/geocode/nominatim";
 import { assessProximity } from "./lib/proximity";
 import type { BurntArea } from "./api/effis/effis";
 import type { AlertSummary } from "./api/alerts/meteoalarm";
+import type { SpainIncident } from "./api/spain-incidents/inforcyl";
+import type { NewsItem } from "./api/regionnews/feeds";
+import type { NormalizedAirQuality } from "./api/wind/airquality";
 import { FIRE_REGIONS, type FireRegionId } from "./lib/regions";
 import type {
   LayerGroup,
@@ -47,6 +50,7 @@ type LayerKey =
   | "satellite"
   | "satelliteRaster"
   | "effis"
+  | "inforcyl"
   | "local"
   | "wind"
   | "smokeObserved"
@@ -976,6 +980,7 @@ export default function Home() {
     satellite: true,
     satelliteRaster: false,
     effis: true,
+    inforcyl: true,
     local: true,
     wind: true,
     smokeObserved: false,
@@ -987,6 +992,11 @@ export default function Home() {
   const [effisError, setEffisError] = useState(false);
   const [alertData, setAlertData] = useState<AlertSummary | null>(null);
   const [alertError, setAlertError] = useState(false);
+  const [spainIncidents, setSpainIncidents] = useState<SpainIncident[] | null>(
+    null,
+  );
+  const [regionNews, setRegionNews] = useState<NewsItem[] | null>(null);
+  const [regionAq, setRegionAq] = useState<NormalizedAirQuality | null>(null);
   const [hour, setHour] = useState(2);
   const [beaufort, setBeaufort] = useState(6);
   const [heading, setHeading] = useState(218);
@@ -2090,10 +2100,109 @@ export default function Home() {
   }, [region]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (region !== "spain") {
+      return;
+    }
+    fetch("/api/spain-incidents")
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ incidents: SpainIncident[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setSpainIncidents(payload.incidents ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setSpainIncidents(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const country = FIRE_REGIONS.find(
+      (candidate) => candidate.id === region,
+    )?.country;
+    if (region === "lesvos" || !country || country === "gr") {
+      return;
+    }
+    fetch(`/api/regionnews?country=${country}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ items: NewsItem[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setRegionNews(payload.items ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setRegionNews(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/airquality?region=${region}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{
+          reading: NormalizedAirQuality | null;
+        }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setRegionAq(payload.reading ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegionAq(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
+
+  useEffect(() => {
     if (!ready || !leafletRef.current || !effisGroup.current) return;
     const L = leafletRef.current;
     const group = effisGroup.current;
     group.clearLayers();
+    if (layers.inforcyl && region === "spain" && spainIncidents) {
+      const statusColor = (status: string | null) =>
+        status === "ACTIVO"
+          ? "#ff3b24"
+          : status === "CONTROLADO"
+            ? "#ff8a3c"
+            : "#7fa3ad";
+      spainIncidents.forEach((incident) => {
+        const label = [
+          `${incident.municipality ?? "—"}${incident.province ? ` (${incident.province})` : ""}`,
+          incident.status,
+          incident.level !== null ? `${localize(language, "level", "επίπεδο")} ${incident.level}` : null,
+          incident.startDate,
+        ]
+          .filter((value): value is string => value !== null)
+          .join(" · ");
+        L.circleMarker([incident.lat, incident.lon], {
+          radius: incident.status === "ACTIVO" ? 7 : 5,
+          color: statusColor(incident.status),
+          fillColor: statusColor(incident.status),
+          fillOpacity: 0.55,
+          weight: 1.5,
+        })
+          .bindTooltip(
+            `<div class="popup-copy"><strong>INFORCYL</strong><br>${label}<br><span>${localize(
+              language,
+              "Official Castilla y León record",
+              "Επίσημη καταγραφή Castilla y León",
+            )}</span></div>`,
+            { sticky: true },
+          )
+          .addTo(group);
+      });
+    }
     if (!layers.effis || !effisData) return;
     effisData.forEach((area) => {
       const place = [area.commune, area.province]
@@ -2128,7 +2237,15 @@ export default function Home() {
           .addTo(group);
       });
     });
-  }, [ready, layers.effis, effisData, language]);
+  }, [
+    ready,
+    layers.effis,
+    layers.inforcyl,
+    effisData,
+    spainIncidents,
+    region,
+    language,
+  ]);
 
   const toggleLayer = (key: LayerKey) => {
     setLayers((current) => ({ ...current, [key]: !current[key] }));
@@ -2139,6 +2256,22 @@ export default function Home() {
 
   const focusPoint = (point: LatLngTuple, zoom = 15) => {
     mapRef.current?.flyTo(point, zoom, { duration: 0.65 });
+  };
+
+  const activeRegionConfig = FIRE_REGIONS.find(
+    (candidate) => candidate.id === region,
+  );
+
+  const formatRegionTime = (value: string | null) => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "—";
+    return new Intl.DateTimeFormat(LOCALES[language], {
+      timeZone: activeRegionConfig?.timeZone ?? "Europe/Athens",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(parsed);
   };
 
   const changeRegion = (next: FireRegionId) => {
@@ -2572,6 +2705,13 @@ export default function Home() {
                         "Καμία ενεργή προειδοποίηση πυρομετεωρολογίας",
                       )}`;
                 })()}
+          {regionAq?.pm25 !== null && regionAq?.pm25 !== undefined
+            ? ` · PM2.5 ${regionAq.pm25} µg/m³${
+                regionAq.europeanAqi !== null
+                  ? ` (${eaqiBand(language, regionAq.europeanAqi)})`
+                  : ""
+              }`
+            : ""}
         </p>
       </div>
       </div>
@@ -2642,8 +2782,8 @@ export default function Home() {
               <small>
                 {localize(
                   language,
-                  "9 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                  "9 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                  "10 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                  "10 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
                 )}
               </small>
             </div>
@@ -2726,6 +2866,24 @@ export default function Home() {
                   "Περίμετροι Copernicus για όλη την ΕΕ · αυτόματα",
                 ),
                 count: effisError ? "—" : String(effisData?.length ?? "…"),
+              },
+              {
+                key: "inforcyl" as LayerKey,
+                icon: "◉",
+                label: localize(
+                  language,
+                  "INFORCYL incidents (Castilla y León)",
+                  "Συμβάντα INFORCYL (Castilla y León)",
+                ),
+                detail: localize(
+                  language,
+                  "Official records · Spain region · 14 days",
+                  "Επίσημες καταγραφές · περιοχή Ισπανίας · 14 ημέρες",
+                ),
+                count:
+                  region === "spain"
+                    ? String(spainIncidents?.length ?? "…")
+                    : "ES",
               },
               {
                 key: "local" as LayerKey,
@@ -3282,7 +3440,13 @@ export default function Home() {
                 {localize(language, "INCIDENT WIRE", "ΡΟΗ ΣΥΜΒΑΝΤΟΣ")}
               </span>
               <small>
-                {localize(language, "GREECE TIME", "ΩΡΑ ΕΛΛΑΔΑΣ")}
+                {region === "lesvos"
+                  ? localize(language, "GREECE TIME", "ΩΡΑ ΕΛΛΑΔΑΣ")
+                  : localize(
+                      language,
+                      "REGION FIRE NEWS · CURATED RSS",
+                      "ΕΙΔΗΣΕΙΣ ΠΥΡΚΑΓΙΩΝ ΠΕΡΙΟΧΗΣ · ΕΠΙΛΕΓΜΕΝΑ RSS",
+                    )}
                 {" // "}
                 {updatesError
                   ? localize(
@@ -3319,6 +3483,8 @@ export default function Home() {
             </div>
           </div>
 
+          {region === "lesvos" ? (
+            <>
           <div className="intel-list">
             {displayIntel.map((item) => (
               <button
@@ -3391,6 +3557,45 @@ export default function Home() {
               </a>
             )}
           </div>
+            </>
+          ) : (
+            <div className="intel-list intel-list--news">
+              {regionNews === null && (
+                <p className="intel-empty">
+                  {localize(language, "Checking live sources", "Έλεγχος ζωντανών πηγών")}
+                </p>
+              )}
+              {regionNews?.length === 0 && (
+                <p className="intel-empty">
+                  {localize(
+                    language,
+                    "No recent fire headlines from the region packs.",
+                    "Δεν υπάρχουν πρόσφατοι τίτλοι πυρκαγιών από τα πακέτα της περιοχής.",
+                  )}
+                </p>
+              )}
+              {(regionNews ?? []).map((item) => (
+                <a
+                  key={item.url}
+                  className="intel-item"
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <time>
+                    <span>{formatRegionTime(item.publishedAt)}</span>
+                  </time>
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>
+                      {item.sourceLabel} ·{" "}
+                      {localize(language, "LOCAL REPORT", "ΤΟΠΙΚΗ ΑΝΑΦΟΡΑ")}
+                    </small>
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
 
           <div className="source-health">
             <span>
