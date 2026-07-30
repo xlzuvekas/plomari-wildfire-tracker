@@ -1,6 +1,6 @@
-const INCIDENT_STARTED_AT = "2026-07-29T10:30:00Z";
+import { INCIDENT_STARTED_AT, LOCAL_TIME_ZONE } from "@/app/lib/incident";
+
 const INCIDENT_STARTED_MS = Date.parse(INCIDENT_STARTED_AT);
-const LOCAL_TIME_ZONE = "Europe/Athens";
 
 type SourceKind =
   | "official-alert"
