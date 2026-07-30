@@ -785,11 +785,20 @@ function normalizeTitle(value: string) {
 }
 
 export async function GET(request: Request) {
-  if (new URL(request.url).searchParams.size > 0) {
+  const searchParams = new URL(request.url).searchParams;
+  const realtimeValues = searchParams.getAll("realtime");
+  const realtimeValue = realtimeValues[0] ?? "1";
+  if (
+    searchParams.size > 1 ||
+    realtimeValues.length > 1 ||
+    !["0", "1"].includes(realtimeValue) ||
+    (searchParams.size === 1 && !searchParams.has("realtime"))
+  ) {
     return Response.json(
       {
         error: "unsupported_query",
-        message: "The updates endpoint does not accept query parameters.",
+        message:
+          "The updates endpoint accepts only realtime=0 or realtime=1.",
       },
       {
         status: 400,
@@ -797,6 +806,7 @@ export async function GET(request: Request) {
       },
     );
   }
+  const includeRealtimeAccounts = realtimeValue === "1";
 
   const requestStartedAt = new Date().toISOString();
   const officialAccountStartTime = new Date(
@@ -814,7 +824,7 @@ export async function GET(request: Request) {
         (value) => ({ status: "fulfilled" as const, value }),
         (reason) => ({ status: "rejected" as const, reason }),
       ),
-      xBearerToken
+      includeRealtimeAccounts && xBearerToken
         ? Promise.allSettled(
             X_ACCOUNTS.map((account) =>
               fetchXAccount(account, xBearerToken, officialAccountStartTime),
@@ -911,7 +921,7 @@ export async function GET(request: Request) {
         freshnessPolicy: "rolling-24h-bounded-by-incident-start",
       });
     });
-  } else {
+  } else if (includeRealtimeAccounts) {
     X_ACCOUNTS.forEach((account) =>
       sources.push({
         id: account.id,
@@ -1006,6 +1016,9 @@ export async function GET(request: Request) {
   return Response.json(
     {
       schemaVersion: 2,
+      collectionMode: includeRealtimeAccounts
+        ? "incident-realtime"
+        : "feeds-only",
       requestStartedAt,
       retrievedAt,
       localTimeZone: LOCAL_TIME_ZONE,
@@ -1017,6 +1030,7 @@ export async function GET(request: Request) {
           "compared as Europe/Athens calendar dates; displayed timestamp is local noon and ageMinutes is null",
         undatedItems: "excluded",
         officialAccountRead: {
+          enabled: includeRealtimeAccounts,
           postsPerAccount: 10,
           lookbackHours: 24,
           boundedByIncidentStart: true,
@@ -1032,6 +1046,8 @@ export async function GET(request: Request) {
           officialAlertSource?.status === "ok",
         status: officialAlertAutomaticallyChecked
           ? "manual-alert-snapshot-plus-live-official-feed"
+          : !includeRealtimeAccounts
+            ? "manual-alert-snapshot-realtime-feed-not-requested"
           : "manual-alert-snapshot-not-currently-verified",
         manual: true,
         action:
@@ -1072,7 +1088,9 @@ export async function GET(request: Request) {
     {
       headers: {
         "Cache-Control":
-          "public, max-age=10, s-maxage=60, stale-while-revalidate=120",
+          includeRealtimeAccounts
+            ? "public, max-age=10, s-maxage=60, stale-while-revalidate=120"
+            : "public, max-age=30, s-maxage=300, stale-while-revalidate=600",
       },
     },
   );

@@ -1017,6 +1017,12 @@ button {
   background: rgba(255, 179, 71, 0.05);
 }
 
+.thermal-message--status {
+  color: #dff8fc;
+  border-left-color: var(--cyan);
+  background: rgba(85, 221, 255, 0.055);
+}
+
 .thermal-message--error {
   color: #ffb3a7;
   border-left-color: var(--red);
@@ -1565,6 +1571,37 @@ button {
   white-space: nowrap;
 }
 
+.feed-reader-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 10px 4px;
+  padding: 8px 9px;
+  border: 1px solid var(--line-soft);
+  border-left: 2px solid var(--cyan);
+  background: rgba(85, 221, 255, 0.045);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.feed-reader-status > span {
+  color: var(--cyan);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+}
+
+.feed-reader-status > strong {
+  color: var(--ink);
+  font-size: 0.62rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.feed-reader-status > small {
+  color: var(--muted);
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+
 .source-health {
   display: grid;
   grid-template-columns: 1fr;
@@ -2038,6 +2075,14 @@ button {
   .brand-line h1 {
     font-size: 1rem;
   }
+
+  .confidence-legend {
+    bottom: 130px;
+  }
+
+  .scenario-hud {
+    left: calc(50% + 8px);
+  }
 }
 
 /* Tablets use the same bounded drawer/sheet interaction as phones. Keeping
@@ -2109,6 +2154,8 @@ button {
     gap: 7px;
     padding: 8px;
     transform: none;
+    height: var(--mobile-alert);
+    overflow: auto;
   }
 
   .evacuation-code {
@@ -2338,6 +2385,12 @@ button {
   }
 
   .thermal-source-line {
+    font-size: 0.6875rem;
+  }
+
+  .feed-reader-status > span,
+  .feed-reader-status > strong,
+  .feed-reader-status > small {
     font-size: 0.6875rem;
   }
 
@@ -2760,7 +2813,7 @@ button {
 .alert-toast {
   position: absolute;
   z-index: 1350;
-  top: calc(max(6px, env(safe-area-inset-top)) + 30px);
+  top: max(176px, calc(env(safe-area-inset-top) + 156px));
   left: 50%;
   display: flex;
   align-items: stretch;
@@ -2949,6 +3002,25 @@ button {
 }
 
 @media (max-width: 1180px) {
+  .alert-toast {
+    top: calc(
+      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 12px
+    );
+  }
+
+  .has-action-alert .view-controls,
+  .has-action-alert .locate-control {
+    top: calc(
+      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 88px
+    );
+  }
+
+  .has-action-alert .leaflet-control-zoom {
+    margin-top: calc(
+      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 154px
+    ) !important;
+  }
+
   .mobile-dock button {
     position: relative;
   }
@@ -3030,6 +3102,12 @@ button {
 
   .evacuation-collapsed span {
     font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 1180px) and (max-height: 700px) {
+  .leaflet-control-zoom {
+    display: none;
   }
 }
 

@@ -30,6 +30,7 @@ import {
   normalizeAthensWallTime,
   zonedDateTimeAttribute,
 } from "@/lib/area-time";
+import { DEMAND_INTERVALS_MS } from "@/lib/firewatch/demand-policy";
 
 type LatLngTuple = [number, number];
 type Confidence = "official" | "observed" | "reported" | "modeled";
@@ -129,6 +130,13 @@ type IntelItem = {
   live?: boolean;
   archived?: boolean;
 };
+
+function clientPollingAvailable(allowOfflineSnapshot = false) {
+  return (
+    document.visibilityState === "visible" &&
+    (navigator.onLine || allowOfflineSnapshot)
+  );
+}
 
 type LiveThermalDetection = {
   id: string;
@@ -257,6 +265,7 @@ type LiveUpdateItem = {
 
 type UpdatesPayload = {
   schemaVersion: 2;
+  collectionMode: "incident-realtime" | "feeds-only";
   requestStartedAt: string;
   retrievedAt: string;
   localTimeZone: "Europe/Athens";
@@ -403,7 +412,7 @@ const intelEn: IntelItem[] = [
     time: "29 Jul 2026 · 16:58 EEST",
     label: "Official 112 alert issued 29 Jul 2026 at 16:58 EEST",
     detail:
-      "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued 29 Jul 2026 at 16:58 EEST; check the incident wire and authorities for any newer instruction.",
+      "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued 29 Jul 2026 at 16:58 EEST; check the local feed reader and authorities for any newer instruction.",
     confidence: "official",
   },
   {
@@ -478,7 +487,7 @@ const intelEl: IntelItem[] = [
     time: "29 Ιουλ 2026 · 16:58 EEST",
     label: "Επίσημη ειδοποίηση 112 που εκδόθηκε στις 29 Ιουλ 2026, 16:58 EEST",
     detail:
-      "Όσοι βρίσκονταν στην περιοχή Πλωμαρίου κλήθηκαν να απομακρυνθούν προς την παραλία Πλωμαρίου με κατεύθυνση τον Άγιο Ισίδωρο. Η καταχώριση αναπαράγει την ειδοποίηση της 29 Ιουλ 2026, 16:58 EEST· ελέγξτε τη ροή συμβάντος και τις Αρχές για κάθε νεότερη οδηγία.",
+      "Όσοι βρίσκονταν στην περιοχή Πλωμαρίου κλήθηκαν να απομακρυνθούν προς την παραλία Πλωμαρίου με κατεύθυνση τον Άγιο Ισίδωρο. Η καταχώριση αναπαράγει την ειδοποίηση της 29 Ιουλ 2026, 16:58 EEST· ελέγξτε τον τοπικό αναγνώστη ροών και τις Αρχές για κάθε νεότερη οδηγία.",
     confidence: "official",
   },
   {
@@ -1597,6 +1606,13 @@ export default function Home() {
     thermalData?.retrievedAt,
     language,
   );
+  const thermalPollMinutes = Math.max(
+    1,
+    Math.round(
+      (thermalData?.source.appPollSeconds ??
+        DEMAND_INTERVALS_MS.incident.thermal / 1_000) / 60,
+    ),
+  );
   const thermalHistoricalCoverage = !isLive
     ? (thermalData?.query.requestedUtcDates?.join(" + ") ??
       thermalRequestDate ??
@@ -1732,6 +1748,12 @@ export default function Home() {
       href: "https://x.com/CivPro_GR",
     },
   ].flatMap((source) => {
+    if (
+      updatesData?.collectionMode === "feeds-only" &&
+      ["hellenic-fire-service", "civil-protection-x"].includes(source.id)
+    ) {
+      return [];
+    }
     const snapshot = updatesData?.sources.find(
       (candidate) => candidate.id === source.id,
     );
@@ -2144,9 +2166,16 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    const refreshWind = async () => {
+    let inFlight = false;
+    const refreshWind = async (allowOfflineSnapshot = false) => {
+      if (
+        cancelled ||
+        inFlight ||
+        !clientPollingAvailable(allowOfflineSnapshot)
+      ) return;
+      inFlight = true;
       try {
-        const response = await fetch("/api/wind", { cache: "no-store" });
+        const response = await fetch("/api/wind");
         recordSnapshotResponses("wind", [response]);
         if (!response.ok) throw new Error("wind request failed");
         const payload = (await response.json()) as WindPayload;
@@ -2156,22 +2185,39 @@ export default function Home() {
         }
       } catch {
         if (!cancelled) setWindError(true);
+      } finally {
+        inFlight = false;
       }
     };
-    const initial = window.setTimeout(() => void refreshWind(), 0);
-    const timer = window.setInterval(() => void refreshWind(), 300_000);
+    const initial = window.setTimeout(() => void refreshWind(true), 0);
+    const timer = window.setInterval(
+      () => void refreshWind(),
+      DEMAND_INTERVALS_MS.incident.wind,
+    );
+    const resume = () => void refreshWind();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
     return () => {
       cancelled = true;
       window.clearTimeout(initial);
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
     };
   }, [recordSnapshotResponses]);
 
   useEffect(() => {
     let cancelled = false;
-    const refreshUpdates = async () => {
+    let inFlight = false;
+    const refreshUpdates = async (allowOfflineSnapshot = false) => {
+      if (
+        cancelled ||
+        inFlight ||
+        !clientPollingAvailable(allowOfflineSnapshot)
+      ) return;
+      inFlight = true;
       try {
-        const response = await fetch("/api/updates", { cache: "no-store" });
+        const response = await fetch("/api/updates");
         recordSnapshotResponses("updates", [response]);
         if (!response.ok) throw new Error("updates request failed");
         const payload = (await response.json()) as UpdatesPayload;
@@ -2189,20 +2235,37 @@ export default function Home() {
         }
       } catch {
         if (!cancelled) setUpdatesError(true);
+      } finally {
+        inFlight = false;
       }
     };
-    const initial = window.setTimeout(() => void refreshUpdates(), 0);
-    const timer = window.setInterval(() => void refreshUpdates(), 60_000);
+    const initial = window.setTimeout(() => void refreshUpdates(true), 0);
+    const timer = window.setInterval(
+      () => void refreshUpdates(),
+      DEMAND_INTERVALS_MS.incident.updates,
+    );
+    const resume = () => void refreshUpdates();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
     return () => {
       cancelled = true;
       window.clearTimeout(initial);
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
     };
   }, [recordSnapshotResponses]);
 
   useEffect(() => {
     let cancelled = false;
-    const refreshThermal = async () => {
+    let inFlight = false;
+    const refreshThermal = async (allowOfflineSnapshot = false) => {
+      if (
+        cancelled ||
+        inFlight ||
+        !clientPollingAvailable(allowOfflineSnapshot)
+      ) return;
+      inFlight = true;
       try {
         const requestedDates = thermalRequestDate
           ? historicalThermalDates(thermalRequestDate)
@@ -2213,7 +2276,7 @@ export default function Home() {
             )
           : ["/api/thermal"];
         const responses = await Promise.all(
-          requestUrls.map((url) => fetch(url, { cache: "no-store" })),
+          requestUrls.map((url) => fetch(url)),
         );
         if (cancelled) return;
         recordSnapshotResponses("thermal", responses);
@@ -2244,6 +2307,8 @@ export default function Home() {
           setThermalError(true);
           setSatelliteEpoch(Date.now());
         }
+      } finally {
+        inFlight = false;
       }
     };
     const initial = window.setTimeout(() => {
@@ -2253,16 +2318,24 @@ export default function Home() {
       setSnapshotSources((current) =>
         current.thermal ? { ...current, thermal: false } : current,
       );
-      void refreshThermal();
+      void refreshThermal(true);
     }, 0);
     const timer =
       thermalRequestDate === null
-        ? window.setInterval(() => void refreshThermal(), 300_000)
+        ? window.setInterval(
+            () => void refreshThermal(),
+            DEMAND_INTERVALS_MS.incident.thermal,
+          )
         : null;
+    const resume = () => void refreshThermal();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
     return () => {
       cancelled = true;
       window.clearTimeout(initial);
       if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
     };
   }, [recordSnapshotResponses, thermalRequestDate]);
 
@@ -2878,7 +2951,7 @@ export default function Home() {
 
   return (
     <main
-      className={`command-shell${mobileSheetOpen ? " has-mobile-sheet" : ""}${layers.simulation ? " has-scenario" : ""}${isLive ? " is-live" : " is-historical"}${isScrubbing ? " is-scrubbing" : ""}${showArchivedOfficialAlert ? "" : " without-archived-alert"}${showArchivedOfficialAlert && alertCollapsed ? " alert-collapsed" : ""}${userReadout || geoStatus === "denied" || geoStatus === "error" ? " has-locate-readout" : ""}`}
+      className={`command-shell${mobileSheetOpen ? " has-mobile-sheet" : ""}${layers.simulation ? " has-scenario" : ""}${isLive ? " is-live" : " is-historical"}${isScrubbing ? " is-scrubbing" : ""}${showArchivedOfficialAlert ? "" : " without-archived-alert"}${showArchivedOfficialAlert && alertCollapsed ? " alert-collapsed" : ""}${userReadout || geoStatus === "denied" || geoStatus === "error" ? " has-locate-readout" : ""}${actionAlert ? " has-action-alert" : ""}`}
     >
       <div className="map-stage">
         <div
@@ -3456,8 +3529,8 @@ export default function Home() {
                     ),
                     updates: localize(
                       language,
-                      "INCIDENT WIRE",
-                      "ΡΟΗ ΣΥΜΒΑΝΤΟΣ",
+                      "LOCAL FEED READER",
+                      "ΤΟΠΙΚΟΣ ΑΝΑΓΝΩΣΤΗΣ ΡΟΩΝ",
                     ),
                   }[layerTab]
                 }
@@ -3478,8 +3551,8 @@ export default function Home() {
                         )
                       : localize(
                           language,
-                          `GREECE TIME // RSS POLL ${updatesRetrievedTime}`,
-                          `ΩΡΑ ΕΛΛΑΔΑΣ // ΕΛΕΓΧΟΣ RSS ${updatesRetrievedTime}`,
+                          `GREECE TIME // SHARED SNAPSHOT ${updatesRetrievedTime}`,
+                          `ΩΡΑ ΕΛΛΑΔΑΣ // ΚΟΙΝΟ ΣΤΙΓΜΙΟΤΥΠΟ ${updatesRetrievedTime}`,
                         )
                   : localize(
                       language,
@@ -3553,7 +3626,7 @@ export default function Home() {
                 ["layers", localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")],
                 ["thermal", localize(language, "THERMAL", "ΘΕΡΜΙΚΑ")],
                 ["wind", localize(language, "WIND", "ΑΝΕΜΟΣ")],
-                ["updates", localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")],
+                ["updates", localize(language, "FEEDS", "ΡΟΕΣ")],
               ] as Array<[LayerTab, string]>
             ).map(([tab, label]) => (
               <button
@@ -3916,6 +3989,18 @@ export default function Home() {
               </div>
             )}
 
+            {!thermalLoading &&
+              !thermalUnavailable &&
+              thermalDetections.length > 0 && (
+                <p className="thermal-message thermal-message--status" role="status">
+                  {localize(
+                    language,
+                    `LATEST DETECTION · ${thermalLatestTime}. FEED CHECKED · ${thermalRetrievedTime}. No newer detection is listed; this hotspot feed cannot tell whether a later pass saw no anomaly.`,
+                    `ΝΕΟΤΕΡΗ ΑΝΙΧΝΕΥΣΗ · ${thermalLatestTime}. ΕΛΕΓΧΟΣ ΡΟΗΣ · ${thermalRetrievedTime}. Δεν καταγράφεται νεότερη ανίχνευση· αυτή η ροή θερμών σημείων δεν μπορεί να δείξει αν μεταγενέστερη διέλευση δεν βρήκε ανωμαλία.`,
+                  )}
+                </p>
+              )}
+
             <p className="thermal-definition">
               {localize(
                 language,
@@ -3936,11 +4021,11 @@ export default function Home() {
             {!thermalLoading &&
               !thermalUnavailable &&
               thermalDetections.length === 0 && (
-                <p className="thermal-message">
+                <p className="thermal-message thermal-message--status" role="status">
                   {localize(
                     language,
-                    "No thermal detections were returned for this area in the selected window. This does not mean the fire is out; clouds, satellite timing, and sensor limits can hide activity.",
-                    "Δεν επιστράφηκαν θερμικές ανιχνεύσεις για αυτή την περιοχή στο επιλεγμένο χρονικό παράθυρο. Αυτό δεν σημαίνει ότι η πυρκαγιά έχει σβήσει· νέφη, χρόνος διέλευσης και περιορισμοί του αισθητήρα μπορεί να αποκρύπτουν δραστηριότητα.",
+                    `NO THERMAL DETECTIONS RETURNED · CHECKED ${thermalRetrievedTime}. This is not an all-clear; clouds, satellite timing, missing coverage, and sensor limits can hide activity.`,
+                    `ΔΕΝ ΕΠΙΣΤΡΑΦΗΚΑΝ ΘΕΡΜΙΚΕΣ ΑΝΙΧΝΕΥΣΕΙΣ · ΕΛΕΓΧΟΣ ${thermalRetrievedTime}. Αυτό δεν αποτελεί λήξη συναγερμού· νέφη, χρόνος διέλευσης, έλλειψη κάλυψης και περιορισμοί αισθητήρων μπορεί να αποκρύπτουν δραστηριότητα.`,
                   )}
                 </p>
               )}
@@ -3994,10 +4079,10 @@ export default function Home() {
               {localize(
                 language,
                 isLive
-                  ? `RETRIEVED · ${thermalRetrievedTime} · app checks every 5 min; satellite passes are not continuous`
+                  ? `RETRIEVED · ${thermalRetrievedTime} · active-incident check every ${thermalPollMinutes} min while this tab is visible; satellite passes are not continuous`
                   : `Historical FIRMS UTC coverage ${thermalHistoricalCoverage} · RETRIEVED · ${thermalRetrievedTime} · exact as-of and 24-hour filters are applied locally; a complete historical archive is not guaranteed`,
                 isLive
-                  ? `ΑΝΑΚΤΗΣΗ · ${thermalRetrievedTime} · έλεγχος εφαρμογής κάθε 5 λεπτά· οι δορυφορικές διελεύσεις δεν είναι συνεχείς`
+                  ? `ΑΝΑΚΤΗΣΗ · ${thermalRetrievedTime} · έλεγχος ενεργού συμβάντος κάθε ${thermalPollMinutes} λεπτά όσο η καρτέλα είναι ορατή· οι δορυφορικές διελεύσεις δεν είναι συνεχείς`
                   : `Ιστορική κάλυψη FIRMS UTC ${thermalHistoricalCoverage} · ΑΝΑΚΤΗΣΗ · ${thermalRetrievedTime} · τα ακριβή φίλτρα χρονικής στιγμής και 24 ωρών εφαρμόζονται τοπικά· δεν διασφαλίζεται πλήρες ιστορικό αρχείο`,
               )}
             </small>
@@ -4154,6 +4239,31 @@ export default function Home() {
             aria-labelledby="layers-tab-updates"
             hidden={layerTab !== "updates"}
           >
+          <div className="feed-reader-status" role="status">
+            <span>
+              {localize(
+                language,
+                "LOCAL RSS + OFFICIAL READER",
+                "ΤΟΠΙΚΟΣ ΑΝΑΓΝΩΣΤΗΣ RSS + ΕΠΙΣΗΜΩΝ ΡΟΩΝ",
+              )}
+            </span>
+            <strong>
+              {updatesData
+                ? localize(
+                    language,
+                    `${updatesData.items.length} INCIDENT-MATCHED ITEMS · ${updatesData.sourceSummary.online}/${updatesData.sourceSummary.total} SOURCES REACHABLE`,
+                    `${updatesData.items.length} ΣΧΕΤΙΚΑ ΣΤΟΙΧΕΙΑ · ${updatesData.sourceSummary.online}/${updatesData.sourceSummary.total} ΠΗΓΕΣ ΠΡΟΣΒΑΣΙΜΕΣ`,
+                  )
+                : localize(language, "CHECKING SHARED FEED SNAPSHOT", "ΕΛΕΓΧΟΣ ΚΟΙΝΟΥ ΣΤΙΓΜΙΟΤΥΠΟΥ ΡΟΩΝ")}
+            </strong>
+            <small>
+              {localize(
+                language,
+                "Headlines, timestamps, and direct source links come from one server-curated cached snapshot; your browser does not fan out to publishers.",
+                "Οι τίτλοι, οι χρονικές σημάνσεις και οι άμεσοι σύνδεσμοι προέρχονται από ένα κοινό στιγμιότυπο διακομιστή· ο φυλλομετρητής δεν καλεί ξεχωριστά κάθε εκδότη.",
+              )}
+            </small>
+          </div>
           <div className="intel-list">
             {displayIntel.map((item) => (
               <div
@@ -4571,8 +4681,8 @@ export default function Home() {
                   )
                 : localize(
                     language,
-                    `${thermalDetections.length} RECORDS · ${visibleThermalPasses} PASSES`,
-                    `${thermalDetections.length} ΕΓΓΡΑΦΕΣ · ${visibleThermalPasses} ΔΙΕΛΕΥΣΕΙΣ`,
+                    `${thermalDetections.length} RECORDS · ${visibleThermalPasses} DETECTING PASSES`,
+                    `${thermalDetections.length} ΕΓΓΡΑΦΕΣ · ${visibleThermalPasses} ΔΙΕΛΕΥΣΕΙΣ ΜΕ ΑΝΙΧΝΕΥΣΕΙΣ`,
                   )}
           </strong>
           <small>
@@ -4585,13 +4695,13 @@ export default function Home() {
               : thermalDetections.length === 0
                 ? localize(
                     language,
-                    "Zero detections is not an all-clear",
-                    "Μηδενικές ανιχνεύσεις δεν σημαίνουν λήξη συναγερμού",
+                    `NO DETECTIONS RETURNED · CHECKED ${thermalRetrievedTime} · NOT AN ALL-CLEAR`,
+                    `ΔΕΝ ΕΠΙΣΤΡΑΦΗΚΑΝ ΑΝΙΧΝΕΥΣΕΙΣ · ΕΛΕΓΧΟΣ ${thermalRetrievedTime} · ΟΧΙ ΛΗΞΗ ΣΥΝΑΓΕΡΜΟΥ`,
                   )
                 : localize(
                     language,
-                    `${thermalWindowName} · ${thermalLatestAge} · RETRIEVED ${thermalRetrievedTime}`,
-                    `${thermalWindowName} · ${thermalLatestAge} · ΑΝΑΚΤΗΣΗ ${thermalRetrievedTime}`,
+                    `${thermalWindowName} · ${thermalLatestAge} · FEED CHECKED ${thermalRetrievedTime}`,
+                    `${thermalWindowName} · ${thermalLatestAge} · ΕΛΕΓΧΟΣ ΡΟΗΣ ${thermalRetrievedTime}`,
                   )}
           </small>
         </div>

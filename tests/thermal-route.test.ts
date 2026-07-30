@@ -150,6 +150,54 @@ describe("GET /api/thermal", () => {
     expect(JSON.stringify(payload)).not.toContain("server-only-test-key");
   });
 
+  it("keeps distinct satellites and their detecting passes separate", async () => {
+    vi.stubEnv("FIRMS_MAP_KEY", "server-only-test-key");
+    vi.spyOn(Date, "now").mockReturnValue(NOW_MS);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+        const url = String(input);
+        if (datasetId(url) !== "MODIS_NRT") {
+          return new Response(csv(), {
+            headers: { "Content-Type": "text/csv" },
+          });
+        }
+        return new Response(
+          csv(
+            row({ time: "1200", satellite: "Terra", confidence: "95" }),
+            row({ time: "1200", satellite: "Aqua", confidence: "95" }),
+          ),
+          { headers: { "Content-Type": "text/csv" } },
+        );
+      }),
+    );
+
+    const response = await GET(new Request("http://localhost/api/thermal"));
+    const payload = await response.json();
+    const modisDetections = payload.detections.filter(
+      (detection: { product: string }) => detection.product === "MODIS_NRT",
+    );
+    const modisPasses = payload.passes.filter(
+      (pass: { product: string }) => pass.product === "MODIS_NRT",
+    );
+
+    expect(modisDetections).toHaveLength(2);
+    expect(
+      modisDetections
+        .map((detection: { satellite: string }) => detection.satellite)
+        .sort(),
+    ).toEqual(["Aqua", "Terra"]);
+    expect(
+      new Set(
+        modisDetections.map((detection: { id: string }) => detection.id),
+      ).size,
+    ).toBe(2);
+    expect(modisPasses).toHaveLength(2);
+    expect(new Set(modisPasses.map((pass: { id: string }) => pass.id)).size)
+      .toBe(2);
+  });
+
   it("serves bounded Europe data as a visibly degraded fallback when Area API fails", async () => {
     vi.stubEnv("FIRMS_MAP_KEY", "server-only-test-key");
     vi.spyOn(Date, "now").mockReturnValue(NOW_MS);
