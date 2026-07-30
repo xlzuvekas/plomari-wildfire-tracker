@@ -2021,7 +2021,7 @@ export default function Home() {
 
   useEffect(() => {
     if (compact || !panelOpen) return;
-    reclampPanel();
+    const frame = window.requestAnimationFrame(reclampPanel);
     window.addEventListener("resize", reclampPanel);
     const observer =
       typeof ResizeObserver === "undefined" || !panelElement.current
@@ -2029,6 +2029,7 @@ export default function Home() {
         : new ResizeObserver(reclampPanel);
     if (panelElement.current) observer?.observe(panelElement.current);
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", reclampPanel);
       observer?.disconnect();
     };
@@ -2161,11 +2162,6 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    setThermalData(null);
-    setThermalError(false);
-    setSnapshotSources((current) =>
-      current.thermal ? { ...current, thermal: false } : current,
-    );
     const refreshThermal = async () => {
       try {
         const requestedDates = thermalRequestDate
@@ -2210,7 +2206,15 @@ export default function Home() {
         }
       }
     };
-    const initial = window.setTimeout(() => void refreshThermal(), 0);
+    const initial = window.setTimeout(() => {
+      if (cancelled) return;
+      setThermalData(null);
+      setThermalError(false);
+      setSnapshotSources((current) =>
+        current.thermal ? { ...current, thermal: false } : current,
+      );
+      void refreshThermal();
+    }, 0);
     const timer =
       thermalRequestDate === null
         ? window.setInterval(() => void refreshThermal(), 300_000)
