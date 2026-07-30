@@ -320,7 +320,12 @@ export async function GET() {
     if (result.status === "fulfilled") {
       locations.push(result.value);
     } else {
-      errors.push(safeError(`Open-Meteo ${LOCATIONS[index].label}`, result.reason));
+      errors.push(
+        safeError(
+          `Open-Meteo ${LOCATIONS[index]?.label ?? "location"}`,
+          result.reason,
+        ),
+      );
     }
   });
 

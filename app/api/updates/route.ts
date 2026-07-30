@@ -1,3 +1,9 @@
+import {
+  FIRE_SERVICE_BOARD_URL,
+  parseFireServiceBoard,
+} from "./fireservice";
+import { normalizeSearch, plainText } from "./text";
+
 const INCIDENT_STARTED_AT = "2026-07-29T10:30:00Z";
 const INCIDENT_STARTED_MS = Date.parse(INCIDENT_STARTED_AT);
 const LOCAL_TIME_ZONE = "Europe/Athens";
@@ -109,8 +115,6 @@ const X_ACCOUNTS = [
 
 const STONISI_LIVE_URL =
   "https://www.stonisi.gr/post/114624/stamathsan-oi-ripseis-apo-aeros-sthn-fwtia-toy-plwmarioy";
-const FIRE_SERVICE_BOARD_URL =
-  "https://www.fireservice.gr/apps/fire2019/symvanta/page.php";
 
 type FeedConfig = (typeof FEEDS)[number];
 type XAccount = (typeof X_ACCOUNTS)[number];
@@ -118,8 +122,6 @@ type XAccount = (typeof X_ACCOUNTS)[number];
 type FeedItem = {
   id: string;
   title: string;
-  /** @deprecated Use summaryEn or summaryEl. */
-  summary: string;
   summaryEn: string;
   summaryEl: string;
   url: string;
@@ -158,37 +160,6 @@ type SourceSnapshot = {
     | "live-board-observation-at-fetch-time";
 };
 
-function decodeXml(value: string) {
-  const named: Record<string, string> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    nbsp: " ",
-    quot: '"',
-  };
-
-  return value
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&#(x?[0-9a-f]+);/gi, (_match, code: string) => {
-      const radix = code.toLowerCase().startsWith("x") ? 16 : 10;
-      const digits = radix === 16 ? code.slice(1) : code;
-      const point = Number.parseInt(digits, radix);
-      return Number.isFinite(point) ? String.fromCodePoint(point) : "";
-    })
-    .replace(/&([a-z]+);/gi, (_match, entity: string) => named[entity] ?? "");
-}
-
-function plainText(value: string, limit = 500) {
-  return decodeXml(value)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, limit);
-}
-
 function tag(block: string, name: string) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return (
@@ -212,13 +183,6 @@ function tags(block: string, name: string) {
     ),
     (match) => match[1],
   );
-}
-
-function normalizeSearch(value: string) {
-  return plainText(value, 30_000)
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
 }
 
 function relevant(value: string) {
@@ -322,21 +286,35 @@ const INCIDENT_STARTED_ATHENS_DATE = athensDateKey(
   new Date(INCIDENT_STARTED_AT),
 );
 
+function dateKeyFromParts(year?: string, month?: string, day?: string) {
+  return year && month && day
+    ? `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
+    : null;
+}
+
 function dateKeyFromSource(value: string) {
   const cleaned = plainText(value, 120);
   const yearFirst = cleaned.match(
     /(?:^|\D)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:\D|$)/,
   );
-  if (yearFirst) {
-    return `${yearFirst[1]}-${yearFirst[2].padStart(2, "0")}-${yearFirst[3].padStart(2, "0")}`;
-  }
+  const yearFirstKey = dateKeyFromParts(
+    yearFirst?.[1],
+    yearFirst?.[2],
+    yearFirst?.[3],
+  );
+  if (yearFirstKey) return yearFirstKey;
 
+  // Assumes DD/MM/YYYY (day first), which holds for the Greek-sourced feeds
+  // here; a MM/DD/YYYY source would be silently mis-parsed.
   const dayFirst = cleaned.match(
     /(?:^|\D)(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\D|$)/,
   );
-  if (dayFirst) {
-    return `${dayFirst[3]}-${dayFirst[2].padStart(2, "0")}-${dayFirst[1].padStart(2, "0")}`;
-  }
+  const dayFirstKey = dateKeyFromParts(
+    dayFirst?.[3],
+    dayFirst?.[2],
+    dayFirst?.[1],
+  );
+  if (dayFirstKey) return dayFirstKey;
 
   const timestamp = Date.parse(cleaned);
   return Number.isFinite(timestamp) ? athensDateKey(new Date(timestamp)) : null;
@@ -344,7 +322,14 @@ function dateKeyFromSource(value: string) {
 
 function athensNoonIso(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
-  if (![year, month, day].every(Number.isFinite)) return null;
+  if (
+    year === undefined ||
+    month === undefined ||
+    day === undefined ||
+    ![year, month, day].every(Number.isFinite)
+  ) {
+    return null;
+  }
 
   const desiredUtcShape = Date.UTC(year, month - 1, day, 12);
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -491,7 +476,7 @@ async function fetchFeed(feed: FeedConfig) {
 
   const items = blocks
     .map((match): FeedItem | null => {
-      const block = match[1];
+      const block = match[1] ?? "";
       const title = plainText(tag(block, "title"), 240);
       const description =
         tag(block, "content:encoded") || tag(block, "description");
@@ -527,7 +512,6 @@ async function fetchFeed(feed: FeedConfig) {
       return {
         id: `${feed.id}-${guid || url}`,
         title,
-        summary: summaryEn,
         summaryEn,
         summaryEl,
         url,
@@ -626,7 +610,7 @@ async function fetchStoNisiLiveStory(): Promise<FeedItem> {
 
   for (const script of scripts) {
     try {
-      article = findArticle(JSON.parse(script[1]));
+      article = findArticle(JSON.parse(script[1] ?? ""));
       if (article) break;
     } catch {
       // Ignore unrelated malformed metadata blocks.
@@ -652,7 +636,6 @@ async function fetchStoNisiLiveStory(): Promise<FeedItem> {
   return {
     id: "stonisi-live-114624",
     title: plainText(headline, 240),
-    summary: summaryEn,
     summaryEn,
     summaryEl,
     url: STONISI_LIVE_URL,
@@ -720,7 +703,6 @@ async function fetchXAccount(
         return {
           id: `x-${account.username}-${post.id}`,
           title: plainText(post.text, 240),
-          summary: summaryEn,
           summaryEn,
           summaryEl,
           url: `https://x.com/${account.username}/status/${post.id}`,
@@ -772,53 +754,8 @@ async function fetchXAccount(
 
 async function fetchFireServiceIncident() {
   const html = await fetchText(FIRE_SERVICE_BOARD_URL);
-  const text = normalizeSearch(html);
-  const incidentIndex = text.indexOf("δ. λεσβου - πλωμαριου");
-  if (incidentIndex < 0) {
-    throw new Error("Plomari row not found");
-  }
-
-  const before = text.slice(0, incidentIndex);
-  const headings = Array.from(
-    before.matchAll(
-      /(σε εξελιξη|μερικος ελεγχος|πληρης ελεγχος|ληξη)\s*\(\d+\)/g,
-    ),
-  );
-  const heading = headings.at(-1)?.[1];
-  const status =
-    heading === "σε εξελιξη"
-      ? "in-progress"
-      : heading === "μερικος ελεγχος"
-        ? "partial-control"
-        : heading === "πληρης ελεγχος"
-          ? "full-control"
-          : heading === "ληξη"
-            ? "ended"
-            : null;
-
-  if (!status) {
-    throw new Error("Plomari status not parsed");
-  }
-
-  const after = text.slice(incidentIndex, incidentIndex + 700);
-  const sourceAge =
-    after.match(
-      /τελευταια ενημερωση πριν απο\s+(\d+\s+(?:δευτερολεπτ(?:ο|α)|λεπτ(?:ο|α)|ωρ(?:α|ες)))/,
-    )?.[1] ?? null;
-
   return {
-    status,
-    statusLabel:
-      status === "in-progress"
-        ? "IN PROGRESS"
-        : status === "partial-control"
-          ? "PARTIAL CONTROL"
-          : status === "full-control"
-            ? "FULL CONTROL"
-            : "ENDED",
-    municipality: "Lesvos · Plomari",
-    incidentType: "Wildfire incident",
-    sourceAge,
+    ...parseFireServiceBoard(html),
     fetchedAt: new Date().toISOString(),
     sourceUrl: FIRE_SERVICE_BOARD_URL,
     official: true,
@@ -855,30 +792,35 @@ export async function GET() {
         : Promise.resolve(null),
     ]);
 
-  const sources: SourceSnapshot[] = feedResults.map((result, index) => {
-    if (result.status === "fulfilled") return result.value.source;
-    const feed = FEEDS[index];
-    return {
-      id: feed.id,
-      label: feed.label,
-      url: feed.url,
-      kind: feed.kind,
-      tier: feed.tier,
-      timeQuality: feed.timeQuality,
-      fetchedAt: null,
-      channelUpdatedAt: null,
-      latestItemAt: null,
-      status: "error",
-      itemCount: 0,
-      errorCode: sourceErrorCode(result.reason),
-      freshnessPolicy:
-        feed.timeQuality === "date-only"
-          ? "athens-calendar-date-at-or-after-incident-start"
-          : feed.timeQuality === "feed-order-only"
-            ? "undated-items-excluded"
-            : "source-timestamp-at-or-after-incident-start",
-    };
-  });
+  const sources: SourceSnapshot[] = feedResults.flatMap(
+    (result, index): SourceSnapshot[] => {
+      if (result.status === "fulfilled") return [result.value.source];
+      const feed = FEEDS[index];
+      if (feed === undefined) return [];
+      return [
+        {
+          id: feed.id,
+          label: feed.label,
+          url: feed.url,
+          kind: feed.kind,
+          tier: feed.tier,
+          timeQuality: feed.timeQuality,
+          fetchedAt: null,
+          channelUpdatedAt: null,
+          latestItemAt: null,
+          status: "error",
+          itemCount: 0,
+          errorCode: sourceErrorCode(result.reason),
+          freshnessPolicy:
+            feed.timeQuality === "date-only"
+              ? "athens-calendar-date-at-or-after-incident-start"
+              : feed.timeQuality === "feed-order-only"
+                ? "undated-items-excluded"
+                : "source-timestamp-at-or-after-incident-start",
+        },
+      ];
+    },
+  );
 
   if (fireServiceResult.status === "fulfilled") {
     sources.push({
@@ -921,6 +863,7 @@ export async function GET() {
         return;
       }
       const account = X_ACCOUNTS[index];
+      if (account === undefined) return;
       sources.push({
         id: account.id,
         label: account.label,
