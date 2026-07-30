@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import type {
   LayerGroup,
   Map as LeafletMap,
@@ -24,6 +29,7 @@ type Confidence = "official" | "observed" | "reported" | "modeled";
 type Language = "en" | "el";
 type LayerKey =
   | "official"
+  | "evacRoute"
   | "satellite"
   | "satelliteRaster"
   | "local"
@@ -33,6 +39,23 @@ type LayerKey =
   | "simulation";
 type BaseMode = "dark" | "satellite" | "terrain";
 type ThermalWindow = "latest" | "6h" | "24h";
+type LayerTab = "layers" | "thermal" | "wind" | "updates";
+type SnapshotSource = "wind" | "updates" | "thermal";
+type SourceErrorCode =
+  | "timeout"
+  | "authentication"
+  | "upstream_forbidden"
+  | "rate_limit"
+  | "unavailable"
+  | "missing_X_BEARER_TOKEN";
+
+const LAYER_TABS: readonly LayerTab[] = [
+  "layers",
+  "thermal",
+  "wind",
+  "updates",
+];
+const SNAPSHOT_HEADER = "X-Firewatch-Snapshot";
 
 type WindVector = {
   speedKmh: number;
@@ -126,6 +149,9 @@ type ThermalPayload = {
     bounds: { west: number; south: number; east: number; north: number };
     incidentCenter: { lat: number; lon: number };
     incidentRadiusKm: number;
+    mode?: "live" | "historical";
+    date?: string | null;
+    requestedUtcDates?: string[];
     from: string;
     to: string;
     maxAgeHours: number;
@@ -260,7 +286,8 @@ type UpdatesPayload = {
     latestItemAt: string | null;
     status: "ok" | "error" | "unconfigured";
     itemCount: number;
-    errorCode: string | null;
+    errorCode: SourceErrorCode | null;
+    freshnessPolicy?: string;
   }>;
   sourceSummary: {
     total: number;
@@ -271,7 +298,7 @@ type UpdatesPayload = {
   items: LiveUpdateItem[];
   errors: Array<{
     sourceId: string;
-    code: string | null;
+    code: SourceErrorCode | null;
     message: string;
   }>;
 };
@@ -322,6 +349,11 @@ const WIND_FALLBACK: WindCurrent = {
   wind120: { speedKmh: 74, directionDeg: 41 },
   wind180: { speedKmh: 80.4, directionDeg: 41 },
 };
+
+// Road alignment for the archived 16:58 112 instruction (Plomari beach ->
+// Agios Isidoros), traced once via OSRM. The alert named the endpoints,
+// not the streets; the map labels this caveat wherever the route shows.
+const EVACUATION_ROUTE: LatLngTuple[] = [[38.97519,26.3714],[38.97511,26.37183],[38.97492,26.37179],[38.97505,26.37152],[38.97512,26.37136],[38.97522,26.37117],[38.97531,26.37097],[38.9754,26.37069],[38.97556,26.37019],[38.97565,26.36987],[38.97556,26.36977],[38.97545,26.36967],[38.97527,26.36985],[38.97515,26.37007],[38.97503,26.37014],[38.975,26.37024],[38.97499,26.37043],[38.97499,26.37053],[38.97497,26.37068],[38.97488,26.37096],[38.97478,26.37116],[38.97468,26.37132],[38.97458,26.37157],[38.97441,26.3722],[38.97433,26.37257],[38.97427,26.37286],[38.97424,26.37306],[38.97413,26.3734],[38.97412,26.37362],[38.97411,26.37375],[38.97413,26.37423],[38.97416,26.37456],[38.97418,26.37478],[38.97418,26.37499],[38.97407,26.3753],[38.97402,26.37561],[38.97404,26.37588],[38.97403,26.37597],[38.9739,26.37621],[38.97383,26.37633],[38.97382,26.37638],[38.97382,26.37643],[38.97385,26.37652],[38.97422,26.377],[38.97431,26.37713],[38.97429,26.37722],[38.97416,26.3774],[38.97396,26.3777],[38.97386,26.37785],[38.97379,26.37795],[38.97348,26.37844],[38.97301,26.37922],[38.97291,26.37948],[38.97294,26.37977],[38.97292,26.37987],[38.97258,26.38018],[38.97227,26.38054],[38.97215,26.38068],[38.97212,26.38079],[38.97209,26.38093],[38.97209,26.38103],[38.97211,26.38109],[38.97219,26.38121],[38.9723,26.38129],[38.97254,26.38142],[38.9726,26.38146],[38.97263,26.38149],[38.97266,26.38152],[38.97266,26.38162],[38.97265,26.38169],[38.97261,26.38175],[38.97256,26.38179],[38.97186,26.38197],[38.97158,26.382],[38.97154,26.38202],[38.97151,26.38206],[38.97147,26.38211],[38.97145,26.38218],[38.97147,26.38321],[38.97146,26.38351],[38.97152,26.38383],[38.97152,26.38397],[38.97145,26.38433],[38.97144,26.38443],[38.97144,26.3847],[38.97149,26.3855],[38.97149,26.38566],[38.97147,26.38584],[38.97143,26.38602],[38.97136,26.38614],[38.97108,26.38631],[38.97092,26.38647],[38.97084,26.38664],[38.97078,26.38681],[38.97055,26.38761],[38.97041,26.38788],[38.97027,26.38807],[38.97012,26.38824],[38.97001,26.38838],[38.96966,26.38898],[38.96952,26.38913],[38.96942,26.38921],[38.96933,26.38925],[38.96912,26.3893],[38.96894,26.38937],[38.96885,26.38945],[38.96867,26.3898],[38.96847,26.39031],[38.96841,26.39059],[38.96839,26.39087],[38.9684,26.39107],[38.96843,26.3914],[38.96892,26.39187],[38.96893,26.39197],[38.96895,26.39199],[38.969,26.39198],[38.96915,26.39188],[38.96951,26.39179],[38.97006,26.39165],[38.97037,26.39158],[38.97048,26.39155],[38.9705,26.3916],[38.9705,26.39165],[38.97048,26.3917],[38.97015,26.39197],[38.96995,26.39216],[38.96986,26.39227]];
 
 const LANDFILL_FOOTPRINT: LatLngTuple[] = [
   [38.9895777, 26.3815427],
@@ -507,6 +539,11 @@ const sourcesEn = [
     kind: "Official response · 16:34",
   },
   {
+    label: "Civil Protection X",
+    href: "https://x.com/CivPro_GR",
+    kind: "Official context feed · not a 112 alert",
+  },
+  {
     label: "StoNisi overnight",
     href: "https://www.stonisi.gr/post/114624/stamathsan-oi-ripseis-apo-aeros-sthn-fwtia-toy-plwmarioy",
     kind: "Local field report · 20:50",
@@ -563,6 +600,11 @@ const sourcesEl = [
     label: "Πυροσβεστικό Σώμα",
     href: "https://x.com/pyrosvestiki/status/2082459852350066823",
     kind: "Επίσημη κινητοποίηση · 16:34",
+  },
+  {
+    label: "Πολιτική Προστασία X",
+    href: "https://x.com/CivPro_GR",
+    kind: "Επίσημη ενημέρωση πλαισίου · όχι ειδοποίηση 112",
   },
   {
     label: "StoNisi · νυχτερινή ενημέρωση",
@@ -666,6 +708,70 @@ function destination(
   ];
 }
 
+function distanceKm(a: LatLngTuple, b: LatLngTuple) {
+  const radius = 6371;
+  const latA = (a[0] * Math.PI) / 180;
+  const latB = (b[0] * Math.PI) / 180;
+  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
+  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(latA) * Math.cos(latB) * Math.sin(dLon / 2) ** 2;
+  return 2 * radius * Math.asin(Math.sqrt(h));
+}
+
+function bearingDeg(a: LatLngTuple, b: LatLngTuple) {
+  const latA = (a[0] * Math.PI) / 180;
+  const latB = (b[0] * Math.PI) / 180;
+  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(latB);
+  const x =
+    Math.cos(latA) * Math.sin(latB) -
+    Math.sin(latA) * Math.cos(latB) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+// Equirectangular approximation is fine at incident scale (< 10 km spans).
+function nearestPointOnSegment(
+  point: LatLngTuple,
+  a: LatLngTuple,
+  b: LatLngTuple,
+): LatLngTuple {
+  const cosLat = Math.cos((point[0] * Math.PI) / 180);
+  const ax = (a[1] - point[1]) * cosLat;
+  const ay = a[0] - point[0];
+  const dx = (b[1] - a[1]) * cosLat;
+  const dy = b[0] - a[0];
+  const lengthSq = dx * dx + dy * dy;
+  const t =
+    lengthSq === 0
+      ? 0
+      : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSq));
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+function nearestPointOnPolyline(
+  point: LatLngTuple,
+  line: readonly LatLngTuple[],
+): LatLngTuple {
+  let nearest = line[0] ?? point;
+  let nearestKm = distanceKm(point, nearest);
+
+  for (let index = 1; index < line.length; index += 1) {
+    const start = line[index - 1];
+    const end = line[index];
+    if (!start || !end) continue;
+    const candidate = nearestPointOnSegment(point, start, end);
+    const candidateKm = distanceKm(point, candidate);
+    if (candidateKm < nearestKm) {
+      nearest = candidate;
+      nearestKm = candidateKm;
+    }
+  }
+
+  return nearest;
+}
+
 function scenarioShape(
   origin: LatLngTuple,
   heading: number,
@@ -686,7 +792,7 @@ function scenarioShape(
 }
 
 function markerHtml(
-  kind: "fire" | "settlement" | "arrow" | "wind",
+  kind: "fire" | "settlement" | "arrow" | "wind" | "you",
   label: string,
 ) {
   return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}</b></div>`;
@@ -827,6 +933,239 @@ function utcDate(value: number) {
   return new Date(value).toISOString().slice(0, 10);
 }
 
+const UTC_DAY_MS = 24 * 60 * 60 * 1000;
+const THERMAL_PASS_GAP_MS = 10 * 60 * 1000;
+
+function historicalThermalDates(selectedDate: string) {
+  const selectedStart = Date.parse(`${selectedDate}T00:00:00Z`);
+  const previousDate = utcDate(selectedStart - UTC_DAY_MS);
+  return previousDate >= utcDate(INCIDENT_STARTED_EPOCH)
+    ? [previousDate, selectedDate]
+    : [selectedDate];
+}
+
+function thermalConfidenceCounts(
+  detections: readonly LiveThermalDetection[],
+) {
+  return detections.reduce(
+    (counts, detection) => {
+      counts[detection.confidenceCode] += 1;
+      return counts;
+    },
+    { h: 0, n: 0, l: 0, u: 0 },
+  );
+}
+
+function numericMedian(values: readonly number[]) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  const value = sorted[middle];
+  if (value === undefined) return null;
+  if (sorted.length % 2 === 1) return value;
+  return ((sorted[middle - 1] ?? value) + value) / 2;
+}
+
+function mergeHistoricalThermalPayloads(
+  payloads: readonly ThermalPayload[],
+  requestedUtcDates: readonly string[],
+  selectedDate: string,
+): ThermalPayload {
+  const base = payloads.at(-1);
+  if (!base) throw new Error("Historical thermal response was empty");
+
+  const detectionsById = new Map<string, LiveThermalDetection>();
+  payloads.forEach((payload) => {
+    payload.detections.forEach((detection) => {
+      const observedEpoch = Date.parse(detection.observedAt);
+      if (observedEpoch >= INCIDENT_STARTED_EPOCH) {
+        detectionsById.set(detection.id, detection);
+      }
+    });
+  });
+
+  const previousByProduct = new Map<
+    string,
+    { observedEpoch: number; passId: string }
+  >();
+  const clustered = [...detectionsById.values()]
+    .sort((left, right) => {
+      if (left.product !== right.product) {
+        return left.product.localeCompare(right.product);
+      }
+      const timeDelta =
+        Date.parse(left.observedAt) - Date.parse(right.observedAt);
+      return timeDelta || left.id.localeCompare(right.id);
+    })
+    .map((detection) => {
+      const observedEpoch = Date.parse(detection.observedAt);
+      const previous = previousByProduct.get(detection.product);
+      const passId =
+        previous &&
+        observedEpoch - previous.observedEpoch <= THERMAL_PASS_GAP_MS
+          ? previous.passId
+          : `${detection.product}-${detection.observedAt}`;
+      previousByProduct.set(detection.product, { observedEpoch, passId });
+      return { ...detection, passId };
+    });
+
+  const detections = clustered.sort((left, right) => {
+    const timeDelta = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+    return timeDelta || left.id.localeCompare(right.id);
+  });
+  const incidentDetections = detections.filter(
+    (detection) => detection.scope === "incident",
+  );
+  const passGroups = detections.reduce((groups, detection) => {
+    const records = groups.get(detection.passId) ?? [];
+    records.push(detection);
+    groups.set(detection.passId, records);
+    return groups;
+  }, new Map<string, LiveThermalDetection[]>());
+  const passes = [...passGroups.entries()]
+    .map(([id, records]) => {
+      const representative = records[0];
+      if (!representative) throw new Error(`Thermal pass ${id} was empty`);
+      const frpValues = records
+        .map((record) => record.frpMw)
+        .filter((value): value is number => value !== null);
+      const incidentRecords = records.filter(
+        (record) => record.scope === "incident",
+      );
+      return {
+        id,
+        platform: representative.sensor,
+        satellite: representative.satellite,
+        product: representative.product,
+        observedAt: representative.observedAt,
+        ageMinutes: representative.ageMinutes,
+        recordCount: records.length,
+        incidentRecordCount: incidentRecords.length,
+        byConfidence: thermalConfidenceCounts(records),
+        maxFrpMw: frpValues.length ? Math.max(...frpValues) : null,
+        medianFrpMw: numericMedian(frpValues),
+        dayNight: representative.daynight,
+      };
+    })
+    .sort((left, right) => {
+      const timeDelta = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+      return timeDelta || left.id.localeCompare(right.id);
+    });
+
+  const allOk = payloads.every((payload) => payload.status === "ok");
+  const hasUsable = payloads.some(
+    (payload) => payload.status === "ok" || payload.status === "partial",
+  );
+  const allUnconfigured = payloads.every(
+    (payload) => payload.status === "unconfigured",
+  );
+  const status: ThermalPayload["status"] = allOk
+    ? "ok"
+    : hasUsable
+      ? "partial"
+      : allUnconfigured
+        ? "unconfigured"
+        : "upstream-error";
+  const retrievedAt =
+    payloads.map((payload) => payload.retrievedAt).sort().at(-1) ??
+    base.retrievedAt;
+  const earliestQueryFrom = Math.min(
+    ...payloads.map((payload) => Date.parse(payload.query.from)),
+  );
+  const latestQueryTo = Math.max(
+    ...payloads.map((payload) => Date.parse(payload.query.to)),
+  );
+  const datasetIds = [
+    ...new Set(
+      payloads.flatMap((payload) =>
+        payload.datasets.map((dataset) => dataset.id),
+      ),
+    ),
+  ].sort();
+  const datasets = datasetIds.map((id) => {
+    const candidates = payloads.flatMap((payload) =>
+      payload.datasets.filter((dataset) => dataset.id === id),
+    );
+    const primary = candidates.at(-1);
+    if (!primary) throw new Error(`Historical thermal dataset ${id} was empty`);
+    const records = detections.filter((detection) => detection.product === id);
+    const anyOk = candidates.some((candidate) => candidate.status === "ok");
+    const candidatesUnconfigured = candidates.every(
+      (candidate) => candidate.status === "unconfigured",
+    );
+    return {
+      ...primary,
+      status: anyOk
+        ? ("ok" as const)
+        : candidatesUnconfigured
+          ? ("unconfigured" as const)
+          : ("error" as const),
+      records: records.length,
+      latestObservedAt: records[0]?.observedAt ?? null,
+      errorCode:
+        anyOk
+          ? null
+          : (candidates.find((candidate) => candidate.errorCode)?.errorCode ??
+            null),
+    };
+  });
+  const errorsByKey = new Map<string, ThermalPayload["errors"][number]>();
+  payloads.flatMap((payload) => payload.errors).forEach((error) => {
+    errorsByKey.set(
+      `${error.dataset ?? ""}|${error.code ?? ""}|${error.message}`,
+      error,
+    );
+  });
+  const errors = [...errorsByKey.values()].sort((left, right) => {
+    const leftKey = `${left.dataset ?? ""}|${left.code ?? ""}|${left.message}`;
+    const rightKey = `${right.dataset ?? ""}|${right.code ?? ""}|${right.message}`;
+    return leftKey.localeCompare(rightKey);
+  });
+  const latestObservedAt = detections[0]?.observedAt ?? null;
+  const latestIncidentObservedAt = incidentDetections[0]?.observedAt ?? null;
+
+  return {
+    ...base,
+    status,
+    requestStartedAt:
+      payloads.map((payload) => payload.requestStartedAt).sort()[0] ??
+      base.requestStartedAt,
+    retrievedAt,
+    query: {
+      ...base.query,
+      mode: "historical",
+      date: selectedDate,
+      requestedUtcDates: [...requestedUtcDates],
+      from: new Date(
+        Math.max(earliestQueryFrom, INCIDENT_STARTED_EPOCH),
+      ).toISOString(),
+      to: new Date(latestQueryTo).toISOString(),
+    },
+    latestObservedAt,
+    latestIncidentObservedAt,
+    observationAgeMinutes: latestIncidentObservedAt
+      ? Math.max(
+          0,
+          Math.round(
+            (Date.parse(retrievedAt) - Date.parse(latestIncidentObservedAt)) /
+              60_000,
+          ),
+        )
+      : null,
+    complete: status === "ok" && payloads.every((payload) => payload.complete),
+    datasets,
+    summary: {
+      incidentRecords: incidentDetections.length,
+      regionalRecords: detections.length - incidentDetections.length,
+      passCount: passes.filter((pass) => pass.incidentRecordCount > 0).length,
+      byConfidence: thermalConfidenceCounts(incidentDetections),
+    },
+    passes,
+    detections,
+    errors,
+  };
+}
+
 function compass(degrees: number, language: Language = "en") {
   const points =
     language === "el"
@@ -880,17 +1219,22 @@ export default function Home() {
   const operationalGroup = useRef<LayerGroup | null>(null);
   const baseLayerRef = useRef<TileLayer | null>(null);
   const lastAutoSelectedLive = useRef<string | null>(null);
+  const geoWatchId = useRef<number | null>(null);
+  const seenActionIds = useRef<Set<string> | null>(null);
+  const panelElement = useRef<HTMLElement | null>(null);
 
   const [ready, setReady] = useState(false);
   const [clock, setClock] = useState("");
   const [ageEpoch, setAgeEpoch] = useState(() => Date.now());
   const [asOfEpoch, setAsOfEpoch] = useState<number | null>(null);
+  const [committedThermalAsOfEpoch, setCommittedThermalAsOfEpoch] = useState<
+    number | null
+  >(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [baseMode, setBaseMode] = useState<BaseMode>("satellite");
   const [language, setLanguage] = useState<Language>("en");
   const [compact, setCompact] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [intelOpen, setIntelOpen] = useState(true);
   const [activeIntel, setActiveIntel] = useState("");
   const [windData, setWindData] = useState<WindPayload | null>(null);
   const [windError, setWindError] = useState(false);
@@ -902,8 +1246,12 @@ export default function Home() {
     useState<ThermalWindow>("latest");
   const [satelliteEpoch, setSatelliteEpoch] = useState(() => Date.now());
   const [online, setOnline] = useState(true);
+  const [snapshotSources, setSnapshotSources] = useState<
+    Record<SnapshotSource, boolean>
+  >({ wind: false, updates: false, thermal: false });
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     official: true,
+    evacRoute: false,
     satellite: true,
     satelliteRaster: false,
     local: true,
@@ -916,6 +1264,31 @@ export default function Home() {
   const [beaufort, setBeaufort] = useState<Beaufort>(6);
   const [heading, setHeading] = useState(218);
   const [smokeMinutes, setSmokeMinutes] = useState(15);
+  const [geoStatus, setGeoStatus] = useState<
+    "off" | "locating" | "on" | "denied" | "error"
+  >("off");
+  const [userPosition, setUserPosition] = useState<{
+    lat: number;
+    lon: number;
+    accuracyM: number;
+  } | null>(null);
+  const [actionAlerts, setActionAlerts] = useState<LiveUpdateItem[]>([]);
+  const actionAlert = actionAlerts[0] ?? null;
+  const [wireBadge, setWireBadge] = useState(false);
+  const [layerTab, setLayerTab] = useState<LayerTab>("layers");
+  const [alertCollapsed, setAlertCollapsed] = useState(false);
+  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const panelDrag = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const updatesStaleSnapshot = updatesError || snapshotSources.updates;
+  const windStaleSnapshot = windError || snapshotSources.wind;
 
   const scenarioDistance = useMemo(
     () => Number((spreadRates[beaufort] * hour).toFixed(1)),
@@ -930,6 +1303,10 @@ export default function Home() {
   );
   const isLive = asOfSelection.mode === "live";
   const effectiveEpoch = effectiveAsOfEpoch(asOfSelection, ageEpoch);
+  const thermalRequestDate =
+    committedThermalAsOfEpoch === null
+      ? null
+      : utcDate(committedThermalAsOfEpoch);
   const asOfLabel = formatGreeceDateTime(
     new Date(effectiveEpoch).toISOString(),
     language,
@@ -1070,14 +1447,14 @@ export default function Home() {
       label: localize(
         language,
         isLive
-          ? updatesError
+          ? updatesStaleSnapshot
             ? "Live-source retry in progress"
             : updatesData
               ? "No current live item returned"
               : "Checking live sources"
           : "No dated incident item yet",
         isLive
-          ? updatesError
+          ? updatesStaleSnapshot
             ? "Νέα προσπάθεια σύνδεσης με ζωντανές πηγές"
             : updatesData
               ? "Δεν επιστράφηκε τρέχουσα ζωντανή ενημέρωση"
@@ -1110,13 +1487,40 @@ export default function Home() {
     () =>
       filterAtOrBefore(
         thermalData?.detections.filter(
-          (detection) => detection.scope === "incident",
+          (detection) =>
+            detection.scope === "incident" &&
+            Date.parse(detection.observedAt) >= INCIDENT_STARTED_EPOCH,
         ) ?? [],
         (detection) => detection.observedAt,
         asOfSelection,
       ),
     [asOfSelection, thermalData],
   );
+  const userReadout = useMemo(() => {
+    if (!userPosition) return null;
+    const point: LatLngTuple = [userPosition.lat, userPosition.lon];
+    let nearest: LiveThermalDetection | null = null;
+    let nearestKm = Infinity;
+    for (const detection of incidentThermalDetections) {
+      const km = distanceKm(point, [detection.lat, detection.lon]);
+      if (km < nearestKm) {
+        nearestKm = km;
+        nearest = detection;
+      }
+    }
+    const routePoint = nearestPointOnPolyline(point, EVACUATION_ROUTE);
+    return {
+      nearest,
+      nearestKm,
+      nearestDir: nearest
+        ? compass(bearingDeg(point, [nearest.lat, nearest.lon]), language)
+        : null,
+      routeKm: distanceKm(point, routePoint),
+      routeDir: compass(bearingDeg(point, routePoint), language),
+      incidentKm: distanceKm(point, INCIDENT),
+      incidentDir: compass(bearingDeg(point, INCIDENT), language),
+    };
+  }, [userPosition, incidentThermalDetections, language]);
   const latestIncidentPass = useMemo(
     () =>
       latestAtOrBefore(
@@ -1151,7 +1555,9 @@ export default function Home() {
     thermalData?.status === "unconfigured" ||
     thermalData?.status === "upstream-error";
   const thermalStaleSnapshot =
-    thermalError && Boolean(thermalData) && !thermalUnavailable;
+    (thermalError || snapshotSources.thermal) &&
+    Boolean(thermalData) &&
+    !thermalUnavailable;
   const thermalLoading = !thermalData && !thermalError;
   const thermalLatestDetection = latestAtOrBefore(
     incidentThermalDetections,
@@ -1174,25 +1580,30 @@ export default function Home() {
     thermalData?.retrievedAt,
     language,
   );
+  const thermalHistoricalCoverage = !isLive
+    ? (thermalData?.query.requestedUtcDates?.join(" + ") ??
+      thermalRequestDate ??
+      utcDate(effectiveEpoch))
+    : null;
   const updatesRetrievedTime = formatGreeceTime(updatesData?.retrievedAt);
   const sourceHealth = isLive ? updatesData?.sourceSummary : null;
   const thermalLayerDetail = !isLive
     ? thermalLoading
       ? localize(
           language,
-          "Loading available thermal response",
-          "Φόρτωση διαθέσιμης θερμικής απόκρισης",
+          `Loading historical FIRMS UTC coverage ${thermalHistoricalCoverage}`,
+          `Φόρτωση ιστορικής κάλυψης FIRMS UTC ${thermalHistoricalCoverage}`,
         )
       : thermalUnavailable
         ? localize(
             language,
-            "No thermal response available for replay",
-            "Δεν υπάρχει θερμική απόκριση για αναπαραγωγή",
+            `No historical thermal response available for UTC coverage ${thermalHistoricalCoverage}`,
+            `Δεν υπάρχει ιστορική θερμική απόκριση για κάλυψη UTC ${thermalHistoricalCoverage}`,
           )
         : localize(
             language,
-            `Observation time ≤ ${asOfLabel}`,
-            `Χρόνος παρατήρησης ≤ ${asOfLabel}`,
+            `Historical FIRMS UTC coverage ${thermalHistoricalCoverage} · observation time ≤ ${asOfLabel}`,
+            `Ιστορική κάλυψη FIRMS UTC ${thermalHistoricalCoverage} · χρόνος παρατήρησης ≤ ${asOfLabel}`,
           )
     : thermalLoading
       ? localize(
@@ -1240,6 +1651,103 @@ export default function Home() {
     updatesData?.fireServiceIncident?.statusLabel,
     language,
   );
+  const cachedSnapshotSources = (
+    ["wind", "updates", "thermal"] as const
+  ).filter((source) => snapshotSources[source]);
+  const cachedSnapshotLabel = cachedSnapshotSources
+    .map(
+      (source) =>
+        ({
+          wind: localize(language, "wind", "άνεμος"),
+          updates: localize(language, "updates", "ενημερώσεις"),
+          thermal: localize(language, "thermal", "θερμικά"),
+        })[source],
+    )
+    .join(" · ");
+  const officialFallbackSources = [
+    {
+      id: "fire-service-board",
+      label: localize(
+        language,
+        "Fire Service incident board",
+        "Πίνακας συμβάντων Πυροσβεστικής",
+      ),
+      href: "https://www.fireservice.gr/apps/fire2019/symvanta/page.php",
+    },
+    {
+      id: "civil-protection",
+      label: localize(
+        language,
+        "Civil Protection press releases / RSS",
+        "Δελτία Τύπου / RSS Πολιτικής Προστασίας",
+      ),
+      href: "https://civilprotection.gov.gr/deltia-tupou.rss",
+    },
+    {
+      id: "hellenic-fire-service",
+      label: "@pyrosvestiki",
+      href: "https://x.com/pyrosvestiki",
+    },
+    {
+      id: "civil-protection-x",
+      label: "@CivPro_GR",
+      href: "https://x.com/CivPro_GR",
+    },
+  ].flatMap((source) => {
+    const snapshot = updatesData?.sources.find(
+      (candidate) => candidate.id === source.id,
+    );
+    const unavailable =
+      updatesStaleSnapshot ||
+      (updatesData !== null && snapshot?.status !== "ok");
+    if (!unavailable) return [];
+
+    const reason = updatesStaleSnapshot
+      ? localize(
+          language,
+          "live refresh failed",
+          "αποτυχία ζωντανής ανανέωσης",
+        )
+      : snapshot?.errorCode === "upstream_forbidden"
+        ? localize(
+            language,
+            "source denied automatic retrieval",
+            "η πηγή απέρριψε την αυτόματη ανάκτηση",
+          )
+        : snapshot?.errorCode === "authentication"
+          ? localize(
+              language,
+              "X API authentication failed",
+              "αποτυχία ελέγχου ταυτότητας X API",
+            )
+          : snapshot?.status === "unconfigured"
+            ? localize(
+                language,
+                "automatic retrieval is not configured",
+                "η αυτόματη ανάκτηση δεν έχει ρυθμιστεί",
+              )
+            : localize(
+                language,
+                "automatic retrieval failed",
+                "η αυτόματη ανάκτηση απέτυχε",
+              );
+    return [{ ...source, reason }];
+  });
+
+  const recordSnapshotResponses = useCallback(
+    (source: SnapshotSource, responses: readonly Response[]) => {
+      const isSnapshot = responses.some(
+        (response) =>
+          response.headers.get(SNAPSHOT_HEADER) === "offline-cache",
+      );
+      setSnapshotSources((current) =>
+        current[source] === isSnapshot
+          ? current
+          : { ...current, [source]: isSnapshot },
+      );
+    },
+    [],
+  );
 
   const changeLanguage = (nextLanguage: Language) => {
     setLanguage(nextLanguage);
@@ -1249,7 +1757,202 @@ export default function Home() {
 
   const closePanels = () => {
     setPanelOpen(false);
-    setIntelOpen(false);
+  };
+
+  const clampPanelPosition = useCallback(
+    (
+      position: { x: number; y: number },
+      size?: { width: number; height: number },
+    ) => {
+      const rect = panelElement.current?.getBoundingClientRect();
+      const width = size?.width ?? rect?.width ?? 336;
+      const height = size?.height ?? rect?.height ?? 120;
+      const maxX = Math.max(8, window.innerWidth - width - 8);
+      const maxY = Math.max(8, window.innerHeight - height - 8);
+      return {
+        x: Math.min(Math.max(position.x, 8), maxX),
+        y: Math.min(Math.max(position.y, 8), maxY),
+      };
+    },
+    [],
+  );
+
+  const reclampPanel = useCallback(() => {
+    setPanelPos((current) => {
+      if (!current) return current;
+      const next = clampPanelPosition(current);
+      return next.x === current.x && next.y === current.y ? current : next;
+    });
+  }, [clampPanelPosition]);
+
+  // Pointer-capture drag for the desktop panel: the move button owns the
+  // pointer for the whole gesture, so no window-level listeners are needed.
+  const onPanelDragStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (compact) return;
+    const panel = panelElement.current;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    panelDrag.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPanelDragMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = panelDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setPanelPos(
+      clampPanelPosition(
+        {
+          x: event.clientX - drag.offsetX,
+          y: event.clientY - drag.offsetY,
+        },
+        { width: drag.width, height: drag.height },
+      ),
+    );
+  };
+
+  const onPanelDragEnd = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (panelDrag.current?.pointerId === event.pointerId) {
+      panelDrag.current = null;
+    }
+  };
+
+  const onPanelMoveKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+  ) => {
+    if (compact) return;
+    if (event.key === "Home") {
+      event.preventDefault();
+      setPanelPos(null);
+      return;
+    }
+
+    const step = event.shiftKey ? 40 : 10;
+    let deltaX = 0;
+    let deltaY = 0;
+    if (event.key === "ArrowLeft") deltaX = -step;
+    else if (event.key === "ArrowRight") deltaX = step;
+    else if (event.key === "ArrowUp") deltaY = -step;
+    else if (event.key === "ArrowDown") deltaY = step;
+    else return;
+
+    event.preventDefault();
+    const rect = panelElement.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPanelPos((current) =>
+      clampPanelPosition(
+        {
+          x: (current?.x ?? rect.left) + deltaX,
+          y: (current?.y ?? rect.top) + deltaY,
+        },
+        { width: rect.width, height: rect.height },
+      ),
+    );
+  };
+
+  const selectLayerTab = (tab: LayerTab) => {
+    setLayerTab(tab);
+    if (tab === "updates") setWireBadge(false);
+  };
+
+  const onLayerTabKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentTab: LayerTab,
+  ) => {
+    const currentIndex = LAYER_TABS.indexOf(currentTab);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % LAYER_TABS.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex =
+        (currentIndex - 1 + LAYER_TABS.length) % LAYER_TABS.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = LAYER_TABS.length - 1;
+    }
+    if (nextIndex === null) return;
+
+    const nextTab = LAYER_TABS[nextIndex];
+    if (!nextTab) return;
+    event.preventDefault();
+    selectLayerTab(nextTab);
+    (
+      document.getElementById(`layers-tab-${nextTab}`) as
+        | HTMLButtonElement
+        | null
+    )?.focus();
+  };
+
+  const setAlertCollapsedPersistent = (collapsed: boolean) => {
+    setAlertCollapsed(collapsed);
+    window.localStorage.setItem(
+      "firewatch-alert-collapsed",
+      collapsed ? "1" : "0",
+    );
+  };
+
+  // Watching never moves the map: someone already looking at their own area
+  // must not lose their view, and a remote viewer must not be flown away from
+  // the incident. Centering is a separate, explicit button in the readout.
+  const startWatch = useCallback(() => {
+    if (!("geolocation" in navigator)) return;
+    if (geoWatchId.current !== null) return;
+    let watchId: number | null = null;
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        if (watchId === null || geoWatchId.current !== watchId) return;
+        setUserPosition({
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          accuracyM: position.coords.accuracy,
+        });
+        setGeoStatus("on");
+      },
+      (positionError) => {
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        if (geoWatchId.current === watchId) geoWatchId.current = null;
+        setUserPosition(null);
+        setGeoStatus(
+          positionError.code === positionError.PERMISSION_DENIED
+            ? "denied"
+            : "error",
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 },
+    );
+    geoWatchId.current = watchId;
+  }, []);
+
+  const stopLocate = () => {
+    if (geoWatchId.current !== null) {
+      navigator.geolocation.clearWatch(geoWatchId.current);
+    }
+    geoWatchId.current = null;
+    setUserPosition(null);
+    setGeoStatus("off");
+  };
+
+  const toggleLocate = () => {
+    if (
+      geoWatchId.current !== null ||
+      geoStatus === "on" ||
+      geoStatus === "locating"
+    ) {
+      stopLocate();
+      return;
+    }
+    if (!("geolocation" in navigator)) {
+      setGeoStatus("error");
+      return;
+    }
+    setGeoStatus("locating");
+    startWatch();
   };
 
   useEffect(() => {
@@ -1285,6 +1988,9 @@ export default function Home() {
             : "en";
       setLanguage(nextLanguage);
       document.documentElement.lang = nextLanguage;
+      if (window.localStorage.getItem("firewatch-alert-collapsed") === "1") {
+        setAlertCollapsed(true);
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -1295,13 +2001,95 @@ export default function Home() {
       setCompact(query.matches);
       if (query.matches) {
         setPanelOpen(false);
-        setIntelOpen(false);
       }
     };
     sync();
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
+
+  // Keep local time filtering responsive while the range thumb moves, then
+  // commit one date-qualified FIRMS read after the interaction settles.
+  useEffect(() => {
+    if (isScrubbing) return;
+    const timer = window.setTimeout(
+      () => setCommittedThermalAsOfEpoch(asOfEpoch),
+      200,
+    );
+    return () => window.clearTimeout(timer);
+  }, [asOfEpoch, isScrubbing]);
+
+  useEffect(() => {
+    if (compact || !panelOpen) return;
+    const frame = window.requestAnimationFrame(reclampPanel);
+    window.addEventListener("resize", reclampPanel);
+    const observer =
+      typeof ResizeObserver === "undefined" || !panelElement.current
+        ? null
+        : new ResizeObserver(reclampPanel);
+    if (panelElement.current) observer?.observe(panelElement.current);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", reclampPanel);
+      observer?.disconnect();
+    };
+  }, [compact, layerTab, panelOpen, reclampPanel]);
+
+  // Location access is opt-in. Always release the active watch on unmount.
+  useEffect(
+    () => () => {
+      if (geoWatchId.current !== null) {
+        navigator.geolocation.clearWatch(geoWatchId.current);
+        geoWatchId.current = null;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") return;
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* offline support is best-effort; the app works without it */
+    });
+  }, []);
+
+  // Retain every unseen action-required item until it is individually viewed
+  // or dismissed. The first payload also surfaces its current actionable item
+  // instead of silently treating a first-time visitor as already notified.
+  useEffect(() => {
+    if (!updatesData || snapshotSources.updates) return;
+    const actionItems = updatesData.items.filter(
+      (item) => item.actionRequired,
+    );
+    const initialPayload = seenActionIds.current === null;
+    const seen = seenActionIds.current ?? new Set<string>();
+    seenActionIds.current = seen;
+    const fresh = actionItems.filter((item) => !seen.has(item.id));
+    actionItems.forEach((item) => seen.add(item.id));
+    // On first load, surface the newest current instruction without replaying
+    // every older post in the lookback. Later polls retain every unseen item.
+    const alertsToQueue = initialPayload ? fresh.slice(0, 1) : fresh;
+    if (alertsToQueue.length > 0) {
+      setActionAlerts((current) => {
+        const queuedIds = new Set(current.map((item) => item.id));
+        return [
+          ...current,
+          ...alertsToQueue.filter((item) => !queuedIds.has(item.id)),
+        ];
+      });
+      setWireBadge(true);
+      if (!initialPayload && "vibrate" in navigator) {
+        navigator.vibrate([250, 120, 250]);
+      }
+    }
+  }, [snapshotSources.updates, updatesData]);
+
+  const advanceActionAlert = () => {
+    const hasMore = actionAlerts.length > 1;
+    setActionAlerts((current) => current.slice(1));
+    setWireBadge(hasMore);
+  };
 
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -1319,6 +2107,7 @@ export default function Home() {
     const refreshWind = async () => {
       try {
         const response = await fetch("/api/wind", { cache: "no-store" });
+        recordSnapshotResponses("wind", [response]);
         if (!response.ok) throw new Error("wind request failed");
         const payload = (await response.json()) as WindPayload;
         if (!cancelled) {
@@ -1336,13 +2125,14 @@ export default function Home() {
       window.clearTimeout(initial);
       window.clearInterval(timer);
     };
-  }, []);
+  }, [recordSnapshotResponses]);
 
   useEffect(() => {
     let cancelled = false;
     const refreshUpdates = async () => {
       try {
         const response = await fetch("/api/updates", { cache: "no-store" });
+        recordSnapshotResponses("updates", [response]);
         if (!response.ok) throw new Error("updates request failed");
         const payload = (await response.json()) as UpdatesPayload;
         if (!cancelled) {
@@ -1368,15 +2158,42 @@ export default function Home() {
       window.clearTimeout(initial);
       window.clearInterval(timer);
     };
-  }, []);
+  }, [recordSnapshotResponses]);
 
   useEffect(() => {
     let cancelled = false;
     const refreshThermal = async () => {
       try {
-        const response = await fetch("/api/thermal", { cache: "no-store" });
-        if (!response.ok) throw new Error("thermal request failed");
-        const payload = (await response.json()) as ThermalPayload;
+        const requestedDates = thermalRequestDate
+          ? historicalThermalDates(thermalRequestDate)
+          : [];
+        const requestUrls = requestedDates.length
+          ? requestedDates.map(
+              (date) => `/api/thermal?date=${encodeURIComponent(date)}`,
+            )
+          : ["/api/thermal"];
+        const responses = await Promise.all(
+          requestUrls.map((url) => fetch(url, { cache: "no-store" })),
+        );
+        if (cancelled) return;
+        recordSnapshotResponses("thermal", responses);
+        if (responses.some((response) => !response.ok)) {
+          throw new Error("thermal request failed");
+        }
+        const payloads = await Promise.all(
+          responses.map(
+            async (response) => (await response.json()) as ThermalPayload,
+          ),
+        );
+        const livePayload = payloads[0];
+        const payload = thermalRequestDate
+          ? mergeHistoricalThermalPayloads(
+              payloads,
+              requestedDates,
+              thermalRequestDate,
+            )
+          : livePayload;
+        if (!payload) throw new Error("thermal response was empty");
         if (!cancelled) {
           setThermalData(payload);
           setThermalError(false);
@@ -1389,14 +2206,25 @@ export default function Home() {
         }
       }
     };
-    const initial = window.setTimeout(() => void refreshThermal(), 0);
-    const timer = window.setInterval(() => void refreshThermal(), 300_000);
+    const initial = window.setTimeout(() => {
+      if (cancelled) return;
+      setThermalData(null);
+      setThermalError(false);
+      setSnapshotSources((current) =>
+        current.thermal ? { ...current, thermal: false } : current,
+      );
+      void refreshThermal();
+    }, 0);
+    const timer =
+      thermalRequestDate === null
+        ? window.setInterval(() => void refreshThermal(), 300_000)
+        : null;
     return () => {
       cancelled = true;
       window.clearTimeout(initial);
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
     };
-  }, []);
+  }, [recordSnapshotResponses, thermalRequestDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1410,9 +2238,14 @@ export default function Home() {
         attributionControl: true,
         minZoom: 10,
         maxZoom: 19,
+        // Half-step zoom and a higher wheel threshold tame trackpad-pinch
+        // and scroll zoom, which otherwise jump several levels per gesture.
+        zoomSnap: 0.5,
+        zoomDelta: 0.5,
+        wheelPxPerZoomLevel: 140,
       }).setView([38.988, 26.383], 13);
       mapRef.current = map;
-      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.control.zoom({ position: "topleft" }).addTo(map);
       operationalGroup.current = L.layerGroup().addTo(map);
       map.on("click", (event) => {
         const coordinate = `${event.latlng.lat.toFixed(5)}, ${event.latlng.lng.toFixed(5)}`;
@@ -1549,41 +2382,45 @@ export default function Home() {
         }),
       }).addTo(group);
 
-      if (showArchivedOfficialAlert) {
-        L.polyline([PLOMARI_BEACH, AGIOS_ISIDOROS], {
-          color: "#55ddff",
-          weight: 8,
-          opacity: 0.18,
-          lineCap: "round",
-        }).addTo(group);
-        L.polyline([PLOMARI_BEACH, AGIOS_ISIDOROS], {
-          color: "#55ddff",
-          weight: 3,
-          opacity: 0.95,
-          dashArray: "10 8",
-        })
-          .bindTooltip(
-            localize(
-              language,
-              "16:58 official 112 direction: Plomari beach → Agios Isidoros · historical alert, verify any newer instruction",
-              "Επίσημη κατεύθυνση 112 στις 16:58: παραλία Πλωμαρίου → Άγιος Ισίδωρος · ιστορική ειδοποίηση, ελέγξτε κάθε νεότερη οδηγία",
-            ),
-            { sticky: true },
-          )
-          .addTo(group);
-        L.marker(midpoint(PLOMARI_BEACH, AGIOS_ISIDOROS), {
-          interactive: false,
-          icon: L.divIcon({
-            className: "marker-shell route-arrow-shell",
-            html: markerHtml(
-              "arrow",
-              localize(language, "112 · 16:58 →", "112 · 16:58 →"),
-            ),
-            iconSize: [130, 30],
-            iconAnchor: [18, 15],
-          }),
-        }).addTo(group);
-      }
+    }
+
+    if (layers.evacRoute && showArchivedOfficialAlert) {
+      L.polyline(EVACUATION_ROUTE, {
+        color: "#55ddff",
+        weight: 8,
+        opacity: 0.18,
+        lineCap: "round",
+      }).addTo(group);
+      L.polyline(EVACUATION_ROUTE, {
+        color: "#55ddff",
+        weight: 3,
+        opacity: 0.95,
+        dashArray: "10 8",
+      })
+        .bindTooltip(
+          localize(
+            language,
+            "App-drawn archived road reference between the endpoints named by the 16:58 112 instruction. It is not an official evacuation route. Follow any newer instruction and authorities on the ground.",
+            "Αρχειοθετημένη οδική αναφορά σχεδιασμένη από την εφαρμογή μεταξύ των σημείων της οδηγίας 112 στις 16:58. Δεν αποτελεί επίσημη διαδρομή απομάκρυνσης. Ακολουθείτε κάθε νεότερη οδηγία και τις επί τόπου Αρχές.",
+          ),
+          { sticky: true },
+        )
+        .addTo(group);
+      L.marker(
+        EVACUATION_ROUTE[Math.floor(EVACUATION_ROUTE.length / 2)] ??
+          midpoint(PLOMARI_BEACH, AGIOS_ISIDOROS),
+        {
+        interactive: false,
+        icon: L.divIcon({
+          className: "marker-shell route-arrow-shell",
+          html: markerHtml(
+            "arrow",
+            localize(language, "APP ROAD REF", "ΟΔΙΚΗ ΑΝΑΦΟΡΑ"),
+          ),
+          iconSize: [130, 30],
+          iconAnchor: [18, 15],
+        }),
+      }).addTo(group);
     }
 
     if (layers.satelliteRaster && isLive) {
@@ -1763,7 +2600,7 @@ export default function Home() {
         const windStart = destination(INCIDENT, vector.directionDeg, 0.85);
         const windEnd = destination(INCIDENT, toward, length);
         L.polyline([windStart, INCIDENT, windEnd], {
-          color: "#55ddff",
+          color: "#39f2c5",
           weight: label === "10 m" ? 3 : 2,
           opacity,
           dashArray: label === "10 m" ? "5 7" : "3 9",
@@ -1918,6 +2755,26 @@ export default function Home() {
         .addTo(group);
     }
 
+    if (userPosition) {
+      L.circle([userPosition.lat, userPosition.lon], {
+        radius: userPosition.accuracyM,
+        color: "#39f2c5",
+        weight: 1,
+        fillColor: "#39f2c5",
+        fillOpacity: 0.08,
+        interactive: false,
+      }).addTo(group);
+      L.marker([userPosition.lat, userPosition.lon], {
+        interactive: false,
+        icon: L.divIcon({
+          className: "marker-shell",
+          html: markerHtml("you", localize(language, "YOU", "ΕΣΕΙΣ")),
+          iconSize: [90, 26],
+          iconAnchor: [8, 13],
+        }),
+      }).addTo(group);
+    }
+
   }, [
     ready,
     layers,
@@ -1938,6 +2795,7 @@ export default function Home() {
     showArchivedOfficialAlert,
     showFieldReport,
     language,
+    userPosition,
   ]);
 
   const toggleLayer = (key: LayerKey) => {
@@ -1962,11 +2820,11 @@ export default function Home() {
     );
   };
 
-  const mobileSheetOpen = compact && (panelOpen || intelOpen);
+  const mobileSheetOpen = compact && panelOpen;
 
   return (
     <main
-      className={`command-shell${mobileSheetOpen ? " has-mobile-sheet" : ""}${layers.simulation ? " has-scenario" : ""}${isLive ? " is-live" : " is-historical"}${isScrubbing ? " is-scrubbing" : ""}${showArchivedOfficialAlert ? "" : " without-archived-alert"}`}
+      className={`command-shell${mobileSheetOpen ? " has-mobile-sheet" : ""}${layers.simulation ? " has-scenario" : ""}${isLive ? " is-live" : " is-historical"}${isScrubbing ? " is-scrubbing" : ""}${showArchivedOfficialAlert ? "" : " without-archived-alert"}${showArchivedOfficialAlert && alertCollapsed ? " alert-collapsed" : ""}`}
     >
       <div className="map-stage">
         <div
@@ -1989,13 +2847,55 @@ export default function Home() {
         </div>
       </div>
 
-      {!online && (
-        <div className="offline-banner">
-          {localize(
-            language,
-            "OFFLINE — DISPLAYING THE LAST AVAILABLE SNAPSHOT",
-            "ΕΚΤΟΣ ΣΥΝΔΕΣΗΣ — ΠΡΟΒΟΛΗ ΤΟΥ ΤΕΛΕΥΤΑΙΟΥ ΔΙΑΘΕΣΙΜΟΥ ΣΤΙΓΜΙΟΤΥΠΟΥ",
-          )}
+      {(!online || cachedSnapshotSources.length > 0) && (
+        <div className="offline-banner" role="status" aria-live="polite">
+          {cachedSnapshotSources.length > 0
+            ? localize(
+                language,
+                `CACHED SNAPSHOT — LIVE REFRESH FAILED (${cachedSnapshotLabel}) · CHECK DISPLAYED SOURCE TIMES`,
+                `ΑΠΟΘΗΚΕΥΜΕΝΟ ΣΤΙΓΜΙΟΤΥΠΟ — ΑΠΟΤΥΧΙΑ ΖΩΝΤΑΝΗΣ ΑΝΑΝΕΩΣΗΣ (${cachedSnapshotLabel}) · ΕΛΕΓΞΤΕ ΤΙΣ ΩΡΕΣ ΠΗΓΩΝ`,
+              )
+            : localize(
+                language,
+                "OFFLINE — DISPLAYING THE LAST AVAILABLE SNAPSHOT",
+                "ΕΚΤΟΣ ΣΥΝΔΕΣΗΣ — ΠΡΟΒΟΛΗ ΤΟΥ ΤΕΛΕΥΤΑΙΟΥ ΔΙΑΘΕΣΙΜΟΥ ΣΤΙΓΜΙΟΤΥΠΟΥ",
+              )}
+        </div>
+      )}
+
+      {actionAlert && (
+        <div className="alert-toast" role="alert">
+          <button
+            type="button"
+            className="alert-toast__body"
+            onClick={() => {
+              setActiveIntel(`feed-${actionAlert.id}`);
+              setPanelOpen(true);
+              setLayerTab("updates");
+              advanceActionAlert();
+            }}
+          >
+            <span>
+              {localize(
+                language,
+                "NEW ACTION-REQUIRED UPDATE",
+                "ΝΕΑ ΕΝΗΜΕΡΩΣΗ ΠΟΥ ΑΠΑΙΤΕΙ ΕΝΕΡΓΕΙΑ",
+              )}
+            </span>
+            <strong>{actionAlert.title}</strong>
+          </button>
+          <button
+            type="button"
+            className="alert-toast__dismiss"
+            onClick={advanceActionAlert}
+            aria-label={localize(
+              language,
+              "Dismiss alert",
+              "Απόρριψη ειδοποίησης",
+            )}
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -2137,14 +3037,34 @@ export default function Home() {
         <button
           type="button"
           className={isLive ? "is-active" : ""}
-          onClick={() => setAsOfEpoch(null)}
+          onClick={() => {
+            setAsOfEpoch(null);
+            setCommittedThermalAsOfEpoch(null);
+          }}
           aria-pressed={isLive}
         >
           {localize(language, "LIVE", "ΖΩΝΤΑΝΑ")}
         </button>
       </section>
 
-      {showArchivedOfficialAlert && <section
+      {showArchivedOfficialAlert && (alertCollapsed ? (
+        <button
+          type="button"
+          className="evacuation-collapsed"
+          onClick={() => setAlertCollapsedPersistent(false)}
+          aria-expanded={false}
+        >
+          <b>112</b>
+          <span>
+            {localize(
+              language,
+              "ARCHIVED 16:58 · SHOW",
+              "ΑΡΧΕΙΟ 16:58 · ΕΜΦΑΝΙΣΗ",
+            )}
+          </span>
+        </button>
+      ) : (
+      <section
         className="evacuation-banner"
         aria-label={localize(
           language,
@@ -2152,6 +3072,18 @@ export default function Home() {
           "Αρχειοθετημένη οδηγία 112 που εκδόθηκε στις 16:58· όχι τρέχουσα επαλήθευση",
         )}
       >
+        <button
+          type="button"
+          className="evacuation-hide"
+          onClick={() => setAlertCollapsedPersistent(true)}
+          aria-label={localize(
+            language,
+            "Collapse archived 112 banner",
+            "Σύμπτυξη αρχειοθετημένου πλαισίου 112",
+          )}
+        >
+          ×
+        </button>
         <div className="evacuation-code">112</div>
         <div className="evacuation-copy">
           <span className="evacuation-archive-tag">
@@ -2211,13 +3143,14 @@ export default function Home() {
           <span>{localize(language, "CALL", "ΚΛΗΣΗ")}</span>
           <b>112</b>
         </a>
-      </section>}
+      </section>
+      ))}
 
       <nav
         className="view-controls"
         aria-label={localize(language, "Map style", "Υπόβαθρο χάρτη")}
       >
-        {(["dark", "satellite", "terrain"] as BaseMode[]).map((mode) => (
+        {(["satellite", "terrain", "dark"] as BaseMode[]).map((mode) => (
           <button
             type="button"
             key={mode}
@@ -2236,6 +3169,118 @@ export default function Home() {
         ))}
       </nav>
 
+      <button
+        type="button"
+        className={`locate-control${
+          geoStatus === "on" || geoStatus === "locating" ? " is-active" : ""
+        }`}
+        onClick={toggleLocate}
+        aria-pressed={geoStatus === "on" || geoStatus === "locating"}
+      >
+        {geoStatus === "locating"
+          ? localize(language, "LOCATING…", "ΕΝΤΟΠΙΣΜΟΣ…")
+          : localize(language, "MY POSITION", "Η ΘΕΣΗ ΜΟΥ")}
+      </button>
+
+      {(userReadout || geoStatus === "denied" || geoStatus === "error") && (
+        <div
+          className={`locate-readout${userReadout ? "" : " locate-readout--error"}`}
+          role="status"
+        >
+          {userReadout && userPosition ? (
+            <>
+              <strong>
+                GPS ±{Math.round(userPosition.accuracyM)} m ·{" "}
+                {localize(
+                  language,
+                  "not sent to Firewatch; centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA",
+                  "δεν αποστέλλεται στο Firewatch· το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA",
+                )}
+              </strong>
+              {userReadout.nearest ? (
+                <span>
+                  {userReadout.nearestKm.toFixed(1)} km{" "}
+                  {userReadout.nearestDir} →{" "}
+                  {localize(
+                    language,
+                    "nearest satellite hotspot",
+                    "πλησιέστερη δορυφορική εστία",
+                  )}{" "}
+                  (
+                  {ageLabel(
+                    ageMinutesFromTimestamp(
+                      userReadout.nearest.observedAt,
+                      ageEpoch,
+                    ) ?? userReadout.nearest.ageMinutes,
+                    language,
+                  )}
+                  )
+                </span>
+              ) : (
+                <span>
+                  {localize(
+                    language,
+                    "No satellite hotspots in the current window",
+                    "Καμία δορυφορική εστία στο τρέχον παράθυρο",
+                  )}
+                </span>
+              )}
+              <span>
+                {userReadout.routeKm.toFixed(1)} km {userReadout.routeDir} →{" "}
+                {localize(
+                  language,
+                  "app-drawn archived road reference (16:58)",
+                  "αρχειοθετημένη οδική αναφορά εφαρμογής (16:58)",
+                )}
+              </span>
+              <span>
+                {userReadout.incidentKm.toFixed(1)} km{" "}
+                {userReadout.incidentDir} →{" "}
+                {localize(
+                  language,
+                  "incident reference point",
+                  "σημείο αναφοράς συμβάντος",
+                )}
+              </span>
+              <small>
+                {localize(
+                  language,
+                  "Distances are straight-line, not road distance.",
+                  "Οι αποστάσεις είναι σε ευθεία γραμμή, όχι οδικές.",
+                )}
+              </small>
+              <button
+                type="button"
+                className="locate-readout__center"
+                onClick={() =>
+                  focusPoint([userPosition.lat, userPosition.lon], 14)
+                }
+              >
+                {localize(
+                  language,
+                  "CENTER MAP ON ME",
+                  "ΚΕΝΤΡΑΡΙΣΜΑ ΣΤΗ ΘΕΣΗ ΜΟΥ",
+                )}
+              </button>
+            </>
+          ) : (
+            <span>
+              {geoStatus === "denied"
+                ? localize(
+                    language,
+                    "Location permission denied — allow it in browser settings to see distances.",
+                    "Η άδεια τοποθεσίας απορρίφθηκε — ενεργοποιήστε την στις ρυθμίσεις του προγράμματος περιήγησης για αποστάσεις.",
+                  )
+                : localize(
+                    language,
+                    "Location unavailable on this device.",
+                    "Η τοποθεσία δεν είναι διαθέσιμη σε αυτή τη συσκευή.",
+                  )}
+            </span>
+          )}
+        </div>
+      )}
+
       {mobileSheetOpen && (
         <button
           type="button"
@@ -2248,41 +3293,131 @@ export default function Home() {
       <button
         type="button"
         className="panel-toggle panel-toggle--left"
-        onClick={() =>
-          setPanelOpen((value) => {
-            const next = !value;
-            if (next && compact) setIntelOpen(false);
-            return next;
-          })
-        }
+        onClick={() => setPanelOpen((value) => !value)}
         aria-expanded={panelOpen}
         aria-controls="layers-sheet"
       >
         {panelOpen
-          ? localize(language, "HIDE LAYERS", "ΑΠΟΚΡΥΨΗ ΕΠΙΠΕΔΩΝ")
-          : localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")}
+          ? localize(language, "HIDE PANEL", "ΑΠΟΚΡΥΨΗ ΠΙΝΑΚΑ")
+          : localize(language, "PANEL", "ΠΙΝΑΚΑΣ")}
+        {wireBadge && (
+          <>
+            <i className="wire-badge" aria-hidden="true" />
+            <span className="sr-only">
+              {localize(
+                language,
+                "Unread action update",
+                "Μη αναγνωσμένη ενημέρωση ενέργειας",
+              )}
+            </span>
+          </>
+        )}
       </button>
 
-      {panelOpen && (
-        <aside
-          className="layer-hud"
-          id="layers-sheet"
-          aria-label={localize(language, "Data layers", "Επίπεδα δεδομένων")}
-        >
+      <aside
+        ref={panelElement}
+        className="layer-hud"
+        id="layers-sheet"
+        hidden={!panelOpen}
+        aria-label={localize(language, "Data layers", "Επίπεδα δεδομένων")}
+        style={
+          panelPos && !compact
+            ? {
+                left: panelPos.x,
+                top: panelPos.y,
+                right: "auto",
+                bottom: "auto",
+                maxHeight: `calc(100dvh - ${panelPos.y + 16}px)`,
+              }
+            : undefined
+        }
+      >
           <div className="hud-heading">
             <div>
               <span>
-                {localize(language, "DATA LAYERS", "ΕΠΙΠΕΔΑ ΔΕΔΟΜΕΝΩΝ")}
+                {
+                  {
+                    layers: localize(
+                      language,
+                      "DATA LAYERS",
+                      "ΕΠΙΠΕΔΑ ΔΕΔΟΜΕΝΩΝ",
+                    ),
+                    thermal: localize(
+                      language,
+                      "SATELLITE THERMAL",
+                      "ΔΟΡΥΦΟΡΙΚΑ ΘΕΡΜΙΚΑ",
+                    ),
+                    wind: localize(
+                      language,
+                      "WIND MODEL",
+                      "ΜΟΝΤΕΛΟ ΑΝΕΜΟΥ",
+                    ),
+                    updates: localize(
+                      language,
+                      "INCIDENT WIRE",
+                      "ΡΟΗ ΣΥΜΒΑΝΤΟΣ",
+                    ),
+                  }[layerTab]
+                }
               </span>
               <small>
-                {localize(
-                  language,
-                  "8 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                  "8 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
-                )}
+                {layerTab === "updates"
+                  ? !isLive
+                    ? localize(
+                        language,
+                        `DATED ITEMS ≤ ${asOfLabel}`,
+                        `ΧΡΟΝΟΛΟΓΗΜΕΝΑ ΣΤΟΙΧΕΙΑ ≤ ${asOfLabel}`,
+                      )
+                    : updatesStaleSnapshot
+                      ? localize(
+                          language,
+                          "GREECE TIME // SNAPSHOT · RETRYING",
+                          "ΩΡΑ ΕΛΛΑΔΑΣ // ΣΤΙΓΜΙΟΤΥΠΟ · ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ",
+                        )
+                      : localize(
+                          language,
+                          `GREECE TIME // RSS POLL ${updatesRetrievedTime}`,
+                          `ΩΡΑ ΕΛΛΑΔΑΣ // ΕΛΕΓΧΟΣ RSS ${updatesRetrievedTime}`,
+                        )
+                  : localize(
+                      language,
+                      "9 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                      "9 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                    )}
               </small>
             </div>
             <div className="hud-heading__actions">
+              {layerTab === "updates" && (
+                <span
+                  className={`recording-dot${isLive ? "" : " recording-dot--historical"}`}
+                >
+                  {isLive
+                    ? localize(language, "REC", "ΖΩΝΤΑΝΑ")
+                    : localize(language, "AS OF", "ΕΩΣ")}
+                </span>
+              )}
+              <button
+                type="button"
+                className="panel-move"
+                onPointerDown={onPanelDragStart}
+                onPointerMove={onPanelDragMove}
+                onPointerUp={onPanelDragEnd}
+                onPointerCancel={onPanelDragEnd}
+                onKeyDown={onPanelMoveKeyDown}
+                onDoubleClick={() => setPanelPos(null)}
+                aria-label={localize(
+                  language,
+                  "Move panel with arrow keys; Home or double-click resets position",
+                  "Μετακίνηση πίνακα με τα βέλη· Home ή διπλό κλικ για επαναφορά",
+                )}
+                title={localize(
+                  language,
+                  "Drag or use arrow keys · Home/double-click resets",
+                  "Σύρετε ή χρησιμοποιήστε τα βέλη · Home/διπλό κλικ για επαναφορά",
+                )}
+              >
+                ✥
+              </button>
               <button type="button" onClick={showOperationalView}>
                 {localize(language, "FRAME", "ΠΡΟΒΟΛΗ")}
               </button>
@@ -2301,29 +3436,101 @@ export default function Home() {
             </div>
           </div>
 
+          <div
+            className="hud-tabs"
+            role="tablist"
+            aria-orientation="horizontal"
+            aria-label={localize(
+              language,
+              "Layer panel sections",
+              "Ενότητες πίνακα επιπέδων",
+            )}
+          >
+            {(
+              [
+                ["layers", localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")],
+                ["thermal", localize(language, "THERMAL", "ΘΕΡΜΙΚΑ")],
+                ["wind", localize(language, "WIND", "ΑΝΕΜΟΣ")],
+                ["updates", localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")],
+              ] as Array<[LayerTab, string]>
+            ).map(([tab, label]) => (
+              <button
+                type="button"
+                key={tab}
+                id={`layers-tab-${tab}`}
+                role="tab"
+                aria-selected={layerTab === tab}
+                aria-controls={`layers-panel-${tab}`}
+                tabIndex={layerTab === tab ? 0 : -1}
+                className={layerTab === tab ? "is-active" : ""}
+                onClick={() => selectLayerTab(tab)}
+                onKeyDown={(event) => onLayerTabKeyDown(event, tab)}
+              >
+                {label}
+                {tab === "updates" && wireBadge && (
+                  <>
+                    <i className="wire-badge" aria-hidden="true" />
+                    <span className="sr-only">
+                      {localize(
+                        language,
+                        "Unread action update",
+                        "Μη αναγνωσμένη ενημέρωση ενέργειας",
+                      )}
+                    </span>
+                  </>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div
+            id="layers-panel-layers"
+            className="hud-tabpanel"
+            role="tabpanel"
+            aria-labelledby="layers-tab-layers"
+            hidden={layerTab !== "layers"}
+          >
           <div className="layer-stack">
             {[
               {
-                key: "official" as LayerKey,
+                key: "evacRoute" as LayerKey,
+                accent: "#55ddff",
                 icon: "→",
                 label: localize(
                   language,
-                  "112 evacuation",
-                  "Οδηγία απομάκρυνσης 112",
+                  "App-drawn archived road reference",
+                  "Αρχειοθετημένη οδική αναφορά εφαρμογής",
                 ),
                 detail: localize(
                   language,
                   showArchivedOfficialAlert
-                    ? "Original official alert · 16:58"
-                    : "Incident reference · 112 not yet issued",
+                    ? "Between 112 endpoints · not an official route"
+                    : "112 not yet issued at this time",
                   showArchivedOfficialAlert
-                    ? "Αρχική επίσημη ειδοποίηση · 16:58"
-                    : "Σημείο συμβάντος · το 112 δεν είχε εκδοθεί",
+                    ? "Μεταξύ σημείων 112 · όχι επίσημη διαδρομή"
+                    : "Το 112 δεν είχε ακόμη εκδοθεί",
                 ),
-                count: showArchivedOfficialAlert ? "1" : "—",
+                count: showArchivedOfficialAlert ? "3 km" : "—",
+              },
+              {
+                key: "official" as LayerKey,
+                accent: "#f59e0b",
+                icon: "◉",
+                label: localize(
+                  language,
+                  "Incident area (official)",
+                  "Περιοχή συμβάντος (επίσημη)",
+                ),
+                detail: localize(
+                  language,
+                  "Landfill site · perimeter not published",
+                  "Θέση ΧΑΔΑ · δεν έχει δημοσιευθεί περίμετρος",
+                ),
+                count: "1",
               },
               {
                 key: "satellite" as LayerKey,
+                accent: "#ff4d32",
                 icon: "✦",
                 label: localize(
                   language,
@@ -2338,6 +3545,7 @@ export default function Home() {
               },
               {
                 key: "satelliteRaster" as LayerKey,
+                accent: "#ff9f1c",
                 icon: "▧",
                 label: localize(
                   language,
@@ -2357,6 +3565,7 @@ export default function Home() {
               },
               {
                 key: "local" as LayerKey,
+                accent: "#ffb347",
                 icon: "△",
                 label: localize(
                   language,
@@ -2376,6 +3585,7 @@ export default function Home() {
               },
               {
                 key: "wind" as LayerKey,
+                accent: "#39f2c5",
                 icon: "↙",
                 label: localize(
                   language,
@@ -2395,6 +3605,7 @@ export default function Home() {
               },
               {
                 key: "smokeObserved" as LayerKey,
+                accent: "#d4c7ff",
                 icon: "◌",
                 label: localize(
                   language,
@@ -2414,6 +3625,7 @@ export default function Home() {
               },
               {
                 key: "smoke" as LayerKey,
+                accent: "#b9a4ff",
                 icon: "≈",
                 label: localize(
                   language,
@@ -2433,6 +3645,7 @@ export default function Home() {
               },
               {
                 key: "simulation" as LayerKey,
+                accent: "#ffcf4a",
                 icon: "◇",
                 label: localize(
                   language,
@@ -2457,6 +3670,7 @@ export default function Home() {
                   onClick={() => toggleLayer(layer.key)}
                   aria-pressed={currentOnly ? false : layers[layer.key]}
                   disabled={currentOnly}
+                  style={{ "--accent": layer.accent } as CSSProperties}
                 >
                   <span className="layer-icon">{layer.icon}</span>
                   <span className="layer-copy">
@@ -2472,13 +3686,25 @@ export default function Home() {
             })}
           </div>
 
+          <div className="position-actions">
+            <button type="button" onClick={() => focusPoint(INCIDENT, 15)}>
+              {localize(language, "INCIDENT", "ΣΥΜΒΑΝ")}
+            </button>
+            <button type="button" onClick={() => focusPoint(PLOMARI_BEACH, 15)}>
+              {localize(language, "PLOMARI", "ΠΛΩΜΑΡΙ")}
+            </button>
+            <button type="button" onClick={() => focusPoint(PERAMA, 15)}>
+              {localize(language, "PERAMA", "ΠΕΡΑΜΑ")}
+            </button>
+          </div>
+          </div>
+
           <section
+            id="layers-panel-thermal"
             className="thermal-key"
-            aria-label={localize(
-              language,
-              "Satellite thermal detection key",
-              "Υπόμνημα δορυφορικών θερμικών ανιχνεύσεων",
-            )}
+            role="tabpanel"
+            aria-labelledby="layers-tab-thermal"
+            hidden={layerTab !== "thermal"}
           >
             <div className="thermal-key__head">
               <span>
@@ -2649,27 +3875,21 @@ export default function Home() {
                 language,
                 isLive
                   ? `Retrieved ${thermalRetrievedTime} · app checks every 5 min; satellite passes are not continuous`
-                  : `Available response retrieved ${thermalRetrievedTime} · filtered by observation time; a complete historical archive is not guaranteed`,
+                  : `Historical FIRMS UTC coverage ${thermalHistoricalCoverage} · retrieved ${thermalRetrievedTime} · exact as-of and 24-hour filters are applied locally; a complete historical archive is not guaranteed`,
                 isLive
                   ? `Ανάκτηση ${thermalRetrievedTime} · έλεγχος εφαρμογής κάθε 5 λεπτά· οι δορυφορικές διελεύσεις δεν είναι συνεχείς`
-                  : `Διαθέσιμη απόκριση με ανάκτηση ${thermalRetrievedTime} · φιλτράρεται με βάση τον χρόνο παρατήρησης· δεν διασφαλίζεται πλήρες ιστορικό αρχείο`,
+                  : `Ιστορική κάλυψη FIRMS UTC ${thermalHistoricalCoverage} · ανάκτηση ${thermalRetrievedTime} · τα ακριβή φίλτρα χρονικής στιγμής και 24 ωρών εφαρμόζονται τοπικά· δεν διασφαλίζεται πλήρες ιστορικό αρχείο`,
               )}
             </small>
           </section>
 
-          <div className="position-actions">
-            <button type="button" onClick={() => focusPoint(INCIDENT, 15)}>
-              {localize(language, "INCIDENT", "ΣΥΜΒΑΝ")}
-            </button>
-            <button type="button" onClick={() => focusPoint(PLOMARI_BEACH, 15)}>
-              {localize(language, "PLOMARI", "ΠΛΩΜΑΡΙ")}
-            </button>
-            <button type="button" onClick={() => focusPoint(PERAMA, 15)}>
-              {localize(language, "PERAMA", "ΠΕΡΑΜΑ")}
-            </button>
-          </div>
-
-          <div className={`wind-readout${isLive ? "" : " wind-readout--withheld"}`}>
+          <div
+            id="layers-panel-wind"
+            className={`wind-readout${isLive ? "" : " wind-readout--withheld"}`}
+            role="tabpanel"
+            aria-labelledby="layers-tab-wind"
+            hidden={layerTab !== "wind"}
+          >
             {isLive ? (
               <>
                 <div className="wind-readout__head">
@@ -2680,8 +3900,8 @@ export default function Home() {
                   "ΜΟΝΤΕΛΟ ΑΝΕΜΟΥ ΣΤΗΝ ΕΣΤΙΑ",
                 )}
               </span>
-              <strong className={windError ? "is-stale" : ""}>
-                {windError
+              <strong className={windStaleSnapshot ? "is-stale" : ""}>
+                {windStaleSnapshot
                   ? localize(
                       language,
                       "SNAPSHOT / RETRYING",
@@ -2789,165 +4009,60 @@ export default function Home() {
               </div>
             )}
           </div>
-        </aside>
-      )}
-
-      <button
-        type="button"
-        className="panel-toggle panel-toggle--right"
-        onClick={() =>
-          setIntelOpen((value) => {
-            const next = !value;
-            if (next && compact) setPanelOpen(false);
-            return next;
-          })
-        }
-        aria-expanded={intelOpen}
-        aria-controls="intel-sheet"
-      >
-        {intelOpen
-          ? localize(language, "HIDE UPDATES", "ΑΠΟΚΡΥΨΗ ΕΝΗΜΕΡΩΣΕΩΝ")
-          : localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")}
-      </button>
-
-      <nav
-        className="mobile-dock"
-        aria-label={localize(
-          language,
-          "Mobile map navigation",
-          "Πλοήγηση χάρτη για κινητό",
-        )}
-      >
-        <button
-          type="button"
-          className={!panelOpen && !intelOpen ? "is-active" : ""}
-          onClick={closePanels}
-          aria-pressed={!panelOpen && !intelOpen}
-        >
-          <span aria-hidden="true">◎</span>
-          <b>{localize(language, "MAP", "ΧΑΡΤΗΣ")}</b>
-        </button>
-        <button
-          type="button"
-          className={panelOpen ? "is-active" : ""}
-          onClick={() => {
-            setPanelOpen((value) => !value);
-            setIntelOpen(false);
-          }}
-          aria-expanded={panelOpen}
-          aria-controls="layers-sheet"
-        >
-          <span aria-hidden="true">☷</span>
-          <b>{localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")}</b>
-        </button>
-        <button
-          type="button"
-          className={intelOpen ? "is-active" : ""}
-          onClick={() => {
-            setIntelOpen((value) => !value);
-            setPanelOpen(false);
-          }}
-          aria-expanded={intelOpen}
-          aria-controls="intel-sheet"
-        >
-          <span aria-hidden="true">≡</span>
-          <b>{localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")}</b>
-        </button>
-      </nav>
-
-      {intelOpen && (
-        <aside
-          className="intel-hud"
-          id="intel-sheet"
-          aria-label={localize(
-            language,
-            "Incident updates",
-            "Ενημερώσεις συμβάντος",
-          )}
-        >
-          <div className="hud-heading">
-            <div>
-              <span>
-                {localize(language, "INCIDENT WIRE", "ΡΟΗ ΣΥΜΒΑΝΤΟΣ")}
-              </span>
-              <small>
-                {isLive ? (
-                  <>
-                    {localize(language, "GREECE TIME", "ΩΡΑ ΕΛΛΑΔΑΣ")}
-                    {" // "}
-                    {updatesError
-                      ? localize(
-                          language,
-                          "SNAPSHOT · RETRYING",
-                          "ΣΤΙΓΜΙΟΤΥΠΟ · ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ",
-                        )
-                      : localize(
-                          language,
-                          `RSS POLL ${updatesRetrievedTime}`,
-                          `ΕΛΕΓΧΟΣ RSS ${updatesRetrievedTime}`,
-                        )}
-                  </>
-                ) : (
-                  localize(
-                    language,
-                    `DATED ITEMS ≤ ${asOfLabel}`,
-                    `ΧΡΟΝΟΛΟΓΗΜΕΝΑ ΣΤΟΙΧΕΙΑ ≤ ${asOfLabel}`,
-                  )
-                )}
-              </small>
-            </div>
-            <div className="hud-heading__actions">
-              <span
-                className={`recording-dot${isLive ? "" : " recording-dot--historical"}`}
-              >
-                {isLive
-                  ? localize(language, "REC", "ΖΩΝΤΑΝΑ")
-                  : localize(language, "AS OF", "ΕΩΣ")}
-              </span>
-              <button
-                type="button"
-                className="sheet-close"
-                onClick={closePanels}
-                aria-label={localize(
-                  language,
-                  "Close updates",
-                  "Κλείσιμο ενημερώσεων",
-                )}
-              >
-                ×
-              </button>
-            </div>
-          </div>
-
+          <div
+            id="layers-panel-updates"
+            className="hud-tabpanel"
+            role="tabpanel"
+            aria-labelledby="layers-tab-updates"
+            hidden={layerTab !== "updates"}
+          >
           <div className="intel-list">
             {displayIntel.map((item) => (
-              <button
-                type="button"
+              <div
                 key={item.id}
                 className={item.id === active.id ? "intel-item is-active" : "intel-item"}
-                onClick={() => setActiveIntel(item.id)}
               >
-                <time>
-                  <span>{item.time}</span>
-                  {item.archived && (
+                <button
+                  type="button"
+                  className="intel-item__select"
+                  onClick={() => setActiveIntel(item.id)}
+                >
+                  <time>
+                    <span>{item.time}</span>
+                    {item.archived && (
+                      <small>
+                        {localize(language, "29 JUL 2026", "29 ΙΟΥΛ 2026")}
+                      </small>
+                    )}
+                  </time>
+                  <span>
+                    <strong>{item.label}</strong>
                     <small>
-                      {localize(language, "29 JUL 2026", "29 ΙΟΥΛ 2026")}
+                      {item.archived
+                        ? `${localize(language, "ARCHIVE", "ΑΡΧΕΙΟ")} · `
+                        : ""}
+                      {confidenceLabel(item.confidence, language)}
+                      {item.category
+                        ? ` · ${updateCategoryLabel(item.category, language)}`
+                        : ""}
                     </small>
-                  )}
-                </time>
-                <span>
-                  <strong>{item.label}</strong>
-                  <small>
-                    {item.archived
-                      ? `${localize(language, "ARCHIVE", "ΑΡΧΕΙΟ")} · `
-                      : ""}
-                    {confidenceLabel(item.confidence, language)}
-                    {item.category
-                      ? ` · ${updateCategoryLabel(item.category, language)}`
-                      : ""}
-                  </small>
-                </span>
-              </button>
+                  </span>
+                </button>
+                {item.sourceUrl && (
+                  <a
+                    className="intel-item__link"
+                    href={item.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`${localize(language, "Open source", "Άνοιγμα πηγής")}: ${
+                      item.sourceLabel ??
+                      localize(language, "article", "άρθρο")
+                    }`}
+                  >
+                    ↗
+                  </a>
+                )}
+              </div>
             ))}
           </div>
 
@@ -2991,6 +4106,46 @@ export default function Home() {
               </a>
             )}
           </div>
+
+          {officialFallbackSources.length > 0 && (
+            <div
+              className="official-fallbacks"
+              role="group"
+              aria-label={localize(
+                language,
+                "Official direct-source fallbacks",
+                "Εναλλακτικοί απευθείας επίσημοι σύνδεσμοι",
+              )}
+            >
+              <span>
+                {localize(
+                  language,
+                  "AUTOMATIC RETRIEVAL UNAVAILABLE — CHECK EACH OFFICIAL SOURCE DIRECTLY",
+                  "Η ΑΥΤΟΜΑΤΗ ΑΝΑΚΤΗΣΗ ΔΕΝ ΕΙΝΑΙ ΔΙΑΘΕΣΙΜΗ — ΕΛΕΓΞΤΕ ΚΑΘΕ ΕΠΙΣΗΜΗ ΠΗΓΗ ΑΠΕΥΘΕΙΑΣ",
+                )}
+              </span>
+              {officialFallbackSources.map((source) => (
+                <a
+                  key={source.id}
+                  href={source.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  referrerPolicy="no-referrer"
+                >
+                  <strong>{source.label}</strong>
+                  <small>
+                    {localize(
+                      language,
+                      "Automatic retrieval unavailable",
+                      "Η αυτόματη ανάκτηση δεν είναι διαθέσιμη",
+                    )}
+                    {` · ${source.reason} · `}
+                    {localize(language, "open direct ↗", "άνοιγμα πηγής ↗")}
+                  </small>
+                </a>
+              ))}
+            </div>
+          )}
 
           <div className="source-health">
             <span>
@@ -3051,8 +4206,74 @@ export default function Home() {
               </a>
             ))}
           </div>
-        </aside>
-      )}
+          </div>
+      </aside>
+
+      <nav
+        className="mobile-dock"
+        aria-label={localize(
+          language,
+          "Mobile map navigation",
+          "Πλοήγηση χάρτη για κινητό",
+        )}
+      >
+        <button
+          type="button"
+          className={!panelOpen ? "is-active" : ""}
+          onClick={closePanels}
+          aria-pressed={!panelOpen}
+        >
+          <span aria-hidden="true">◎</span>
+          <b>{localize(language, "MAP", "ΧΑΡΤΗΣ")}</b>
+        </button>
+        <button
+          type="button"
+          className={panelOpen && layerTab !== "updates" ? "is-active" : ""}
+          onClick={() => {
+            if (panelOpen && layerTab !== "updates") {
+              setPanelOpen(false);
+              return;
+            }
+            if (layerTab === "updates") setLayerTab("layers");
+            setPanelOpen(true);
+          }}
+          aria-expanded={panelOpen && layerTab !== "updates"}
+          aria-controls="layers-sheet"
+        >
+          <span aria-hidden="true">☷</span>
+          <b>{localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")}</b>
+        </button>
+        <button
+          type="button"
+          className={panelOpen && layerTab === "updates" ? "is-active" : ""}
+          onClick={() => {
+            setWireBadge(false);
+            if (panelOpen && layerTab === "updates") {
+              setPanelOpen(false);
+              return;
+            }
+            setLayerTab("updates");
+            setPanelOpen(true);
+          }}
+          aria-expanded={panelOpen && layerTab === "updates"}
+          aria-controls="layers-sheet"
+        >
+          <span aria-hidden="true">≡</span>
+          <b>{localize(language, "UPDATES", "ΕΝΗΜΕΡΩΣΕΙΣ")}</b>
+          {wireBadge && (
+            <>
+              <i className="wire-badge" aria-hidden="true" />
+              <span className="sr-only">
+                {localize(
+                  language,
+                  "Unread action update",
+                  "Μη αναγνωσμένη ενημέρωση ενέργειας",
+                )}
+              </span>
+            </>
+          )}
+        </button>
+      </nav>
 
       {layers.simulation && (
         <section
@@ -3262,7 +4483,7 @@ export default function Home() {
                   "DATED ITEMS ONLY",
                   "ΜΟΝΟ ΧΡΟΝΟΛΟΓΗΜΕΝΑ ΣΤΟΙΧΕΙΑ",
                 )
-              : updatesError
+              : updatesStaleSnapshot
                 ? localize(
                     language,
                     "SNAPSHOT / RETRYING",

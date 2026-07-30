@@ -98,16 +98,18 @@ button {
   background: #061016;
 }
 
+/* Keep the HUD tint subtle: heavy darkening made satellite imagery hard to
+   read outdoors in sunlight, which is exactly when this map matters. */
 .map--dark .leaflet-tile {
-  filter: saturate(0.55) brightness(0.8) contrast(1.22) hue-rotate(150deg);
+  filter: saturate(0.6) brightness(0.92) contrast(1.14) hue-rotate(150deg);
 }
 
 .map--satellite .leaflet-tile {
-  filter: saturate(0.72) brightness(0.66) contrast(1.2) hue-rotate(3deg);
+  filter: saturate(0.9) brightness(0.9) contrast(1.08) hue-rotate(3deg);
 }
 
 .map--terrain .leaflet-tile {
-  filter: saturate(0.42) brightness(0.62) contrast(1.26) hue-rotate(138deg);
+  filter: saturate(0.55) brightness(0.85) contrast(1.12) hue-rotate(138deg);
 }
 
 .map-loading {
@@ -120,7 +122,7 @@ button {
   color: var(--cyan);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.74rem;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.1em;
 }
 
 .offline-banner {
@@ -136,7 +138,7 @@ button {
   background: rgba(78, 42, 4, 0.96);
   text-align: center;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.6rem;
+  font-size: 0.66rem;
   letter-spacing: 0.09em;
 }
 
@@ -243,8 +245,8 @@ button {
   margin: 5px 0 0 19px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.59rem;
-  letter-spacing: 0.16em;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
 }
 
 .live-dot {
@@ -278,8 +280,8 @@ button {
   background: rgba(91, 18, 10, 0.34);
   backdrop-filter: blur(12px);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.57rem;
-  letter-spacing: 0.18em;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
   white-space: nowrap;
 }
 
@@ -418,8 +420,8 @@ button {
 .clock-block span,
 .clock-block small {
   color: var(--muted);
-  font-size: 0.56rem;
-  letter-spacing: 0.15em;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
 }
 
 .clock-block strong {
@@ -454,7 +456,7 @@ button {
   color: var(--muted);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.54rem;
+  font-size: 0.62rem;
   font-weight: 500;
 }
 
@@ -468,7 +470,7 @@ button {
   z-index: 1150;
   top: 84px;
   left: 50%;
-  width: min(760px, calc(100% - 690px));
+  width: min(760px, calc(100% - 740px));
   min-width: 480px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -507,7 +509,7 @@ button {
 .evacuation-archive-tag {
   color: #ffd48b !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.56rem !important;
+  font-size: 0.62rem !important;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
@@ -553,7 +555,7 @@ button {
 
 .evacuation-banner > a span {
   color: inherit;
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   letter-spacing: 0.08em;
 }
 
@@ -595,7 +597,7 @@ button {
   color: var(--muted);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.56rem;
+  font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -615,7 +617,7 @@ button {
   color: var(--cyan);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.56rem;
+  font-size: 0.62rem;
   letter-spacing: 0.1em;
   backdrop-filter: blur(12px);
 }
@@ -654,12 +656,16 @@ button {
 
 .layer-hud {
   left: max(20px, env(safe-area-inset-left));
-  width: 272px;
+  /* Wide enough for the merged updates tab (was the right panel's width). */
+  width: 336px;
+  /* Tabs made the panel short; size to content so more map is visible. */
+  bottom: auto;
+  max-height: calc(100dvh - 300px);
 }
 
 .intel-hud {
   right: max(20px, env(safe-area-inset-right));
-  width: 316px;
+  width: 336px;
 }
 
 .hud-heading {
@@ -703,7 +709,7 @@ button {
 .hud-heading small {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.49rem;
+  font-size: 0.6rem;
   letter-spacing: 0.1em;
 }
 
@@ -714,7 +720,7 @@ button {
   background: rgba(85, 221, 255, 0.04);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.53rem;
+  font-size: 0.62rem;
   letter-spacing: 0.09em;
 }
 
@@ -737,6 +743,7 @@ button {
 }
 
 .layer-control {
+  --accent: var(--cyan);
   display: grid;
   grid-template-columns: 23px minmax(0, 1fr) auto 27px;
   align-items: center;
@@ -778,8 +785,8 @@ button {
 }
 
 .layer-control.is-enabled .layer-icon {
-  color: var(--cyan);
-  text-shadow: 0 0 12px rgba(85, 221, 255, 0.45);
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent);
 }
 
 .layer-copy {
@@ -800,15 +807,15 @@ button {
 .layer-copy small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 0.55rem;
+  font-size: 0.62rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .layer-count {
-  color: var(--cyan);
+  color: var(--accent);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.58rem;
+  font-size: 0.66rem;
 }
 
 .thermal-key {
@@ -828,7 +835,7 @@ button {
   gap: 8px;
   color: var(--cyan);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.54rem;
+  font-size: 0.62rem;
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -862,7 +869,7 @@ button {
   background: rgba(85, 221, 255, 0.02);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -880,6 +887,86 @@ button {
   background: var(--cyan);
 }
 
+.thermal-timelapse {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thermal-timelapse > button {
+  min-height: 32px;
+  padding: 5px 8px;
+  color: var(--muted);
+  border: 1px solid var(--line-soft);
+  background: rgba(85, 221, 255, 0.02);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+}
+
+.thermal-timelapse > button:hover {
+  border-color: rgba(85, 221, 255, 0.36);
+  color: var(--ink);
+}
+
+.thermal-timelapse > button.is-active {
+  color: #031015;
+  border-color: var(--cyan);
+  background: var(--cyan);
+}
+
+.thermal-timelapse__notice {
+  margin: 0;
+  padding: 5px 8px;
+  border-left: 2px solid var(--amber);
+  color: var(--amber);
+  font-size: 0.62rem;
+  letter-spacing: 0.03em;
+}
+
+.thermal-timelapse__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thermal-timelapse__controls button {
+  flex: 0 0 auto;
+  min-width: 64px;
+  min-height: 32px;
+  padding: 5px 8px;
+  color: var(--muted);
+  border: 1px solid var(--line-soft);
+  background: rgba(85, 221, 255, 0.02);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+}
+
+.thermal-timelapse__controls button:hover:enabled {
+  border-color: rgba(85, 221, 255, 0.36);
+  color: var(--ink);
+}
+
+.thermal-timelapse__controls button[aria-pressed="true"] {
+  color: #031015;
+  border-color: var(--cyan);
+  background: var(--cyan);
+}
+
+.thermal-timelapse__controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.thermal-timelapse__controls input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #55ddff;
+}
+
 .thermal-summary {
   display: flex;
   flex-direction: column;
@@ -891,7 +978,7 @@ button {
 
 .thermal-summary strong {
   color: var(--ink);
-  font-size: 0.56rem;
+  font-size: 0.62rem;
   font-weight: 500;
   line-height: 1.35;
 }
@@ -899,7 +986,7 @@ button {
 .thermal-summary small {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.46rem;
+  font-size: 0.6rem;
   line-height: 1.4;
 }
 
@@ -908,7 +995,7 @@ button {
 .thermal-note {
   margin: 0;
   color: var(--muted);
-  font-size: 0.53rem;
+  font-size: 0.62rem;
   line-height: 1.48;
 }
 
@@ -943,13 +1030,13 @@ button {
 .thermal-confidence b {
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.47rem;
+  font-size: 0.6rem;
   font-weight: 500;
 }
 
 .thermal-confidence small {
   color: var(--muted);
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   line-height: 1.35;
 }
 
@@ -981,7 +1068,7 @@ button {
   color: var(--muted);
   border-top: 1px solid var(--line-soft);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.45rem;
+  font-size: 0.6rem;
   line-height: 1.4;
 }
 
@@ -1010,13 +1097,13 @@ button {
 }
 
 .layer-control.is-enabled .switch {
-  border-color: rgba(85, 221, 255, 0.52);
+  border-color: var(--accent);
 }
 
 .layer-control.is-enabled .switch i {
   left: 14px;
-  background: var(--cyan);
-  box-shadow: 0 0 8px rgba(85, 221, 255, 0.8);
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
 }
 
 .position-actions {
@@ -1036,7 +1123,7 @@ button {
   background: rgba(85, 221, 255, 0.04);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   letter-spacing: 0.04em;
 }
 
@@ -1082,7 +1169,7 @@ button {
 .wind-readout__head {
   margin-bottom: 7px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.5rem;
+  font-size: 0.62rem;
   letter-spacing: 0.08em;
 }
 
@@ -1092,7 +1179,7 @@ button {
 
 .wind-readout__head strong {
   color: var(--green);
-  font-size: 0.47rem;
+  font-size: 0.6rem;
   font-weight: 500;
 }
 
@@ -1105,7 +1192,7 @@ button {
   border-top: 1px solid var(--line-soft);
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.5rem;
+  font-size: 0.62rem;
 }
 
 .wind-row span {
@@ -1134,7 +1221,7 @@ button {
   border-top: 1px solid var(--line-soft);
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.47rem;
+  font-size: 0.6rem;
 }
 
 .metar-line strong {
@@ -1149,7 +1236,7 @@ button {
   border-top: 1px solid var(--line-soft);
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.5rem;
+  font-size: 0.62rem;
 }
 
 .smoke-horizon b {
@@ -1166,7 +1253,7 @@ button {
 .wind-readout p {
   margin: 7px 0 0;
   color: var(--muted);
-  font-size: 0.53rem;
+  font-size: 0.62rem;
   line-height: 1.45;
 }
 
@@ -1178,20 +1265,40 @@ button {
 
 .intel-item {
   display: grid;
-  grid-template-columns: 68px minmax(0, 1fr);
-  gap: 8px;
-  width: 100%;
-  padding: 8px 3px;
-  text-align: left;
-  border: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
   border-bottom: 1px solid var(--line-soft);
-  background: transparent;
-  cursor: pointer;
 }
 
 .intel-item:hover,
 .intel-item.is-active {
   background: rgba(85, 221, 255, 0.045);
+}
+
+.intel-item__select {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 3px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.intel-item__link {
+  display: grid;
+  min-width: 38px;
+  place-items: center;
+  color: var(--cyan);
+  border-left: 1px solid var(--line-soft);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.intel-item__link:hover {
+  background: rgba(85, 221, 255, 0.1);
 }
 
 .intel-item time {
@@ -1205,11 +1312,11 @@ button {
 
 .intel-item time small {
   color: var(--amber);
-  font-size: 0.42rem;
+  font-size: 0.6rem;
   letter-spacing: 0.03em;
 }
 
-.intel-item > span {
+.intel-item__select > span {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1227,7 +1334,7 @@ button {
 .intel-item small {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.49rem;
+  font-size: 0.6rem;
   letter-spacing: 0.1em;
 }
 
@@ -1239,7 +1346,7 @@ button {
   gap: 4px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   letter-spacing: 0.08em;
 }
 
@@ -1254,7 +1361,7 @@ button {
   border: 1px solid var(--line-soft);
   background: rgba(130, 168, 178, 0.05);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.43rem;
+  font-size: 0.6rem;
   font-weight: 500;
   letter-spacing: 0.06em;
   line-height: 1.2;
@@ -1320,7 +1427,7 @@ button {
 .intel-detail > span {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.5rem;
+  font-size: 0.62rem;
   letter-spacing: 0.12em;
 }
 
@@ -1332,7 +1439,7 @@ button {
 .intel-detail p {
   margin: 0;
   color: #a9c0c6;
-  font-size: 0.6rem;
+  font-size: 0.66rem;
   line-height: 1.5;
 }
 
@@ -1341,13 +1448,59 @@ button {
   margin-top: 3px;
   color: var(--cyan);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.52rem;
+  font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-decoration: none;
 }
 
 .intel-detail__source:hover {
   text-decoration: underline;
+}
+
+.official-fallbacks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 10px 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 179, 71, 0.38);
+  background: rgba(78, 42, 4, 0.34);
+}
+
+.official-fallbacks > span {
+  color: #ffd699;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  line-height: 1.35;
+}
+
+.official-fallbacks a {
+  display: flex;
+  min-height: 36px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 7px;
+  color: var(--ink);
+  border: 1px solid rgba(255, 179, 71, 0.24);
+  text-decoration: none;
+}
+
+.official-fallbacks a:hover {
+  border-color: rgba(255, 179, 71, 0.58);
+  background: rgba(255, 179, 71, 0.07);
+}
+
+.official-fallbacks strong,
+.official-fallbacks small {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6rem;
+  line-height: 1.35;
+}
+
+.official-fallbacks small {
+  color: var(--muted);
 }
 
 .source-links {
@@ -1375,7 +1528,7 @@ button {
 
 .source-links span {
   overflow: hidden;
-  font-size: 0.57rem;
+  font-size: 0.66rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1383,7 +1536,7 @@ button {
 .source-links small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 0.47rem;
+  font-size: 0.6rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1399,7 +1552,7 @@ button {
   border-top: 1px solid var(--line-soft);
   border-bottom: 1px solid var(--line-soft);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   line-height: 1.35;
 }
 
@@ -1415,7 +1568,7 @@ button {
 
 .source-health > small {
   color: var(--muted);
-  font-size: 0.44rem;
+  font-size: 0.6rem;
   line-height: 1.4;
 }
 
@@ -1424,7 +1577,7 @@ button {
   z-index: 1120;
   left: 50%;
   bottom: 132px;
-  width: min(690px, calc(100% - 650px));
+  width: min(690px, calc(100% - 700px));
   min-width: 490px;
   display: grid;
   grid-template-columns: 1.1fr 1fr 1fr 1.2fr auto;
@@ -1446,7 +1599,7 @@ button {
 .scenario-title strong {
   color: var(--amber);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.48rem;
+  font-size: 0.6rem;
   font-weight: 500;
   letter-spacing: 0.08em;
 }
@@ -1457,7 +1610,7 @@ button {
   flex-direction: column;
   gap: 5px;
   color: var(--muted);
-  font-size: 0.54rem;
+  font-size: 0.62rem;
 }
 
 .scenario-hud label > span {
@@ -1483,7 +1636,7 @@ button {
   color: var(--ink);
   border: 1px solid var(--line);
   background: #051016;
-  font-size: 0.55rem;
+  font-size: 0.62rem;
 }
 
 .scenario-distance {
@@ -1497,7 +1650,7 @@ button {
 
 .scenario-distance span {
   color: var(--muted);
-  font-size: 0.47rem;
+  font-size: 0.6rem;
   white-space: nowrap;
 }
 
@@ -1539,7 +1692,7 @@ button {
 .mission-hud span {
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.47rem;
+  font-size: 0.6rem;
   letter-spacing: 0.12em;
 }
 
@@ -1555,7 +1708,7 @@ button {
 .mission-hud small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 0.51rem;
+  font-size: 0.62rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1604,7 +1757,7 @@ button {
   gap: 5px;
   color: #acc4ca;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.47rem;
+  font-size: 0.6rem;
   letter-spacing: 0.07em;
 }
 
@@ -1650,7 +1803,7 @@ button {
   border-top: 1px solid rgba(85, 221, 255, 0.08);
   background: rgba(1, 5, 8, 0.92);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.46rem;
+  font-size: 0.6rem;
   letter-spacing: 0.06em;
 }
 
@@ -1664,9 +1817,10 @@ button {
   font-family: inherit;
 }
 
+/* Sits beside the MY POSITION button, top-left under the site title. */
 .leaflet-control-zoom {
-  margin-right: 20px !important;
-  margin-bottom: 128px !important;
+  margin-left: 136px !important;
+  margin-top: 88px !important;
   border: 1px solid var(--line) !important;
 }
 
@@ -1676,12 +1830,20 @@ button {
   background: var(--panel-strong) !important;
 }
 
+/* Keep +/− visible at the zoom limits: Leaflet's default disabled style
+   turned the button light-grey-on-dark, which read as a missing button. */
+.leaflet-control-zoom a.leaflet-disabled {
+  color: var(--muted) !important;
+  background: var(--panel-strong) !important;
+  opacity: 1 !important;
+}
+
 .leaflet-control-attribution {
   margin-right: 0 !important;
   margin-bottom: 26px !important;
   color: #6f8b92 !important;
   background: rgba(1, 5, 8, 0.78) !important;
-  font-size: 8px !important;
+  font-size: 10px !important;
 }
 
 .leaflet-control-attribution a {
@@ -1700,7 +1862,7 @@ button {
   gap: 6px;
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   text-shadow: 0 1px 4px #000;
   white-space: nowrap;
@@ -1743,7 +1905,7 @@ button {
 .map-marker--settlement b {
   padding: 3px 4px;
   background: rgba(2, 9, 13, 0.66);
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .map-marker--arrow {
@@ -1764,7 +1926,7 @@ button {
 }
 
 .map-marker--wind {
-  color: var(--cyan);
+  color: var(--green);
 }
 
 .leaflet-popup-content-wrapper,
@@ -1816,12 +1978,12 @@ button {
   }
 
   .evacuation-banner {
-    width: min(650px, calc(100% - 620px));
+    width: min(650px, calc(100% - 664px));
     min-width: 430px;
   }
 
   .scenario-hud {
-    width: min(630px, calc(100% - 620px));
+    width: min(630px, calc(100% - 664px));
     min-width: 430px;
     grid-template-columns: 1fr 1fr 1fr;
   }
@@ -1889,7 +2051,7 @@ button {
     min-width: 34px;
     min-height: 34px;
     padding: 5px 7px;
-    font-size: 0.58rem;
+    font-size: 0.66rem;
   }
 
   .evacuation-banner {
@@ -2024,7 +2186,7 @@ button {
   .view-controls button {
     min-height: 44px;
     padding: 7px 8px;
-    font-size: 0.52rem;
+    font-size: 0.62rem;
   }
 
   .panel-toggle {
@@ -2127,14 +2289,18 @@ button {
     font-size: 0.6875rem;
   }
 
-  .intel-item {
+  .intel-item__select {
     grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .intel-item__link {
+    min-width: 44px;
   }
 
   .intel-item time,
   .intel-item strong,
   .intel-item time small,
-  .intel-item > span > small,
+  .intel-item__select > span > small,
   .intel-detail__meta,
   .intel-detail p,
   .intel-detail__source,
@@ -2158,7 +2324,8 @@ button {
 
   .position-actions button,
   .source-links a,
-  .intel-detail__source {
+  .intel-detail__source,
+  .official-fallbacks a {
     min-height: 44px;
   }
 
@@ -2232,7 +2399,7 @@ button {
 
   .mobile-dock button b {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.56rem;
+    font-size: 0.62rem;
     font-weight: 500;
     letter-spacing: 0.08em;
   }
@@ -2280,7 +2447,7 @@ button {
   }
 
   .mission-hud strong {
-    font-size: 0.57rem;
+    font-size: 0.66rem;
   }
 
   .mission-hud small {
@@ -2304,8 +2471,10 @@ button {
   }
 
   .leaflet-control-zoom {
-    margin-right: 8px !important;
-    margin-bottom: calc(var(--mobile-dock) + 68px) !important;
+    margin-left: 8px !important;
+    margin-top: calc(
+      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 116px
+    ) !important;
   }
 
   .leaflet-control-zoom a {
@@ -2321,7 +2490,7 @@ button {
   .leaflet-control-attribution {
     max-width: calc(100vw - 120px);
     margin-bottom: var(--mobile-dock) !important;
-    font-size: 8px !important;
+    font-size: 10px !important;
   }
 }
 
@@ -2391,11 +2560,11 @@ button {
 
   .view-controls button {
     max-width: 78px;
-    font-size: 0.48rem;
+    font-size: 0.6rem;
   }
 
   .mobile-dock button b {
-    font-size: 0.51rem;
+    font-size: 0.62rem;
   }
 
   .thermal-filter {
@@ -2433,7 +2602,344 @@ button {
   }
 
   .leaflet-control-zoom {
-    margin-bottom: calc(var(--mobile-dock) + 8px) !important;
+    margin-top: calc(
+      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 116px
+    ) !important;
+  }
+}
+
+.map-marker--you {
+  color: var(--green);
+}
+
+.locate-control {
+  position: absolute;
+  z-index: 1100;
+  top: 88px;
+  left: max(20px, env(safe-area-inset-left));
+  min-height: 36px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--cyan);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(12px);
+}
+
+.locate-control.is-active {
+  color: #031015;
+  border-color: var(--green);
+  background: var(--green);
+}
+
+.locate-readout {
+  position: absolute;
+  z-index: 1095;
+  left: max(20px, env(safe-area-inset-left));
+  bottom: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 280px;
+  padding: 9px 11px;
+  border: 1px solid rgba(57, 242, 197, 0.35);
+  border-left: 2px solid var(--green);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  line-height: 1.4;
+}
+
+.locate-readout strong {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.locate-readout span {
+  color: var(--ink);
+}
+
+.locate-readout small {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.locate-readout--error {
+  border-color: rgba(255, 179, 71, 0.4);
+  border-left-color: var(--amber);
+}
+
+.locate-readout--error span {
+  color: #ffd699;
+}
+
+.alert-toast {
+  position: absolute;
+  z-index: 1350;
+  top: calc(max(6px, env(safe-area-inset-top)) + 30px);
+  left: 50%;
+  display: flex;
+  align-items: stretch;
+  width: min(560px, calc(100% - 16px));
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 77, 50, 0.8);
+  border-left: 3px solid var(--red);
+  background: rgba(70, 12, 6, 0.97);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.alert-toast__body {
+  display: flex;
+  min-width: 0;
+  min-height: 52px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: #ffe1d9;
+  cursor: pointer;
+  text-align: left;
+}
+
+.alert-toast__body span {
+  color: #ffab9d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.alert-toast__body strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.alert-toast__dismiss {
+  min-width: 44px;
+  border: 0;
+  border-left: 1px solid rgba(255, 77, 50, 0.4);
+  background: transparent;
+  color: #ffe1d9;
+  cursor: pointer;
+  font-size: 1.15rem;
+}
+
+.wire-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 10px rgba(255, 77, 50, 0.9);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.panel-toggle {
+  overflow: visible;
+}
+
+.panel-move {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.panel-move:active {
+  cursor: grabbing;
+}
+
+.hud-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  padding: 8px 9px 4px;
+}
+
+.hud-tabpanel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.layer-hud[hidden],
+.layer-hud [role="tabpanel"][hidden] {
+  display: none;
+}
+
+.hud-tabs button {
+  position: relative;
+  min-height: 30px;
+  padding: 5px 2px;
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid var(--line-soft);
+  background: rgba(85, 221, 255, 0.02);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.hud-tabs button:hover {
+  border-color: rgba(85, 221, 255, 0.36);
+  color: var(--ink);
+}
+
+.hud-tabs button.is-active {
+  color: #031015;
+  border-color: var(--cyan);
+  background: var(--cyan);
+}
+
+.locate-readout__center {
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 6px 8px;
+  color: var(--cyan);
+  border: 1px solid rgba(85, 221, 255, 0.3);
+  background: rgba(85, 221, 255, 0.05);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+}
+
+.evacuation-hide {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  color: #e2b5ad;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.evacuation-collapsed {
+  position: absolute;
+  z-index: 1150;
+  top: 84px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 12px;
+  transform: translateX(-50%);
+  color: #ffd0c7;
+  border: 1px solid rgba(255, 77, 50, 0.58);
+  border-left: 3px solid var(--red);
+  background: rgba(45, 12, 9, 0.92);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  backdrop-filter: blur(12px);
+}
+
+.evacuation-collapsed b {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.evacuation-collapsed span {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 900px) {
+  .mobile-dock button {
+    position: relative;
+  }
+
+  .mobile-dock .wire-badge {
+    top: 6px;
+    right: calc(50% - 22px);
+  }
+
+  .locate-control {
+    top: calc(
+      var(--mobile-head) + var(--mobile-alert) + var(--mobile-time) + 64px
+    );
+    left: 8px;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 0.6875rem;
+  }
+
+  .locate-readout {
+    left: 8px;
+    bottom: calc(var(--mobile-dock) + 76px);
+    max-width: min(300px, calc(100vw - 96px));
+    font-size: 0.6875rem;
+  }
+
+  .locate-readout small {
+    font-size: 0.6875rem;
+  }
+
+  .has-mobile-sheet .locate-control,
+  .has-mobile-sheet .locate-readout {
+    display: none;
+  }
+
+  .hud-tabs button {
+    min-height: 44px;
+    font-size: 0.6875rem;
+  }
+
+  /* The mobile panel is a fixed bottom sheet; dragging is desktop-only. */
+  .panel-move {
+    display: none;
+  }
+
+  .locate-readout__center {
+    min-height: 44px;
+    font-size: 0.6875rem;
+  }
+
+  .evacuation-hide {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  /* Collapsed 112 banner frees almost the whole alert strip for the map. */
+  .command-shell.alert-collapsed {
+    --mobile-alert: 48px;
+  }
+
+  .evacuation-collapsed {
+    top: var(--mobile-head);
+    left: 8px;
+    min-height: 40px;
+    transform: none;
+  }
+
+  .evacuation-collapsed span {
+    font-size: 0.6875rem;
   }
 }
 

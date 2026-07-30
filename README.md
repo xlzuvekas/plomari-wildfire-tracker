@@ -43,7 +43,8 @@ language on first load, remembers the selected language, and keeps the original
 - Automatic official and publisher feeds from the Hellenic Fire Service
   incident board, Greek Civil Protection, the Municipality of Mytilene, ERT
   North Aegean, StoNisi, and Aeolos. Optional official X feeds can add
-  `@112Greece` and `@pyrosvestiki`.
+  `@112Greece`, `@pyrosvestiki`, and `@CivPro_GR`; only `@112Greece` is
+  classified as an official-alert feed.
 - Source-labeled local reports, with official, observed, reported, and modeled
   information visually distinguished. Feed health, source tier, category,
   severity, publication time, and action-required status remain separate.
@@ -63,8 +64,12 @@ language on first load, remembers the selected language, and keeps the original
   latest-only wind, source health, Fire Service board state, and daily current
   rasters are clearly withheld rather than presented as historical evidence.
 
-There is no personal location tracking, GPS prompt, user marker, account data,
-or user-specific status in this repository.
+Personal location is optional and requested only after an explicit tap. The
+Firewatch client uses it for a temporary marker and distance readouts and does
+not submit the coordinates to Firewatch servers. Explicitly centering the map
+can cause the configured third-party map and overlay providers (Carto, Esri,
+OpenTopoMap, and NASA) to receive ordinary tile requests for the nearby view.
+There is no account data or user-specific incident status in this repository.
 
 ## Understanding satellite thermal detections
 
@@ -183,10 +188,15 @@ unconfigured; it does not display substitute points. Create a FIRMS key through
 the [NASA FIRMS map-key service](https://firms.modaps.eosdis.nasa.gov/api/map_key/).
 
 `X_BEARER_TOKEN` is optional. It enables automatic retrieval from the official
-`@112Greece` and `@pyrosvestiki` accounts. The application continues to use the
-other official and publisher sources when it is absent. X API access is
-usage-priced and should be treated as an optional enhancement, not the only
-emergency-alert channel.
+`@112Greece`, `@pyrosvestiki`, and `@CivPro_GR` accounts. The application
+continues to use the other official and publisher sources when it is absent.
+X API access is usage-priced and should be treated as an optional enhancement,
+not the only emergency-alert channel. The live fallback makes at most one
+10-post timeline request per configured account on an origin-cache miss, and
+the shared response is cached for 60 seconds. Put a hard spend limit and usage
+alerts on the X project. The intended steady state is one verified X Activity
+API webhook with three `post.create` subscriptions after narrow, idempotent
+database ingestion is deployed; polling remains the failure fallback.
 
 Both variables are server-only. Never prefix either with `NEXT_PUBLIC_`, expose
 their values in browser code, or commit `.env.local`.
@@ -211,18 +221,21 @@ npm start
 
 The `/api/thermal`, `/api/updates`, and `/api/wind` routes keep upstream
 credentials and cross-origin requests on the server. Neither key is sent to the
-browser. Vercel caches the shared incident wire for 45 seconds and the FIRMS
-response for 2 minutes; the client continues polling at the documented
-application cadence.
+browser. Vercel caches the shared incident wire for 60 seconds, live FIRMS
+responses for 2 minutes, and complete finished historical UTC days for 1 hour;
+the client continues polling live data at the documented application cadence.
 
 ## API response contracts
 
-`GET /api/thermal` returns schema version 2. It applies an exact rolling
-24-hour window after querying the NASA calendar-day endpoint, then reports:
+`GET /api/thermal` returns schema version 2. Live mode applies an exact rolling
+24-hour window. A validated `?date=YYYY-MM-DD` selects one historical UTC day;
+the historical scrubber combines the selected day with the preceding eligible
+incident day so exact as-of, 6-hour, and 24-hour filters work across midnight.
+The response reports:
 
 - query bounds, the incident center, and the 8 km incident radius;
 - credential configuration state without returning the credential;
-- per-dataset success/error state for NOAA-20, NOAA-21, and Suomi-NPP;
+- per-dataset success/error state for NOAA-20, NOAA-21, Suomi-NPP, and MODIS;
 - incident and regional record totals, confidence totals, and grouped passes;
 - per-record pixel footprint, pass ID, observation age, confidence, FRP,
   day/night flag, and distance/bearing from the incident center;
@@ -231,6 +244,8 @@ application cadence.
 
 `GET /api/updates` returns schema version 2. It reports:
 
+- no query parameters; query-bearing requests are rejected before upstream
+  collection so cache variants cannot multiply official-account reads;
 - official and publisher source tiers with per-source health and error codes;
 - request/retrieval time, exact source time when available, and item age;
 - source summaries for online, failed, and optional unconfigured feeds;

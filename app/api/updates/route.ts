@@ -7,6 +7,7 @@ import { normalizeSearch, plainText } from "./text";
 const INCIDENT_STARTED_AT = "2026-07-29T10:30:00Z";
 const INCIDENT_STARTED_MS = Date.parse(INCIDENT_STARTED_AT);
 const LOCAL_TIME_ZONE = "Europe/Athens";
+const X_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 type SourceKind =
   | "official-alert"
@@ -17,6 +18,13 @@ type SourceKind =
 type SourceTier = "official" | "publisher";
 type TimeQuality = "exact" | "date-only" | "feed-order-only";
 type SourceStatus = "ok" | "error" | "unconfigured";
+type SourceErrorCode =
+  | "timeout"
+  | "authentication"
+  | "upstream_forbidden"
+  | "rate_limit"
+  | "unavailable"
+  | "missing_X_BEARER_TOKEN";
 type FreshnessBasis =
   | "source-exact-timestamp"
   | "source-date-in-europe-athens"
@@ -103,13 +111,22 @@ const X_ACCOUNTS = [
     id: "112-greece",
     label: "112 Greece",
     username: "112Greece",
+    userId: "1187287012442804225",
     kind: "official-alert",
   },
   {
     id: "hellenic-fire-service",
     label: "Hellenic Fire Service",
     username: "pyrosvestiki",
+    userId: "158003436",
     kind: "official-status",
+  },
+  {
+    id: "civil-protection-x",
+    label: "Greek Civil Protection",
+    username: "CivPro_GR",
+    userId: "1637650700",
+    kind: "official-context",
   },
 ] as const;
 
@@ -154,9 +171,10 @@ type SourceSnapshot = {
   latestItemAt: string | null;
   status: SourceStatus;
   itemCount: number;
-  errorCode: string | null;
+  errorCode: SourceErrorCode | null;
   freshnessPolicy:
     | "source-timestamp-at-or-after-incident-start"
+    | "rolling-24h-bounded-by-incident-start"
     | "athens-calendar-date-at-or-after-incident-start"
     | "undated-items-excluded"
     | "live-board-observation-at-fetch-time";
@@ -377,10 +395,13 @@ function itemAgeMinutes(value: string | null) {
   return Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
 }
 
-function sourceErrorCode(error: unknown) {
+function sourceErrorCode(
+  error: unknown,
+  authenticatedSource = false,
+): SourceErrorCode {
   if (error instanceof Error && error.name === "AbortError") return "timeout";
   if (error instanceof Error && /HTTP 401|HTTP 403/.test(error.message)) {
-    return "authentication";
+    return authenticatedSource ? "authentication" : "upstream_forbidden";
   }
   if (error instanceof Error && /HTTP 429/.test(error.message)) {
     return "rate_limit";
@@ -659,10 +680,6 @@ async function fetchStoNisiLiveStory(): Promise<FeedItem> {
   };
 }
 
-type XUserLookup = {
-  data?: { id?: string };
-};
-
 type XTimeline = {
   data?: Array<{
     id: string;
@@ -674,24 +691,17 @@ type XTimeline = {
 async function fetchXAccount(
   account: XAccount,
   bearerToken: string,
+  startTime: string,
 ): Promise<{ source: SourceSnapshot; items: FeedItem[] }> {
   const headers = { Authorization: `Bearer ${bearerToken}` };
-  const user = await fetchJson<XUserLookup>(
-    `https://api.x.com/2/users/by/username/${account.username}?user.fields=id`,
-    headers,
-    "force-cache",
-  );
-  const userId = user.data?.id;
-  if (!userId) throw new Error("X user lookup returned no id");
-
   const timelineQuery = new URLSearchParams({
     max_results: "10",
-    start_time: INCIDENT_STARTED_AT,
+    start_time: startTime,
     exclude: "retweets,replies",
     "tweet.fields": "created_at,lang",
   });
   const timeline = await fetchJson<XTimeline>(
-    `https://api.x.com/2/users/${userId}/tweets?${timelineQuery.toString()}`,
+    `https://api.x.com/2/users/${account.userId}/tweets?${timelineQuery.toString()}`,
     headers,
   );
   const items =
@@ -705,7 +715,7 @@ async function fetchXAccount(
         const summaryEl =
           "Απευθείας ανάρτηση από επίσημο λογαριασμό. Ακολουθήστε τη συνδεδεμένη οδηγία και τις αρχές στο πεδίο.";
         return {
-          id: `x-${account.username}-${post.id}`,
+          id: `x-${account.userId}-${post.id}`,
           title: plainText(post.text, 240),
           summary: summaryEn,
           summaryEn,
@@ -751,7 +761,7 @@ async function fetchXAccount(
       status: "ok",
       itemCount: items.length,
       errorCode: null,
-      freshnessPolicy: "source-timestamp-at-or-after-incident-start",
+      freshnessPolicy: "rolling-24h-bounded-by-incident-start",
     },
     items,
   };
@@ -774,8 +784,24 @@ function normalizeTitle(value: string) {
     .trim();
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.size > 0) {
+    return Response.json(
+      {
+        error: "unsupported_query",
+        message: "The updates endpoint does not accept query parameters.",
+      },
+      {
+        status: 400,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
+
   const requestStartedAt = new Date().toISOString();
+  const officialAccountStartTime = new Date(
+    Math.max(Date.parse(requestStartedAt) - X_LOOKBACK_MS, INCIDENT_STARTED_MS),
+  ).toISOString();
   const xBearerToken = process.env.X_BEARER_TOKEN?.trim();
   const [feedResults, liveStoryResult, fireServiceResult, xResults] =
     await Promise.all([
@@ -791,7 +817,7 @@ export async function GET() {
       xBearerToken
         ? Promise.allSettled(
             X_ACCOUNTS.map((account) =>
-              fetchXAccount(account, xBearerToken),
+              fetchXAccount(account, xBearerToken, officialAccountStartTime),
             ),
           )
         : Promise.resolve(null),
@@ -881,8 +907,8 @@ export async function GET() {
         latestItemAt: null,
         status: "error",
         itemCount: 0,
-        errorCode: sourceErrorCode(result.reason),
-        freshnessPolicy: "source-timestamp-at-or-after-incident-start",
+        errorCode: sourceErrorCode(result.reason, true),
+        freshnessPolicy: "rolling-24h-bounded-by-incident-start",
       });
     });
   } else {
@@ -900,7 +926,7 @@ export async function GET() {
         status: "unconfigured",
         itemCount: 0,
         errorCode: "missing_X_BEARER_TOKEN",
-        freshnessPolicy: "source-timestamp-at-or-after-incident-start",
+        freshnessPolicy: "rolling-24h-bounded-by-incident-start",
       }),
     );
   }
@@ -992,7 +1018,9 @@ export async function GET() {
         undatedItems: "excluded",
         officialAccountRead: {
           postsPerAccount: 10,
-          startTime: INCIDENT_STARTED_AT,
+          lookbackHours: 24,
+          boundedByIncidentStart: true,
+          startTime: officialAccountStartTime,
         },
       },
       officialAlert: {
@@ -1044,7 +1072,7 @@ export async function GET() {
     {
       headers: {
         "Cache-Control":
-          "public, max-age=10, s-maxage=45, stale-while-revalidate=120",
+          "public, max-age=10, s-maxage=60, stale-while-revalidate=120",
       },
     },
   );
