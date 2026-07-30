@@ -11,13 +11,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:contracts": "vitest run tests/truth",
+    "test:watch": "vitest",
+    "check": "npm run lint && npm run typecheck && npm run test:contracts && npm run build"
   },
   "dependencies": {
     "leaflet": "1.9.4",
     "next": "16.2.6",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/leaflet": "1.9.20",
@@ -26,7 +32,8 @@
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.10"
   },
   "type": "module"
 }

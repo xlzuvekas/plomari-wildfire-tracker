@@ -235,6 +235,11 @@ request-time API composition and into an append-only, auditable data layer.
 - [Data truth layer specification](docs/data-truth-layer-spec.md)
 - [`lib/truth`](lib/truth) contains the initial shared domain contracts,
   source-authority registry, and deterministic freshness calculation.
+- [`lib/truth/v1`](lib/truth/v1) contains strict runtime contracts,
+  deterministic identity rules, fixture replay, and Draft 2020-12 JSON Schema
+  exports.
+- [Truth contract versioning](docs/truth-contract-versioning.md) defines
+  compatibility, identity, quarantine, and fixture policy.
 
 The scaffold does not yet provision a database or change production ingestion.
 Those changes will run in shadow mode before the public map switches to the
