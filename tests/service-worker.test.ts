@@ -124,7 +124,9 @@ describe("service worker tile caching", () => {
 
     let responsePromise: Promise<unknown> | undefined;
     listeners.get("fetch")?.({
-      request: new Request("https://firewatch.test/api/updates?realtime=0"),
+      request: new Request(
+        "https://firewatch.test/api/v3/satellite-passes?cell=wm%2F11%2F1174%2F807",
+      ),
       respondWith: (promise: Promise<unknown>) => {
         responsePromise = promise;
       },
@@ -176,6 +178,53 @@ describe("service worker tile caching", () => {
     });
 
     expect(await responsePromise).toBe(response);
+    expect(cache.put).not.toHaveBeenCalled();
+  });
+
+  it("serves a revalidated data snapshot without labeling it offline", async () => {
+    const cached = new Response('{"mode":"persisted"}', {
+      status: 200,
+      headers: { "X-Firewatch-Cacheable": "1" },
+    });
+    const cache = {
+      match: vi.fn().mockResolvedValue(cached),
+      put: vi.fn(),
+      keys: vi.fn().mockResolvedValue([]),
+      delete: vi.fn().mockResolvedValue(true),
+    };
+    const listeners = new Map<string, (event: unknown) => void>();
+
+    runInNewContext(serviceWorkerSource, {
+      self: {
+        location: { origin: "https://firewatch.test" },
+        addEventListener: (
+          type: string,
+          listener: (event: unknown) => void,
+        ) => listeners.set(type, listener),
+      },
+      caches: { open: vi.fn().mockResolvedValue(cache) },
+      fetch: vi.fn().mockResolvedValue(new Response(null, { status: 304 })),
+      Headers,
+      Response,
+      URL,
+      Map,
+      Promise,
+      setTimeout,
+    });
+
+    let responsePromise: Promise<Response> | undefined;
+    listeners.get("fetch")?.({
+      request: new Request(
+        "https://firewatch.test/api/v3/satellite-passes?cell=wm%2F11%2F1174%2F807",
+      ),
+      respondWith: (promise: Promise<Response>) => {
+        responsePromise = promise;
+      },
+    });
+
+    const response = await responsePromise;
+    expect(response).toBe(cached);
+    expect(response?.headers.get("x-firewatch-snapshot")).toBeNull();
     expect(cache.put).not.toHaveBeenCalled();
   });
 });

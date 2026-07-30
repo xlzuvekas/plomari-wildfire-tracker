@@ -136,6 +136,22 @@ describe("recordedFetch", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("cancels an oversized response without exposing or terminalizing partial bytes", async () => {
+    const evidenceLedger = ledger();
+    const fetchImpl = vi.fn(async () => new Response("response-over-limit"));
+
+    await expect(
+      recordedFetch("https://example.test/data?format=json", MANUAL_REDIRECT, {
+        fetchImpl,
+        ledger: evidenceLedger,
+        requestEvidence: REQUEST_EVIDENCE,
+        maximumResponseBytes: 4,
+      }),
+    ).rejects.toMatchObject({ stage: "capture_response" });
+    expect(evidenceLedger.issue).toHaveBeenCalledOnce();
+    expect(evidenceLedger.finishResponse).not.toHaveBeenCalled();
+  });
+
   it("records a bounded transport outcome without leaking the thrown URL", async () => {
     const capturedErrors: HttpTransportErrorEvidence[] = [];
     const evidenceLedger = ledger({

@@ -68,6 +68,32 @@ an active cell and then to 2, 6, and 12 hours while inactive. Failed, obscured,
 partial, or unknown coverage never counts as a successful empty scan. A global
 catalog or new regional anomaly can wake a quiet cell.
 
+## Persisted satellite-pass reads
+
+`GET /api/v3/satellite-passes` is the persisted, metadata-only satellite-pass
+read boundary. It accepts a canonical `wm/z/x/y` coarse cell, never raw GPS or
+an arbitrary browser bounding box. PostGIS reconstructs that cell and performs
+the exact intersection against reviewed CMR catalog footprints. NASA is not
+called by the route or browser.
+
+The current read window ends on a shared five-minute UTC bucket and covers the
+preceding 36 hours. A source scan can be a bootstrap, increment, or
+reconciliation. An increment is not complete coverage by itself: the database
+must prove an unbroken lineage to a complete baseline across the entire
+requested window. Only that proof, current source health, complete product and
+page coverage, and zero PostGIS intersections permit the response state
+`valid-empty`. Stale, partial, gapped, disabled, unconfigured, or unavailable
+coverage remains explicitly non-empty-eligible.
+
+Every pass returns full RFC 3339 instants for the source observation interval,
+source production and catalog times, and Firewatch retrieval time. These are
+normalized to UTC with their meanings kept separate. CMR coverage is labeled
+`catalog-footprint-intersection` and its anomaly assessment is always
+`not_assessed`; catalog metadata cannot clear a FIRMS anomaly or claim a fire
+is out. Only current complete responses can replace the service worker's
+bounded last-known-good snapshot. Failures and incomplete coverage are
+`no-store`.
+
 ## Renderer boundary
 
 Global Explore will use a dynamically loaded MapLibre globe backed by curated

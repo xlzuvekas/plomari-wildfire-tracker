@@ -31,6 +31,7 @@ const SAFE_KEYS = Object.freeze({
     "cmr-hits",
     "cmr-request-id",
     "cmr-search-after",
+    "cmr-time-out",
     "cmr-timed-out",
     "cmr-took",
     "content-encoding",
@@ -99,6 +100,7 @@ const SAFE_KEYS = Object.freeze({
     "timezone",
     "tweet.fields",
     "units",
+    "updated_since",
     "version",
     "wind_speed_unit",
   ]),
@@ -522,10 +524,7 @@ export async function recordedFetch(
 
   let body: Uint8Array;
   try {
-    body = await readBoundedBytes(
-      response.clone(),
-      options.maximumResponseBytes,
-    );
+    body = await readBoundedBytes(response, options.maximumResponseBytes);
   } catch (error) {
     throw new EvidencePersistenceError("capture_response", { cause: error });
   }
@@ -544,5 +543,9 @@ export async function recordedFetch(
     throw new EvidencePersistenceError("finish_response", { cause: error });
   }
 
-  return response;
+  return new Response(body.byteLength === 0 ? null : new Uint8Array(body), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }

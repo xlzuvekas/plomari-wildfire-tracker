@@ -18,6 +18,70 @@ values
   ('018f0000-0000-7000-8000-000000000010', '1.1.0', 'junta-andalucia', 'Junta de Andalucia', 'government', 'https://www.juntadeandalucia.es/', 'Andalusia, Spain', true)
 on conflict (slug) do nothing;
 
+-- CMR is a distinct metadata source from FIRMS detections and GIBS imagery.
+-- NASA/LANCE collection metadata is approved for reuse under the recorded
+-- Earthdata guidance, but collection remains operationally disabled until an
+-- exact adapter artifact and least-privileged worker are deployed.
+insert into core.sources (
+  public_id,
+  contract_version,
+  provider_id,
+  slug,
+  name,
+  description,
+  product_family,
+  default_trust_class,
+  default_evidence_class,
+  operational_scope,
+  homepage_url,
+  terms_url,
+  license_code,
+  license_name,
+  attribution_text,
+  license_status,
+  commercial_use_allowed,
+  redistribution_allowed,
+  cache_ttl,
+  retention_limit,
+  contains_personal_data,
+  sensitivity,
+  default_freshness,
+  default_max_staleness,
+  enabled,
+  is_public,
+  metadata
+)
+values (
+  '018f0000-0000-7000-8000-000000000115',
+  '1.1.0',
+  (select id from core.providers where slug = 'nasa'),
+  'nasa-cmr-firemask',
+  'NASA CMR VIIRS FireMask Granule Catalog',
+  'CMR metadata for LANCE VIIRS FireMask NRT granules. Catalog footprints describe pass coverage only; pixel anomaly state is not assessed. LANCE NRT data carry the NASA near-real-time disclaimer and must be cited without implying NASA endorsement.',
+  'firemask_granule_catalog',
+  'official_observation',
+  'satellite_pass_metadata',
+  'mixed',
+  'https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html',
+  'https://www.earthdata.nasa.gov/engage/open-data-services-software/data-use-policy',
+  'us_government_work',
+  'U.S. Government Work / NASA Earthdata Data Use and Citation Guidance',
+  'NASA EOSDIS Common Metadata Repository (CMR) / LANCE; acknowledge NASA and the applicable VIIRS mission data source. Near-real-time data are provided without warranty and are not for navigation or life-safety decisions.',
+  'approved',
+  true,
+  true,
+  interval '15 minutes',
+  interval '90 days',
+  false,
+  'public',
+  interval '15 minutes',
+  interval '3 hours',
+  false,
+  true,
+  '{"anomalyAssessment":"not_assessed","catalogMetadataOnly":true}'::jsonb
+)
+on conflict (slug) do nothing;
+
 insert into core.sources (
   public_id,
   contract_version,
@@ -759,6 +823,92 @@ values
   )
 on conflict (source_id, endpoint_key) do nothing;
 
+insert into core.endpoints (
+  public_id,
+  contract_version,
+  source_id,
+  endpoint_key,
+  name,
+  endpoint_kind,
+  source_kind,
+  authority_scopes,
+  content_policy,
+  license_policy,
+  transport,
+  base_url,
+  http_method,
+  auth_mode,
+  credential_ref,
+  trust_class,
+  evidence_class,
+  authoritativeness_scope,
+  coverage_scope,
+  poll_interval,
+  expected_source_latency,
+  freshness,
+  max_staleness,
+  timeout_ms,
+  supports_bbox,
+  supports_cursor,
+  supports_backfill,
+  request_template,
+  response_contract,
+  capabilities
+)
+values (
+  '018f0000-0000-7000-8000-000000000215',
+  '1.1.0',
+  (select id from core.sources where slug = 'nasa-cmr-firemask'),
+  'granules-umm-g-1-6-7',
+  'CMR UMM-G 1.6.7 Granule Search',
+  'dataset',
+  'sensor',
+  array['satellite_imagery'],
+  'structured_data',
+  'nasa_esdis_data_use_and_citation',
+  'http_poll',
+  'https://cmr.earthdata.nasa.gov/search/granules.umm_json_v1_6_7',
+  'GET',
+  'none',
+  null,
+  'official_observation',
+  'satellite_pass_metadata',
+  'Official CMR catalog metadata for granule temporal and spatial coverage only; pixel anomaly state is not assessed.',
+  'global',
+  interval '5 minutes',
+  interval '3 hours',
+  interval '15 minutes',
+  interval '3 hours',
+  15000,
+  true,
+  true,
+  true,
+  '{
+    "accept":"application/vnd.nasa.cmr.umm_results+json; version=1.6.7",
+    "clientId":"plomari-wildfire-tracker",
+    "pagination":"CMR-Search-After",
+    "provider":"LANCEMODIS",
+    "requestHeaderAllowlist":["accept","client-id","x-request-id","cmr-search-after"],
+    "responseFormat":"umm_json",
+    "responseHeaderAllowlist":["content-type","cmr-hits","cmr-took","cmr-request-id","x-request-id","cmr-search-after","cmr-time-out","cmr-timed-out","retry-after"],
+    "sortKeys":["-start_date","granule_ur"],
+    "ummGVersion":"1.6.7"
+  }'::jsonb,
+  '{
+    "identity":{"conceptId":"meta.concept-id","revisionId":"meta.revision-id"},
+    "itemsPath":"items",
+    "partialResponseHeaders":["cmr-time-out","cmr-timed-out"],
+    "requiredFootprint":true
+  }'::jsonb,
+  '{
+    "anomalyAssessment":"not_assessed",
+    "pagination":"search_after",
+    "products":["VNP14IMG_NRT","VJ114IMG_NRT","VJ214IMG_NRT"],
+    "scanModes":["bootstrap","incremental","reconciliation"]
+  }'::jsonb
+)
+on conflict (source_id, endpoint_key) do nothing;
+
 insert into ingest.endpoint_state (endpoint_id, enabled)
 select e.id, false
 from core.endpoints as e
@@ -777,7 +927,8 @@ where s.slug in (
   'gwis',
   'meteoalarm',
   'inforcyl',
-  'infoca'
+  'infoca',
+  'nasa-cmr-firemask'
 )
 on conflict (endpoint_id) do nothing;
 
@@ -815,7 +966,8 @@ from (
     ('018f0000-0000-7000-8000-000000000411'::uuid, 'gwis', 'public-portal', 'global-discovery', 'GWIS global discovery'),
     ('018f0000-0000-7000-8000-000000000412'::uuid, 'meteoalarm', 'public-feeds', 'europe-warnings', 'Meteoalarm Europe warnings'),
     ('018f0000-0000-7000-8000-000000000413'::uuid, 'inforcyl', 'public-portal', 'castilla-y-leon-operations', 'INFORCYL Castilla y Leon operations'),
-    ('018f0000-0000-7000-8000-000000000414'::uuid, 'infoca', 'public-portal', 'andalusia-operations', 'INFOCA Andalusia operations')
+    ('018f0000-0000-7000-8000-000000000414'::uuid, 'infoca', 'public-portal', 'andalusia-operations', 'INFOCA Andalusia operations'),
+    ('018f0000-0000-7000-8000-000000000415'::uuid, 'nasa-cmr-firemask', 'granules-umm-g-1-6-7', 'global-firemask-granules', 'CMR global VIIRS FireMask granule catalog')
 ) as seed(public_id, source_slug, endpoint_key, target_key, name)
 join core.sources as s on s.slug = seed.source_slug
 join core.endpoints as e on e.source_id = s.id and e.endpoint_key = seed.endpoint_key
@@ -885,3 +1037,79 @@ join core.sources as s on s.slug = seed.source_slug
 join core.endpoints as e on e.source_id = s.id and e.endpoint_key = seed.endpoint_key
 join core.collection_targets as t on t.endpoint_id = e.id and t.target_key = seed.target_key
 on conflict (collection_target_id, version_no) do nothing;
+
+-- The CMR target uses a five-minute incremental cadence, a 36-hour bootstrap,
+-- and a periodic full reconciliation. It remains disabled. The hash is the
+-- identity-v2 digest of this exact request configuration, the public endpoint
+-- UUID, null geometry/precision, cadence=300, staleAfter=10800, enabled=false.
+insert into core.collection_target_revisions (
+  public_id,
+  contract_version,
+  identity_version,
+  collection_target_id,
+  endpoint_id,
+  version_no,
+  target_kind,
+  configuration_sha256,
+  scope,
+  geometry_precision_source,
+  claim_kind,
+  operational_role,
+  cadence,
+  stale_after,
+  enabled,
+  request_params,
+  effective_at
+)
+select
+  '018f0000-0000-7000-8000-000000000515'::core.uuid_v7,
+  '1.1.0',
+  '2.0.0',
+  target.id,
+  endpoint.id,
+  1,
+  'global',
+  '1d8dd3f510d333495f3c92ab245f6f1883a6cccb2e5323c0c2c17f832cd4f199',
+  'global',
+  'not_applicable',
+  'satellite_pass_metadata',
+  'context',
+  interval '5 minutes',
+  interval '3 hours',
+  false,
+  '{
+    "bootstrapLookbackHours":36,
+    "incrementalOverlapMinutes":10,
+    "maximumPagesPerProduct":20,
+    "pageSize":200,
+    "products":[
+      {"satellite":"Suomi-NPP","shortName":"VNP14IMG_NRT","version":"2"},
+      {"satellite":"NOAA-20","shortName":"VJ114IMG_NRT","version":"2"},
+      {"satellite":"NOAA-21","shortName":"VJ214IMG_NRT","version":"2"}
+    ],
+    "provider":"LANCEMODIS",
+    "reconciliationIntervalHours":24,
+    "responseFormat":"umm_json",
+    "sortKeys":["-start_date","granule_ur"]
+  }'::jsonb,
+  timestamptz '2026-07-30 00:00:00+00'
+from core.collection_targets as target
+join core.endpoints as endpoint on endpoint.id = target.endpoint_id
+join core.sources as source on source.id = target.source_id
+where source.slug = 'nasa-cmr-firemask'
+  and endpoint.endpoint_key = 'granules-umm-g-1-6-7'
+  and target.target_key = 'global-firemask-granules'
+on conflict (collection_target_id, version_no) do nothing;
+
+insert into ingest.collection_target_state (
+  collection_target_revision_id,
+  collection_target_id
+)
+select revision.id, revision.collection_target_id
+from core.collection_target_revisions as revision
+where revision.public_id = '018f0000-0000-7000-8000-000000000515'
+on conflict (collection_target_revision_id) do nothing;
+
+-- No core.adapter_releases row is seeded for CMR. A release requires the
+-- SHA-256 of the exact deployed collector artifact and its real commit; a
+-- placeholder would make an undeployed adapter appear claimable.
