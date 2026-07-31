@@ -627,7 +627,10 @@ describe("CMR Edge invocation contract", () => {
       status: "error",
       error: "collector_unavailable",
     });
-    expect(diagnostics).toEqual([{ category: "database" }]);
+    expect(diagnostics).toEqual([{
+      category: "database",
+      stage: "resolve_plan",
+    }]);
     expect(closed).toBe(true);
   });
 
@@ -690,7 +693,10 @@ describe("CMR Edge invocation contract", () => {
     expect(response.status).toBe(503);
     expect(text).toBe('{"status":"error","error":"collector_unavailable"}');
     expect(text).not.toContain("top-secret");
-    expect(diagnostics).toEqual([{ category: "runtime" }]);
+    expect(diagnostics).toEqual([{
+      category: "runtime",
+      stage: "open_database",
+    }]);
   });
 });
 

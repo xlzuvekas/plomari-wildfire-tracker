@@ -30,6 +30,13 @@ type Diagnostic = Readonly<{
   stage?: string;
 }>;
 
+type RuntimeStage =
+  | "open_database"
+  | "assert_runtime_identity"
+  | "reap_expired_execution"
+  | "resolve_plan"
+  | "harvest";
+
 export type CmrEdgeRuntimeDependencies = Readonly<{
   openDatabase: () => Promise<CollectorDatabase>;
   fetchImpl?: typeof fetch;
@@ -227,14 +234,18 @@ export function createCmrEdgeHandler(dependencies: CmrEdgeRuntimeDependencies) {
     }
 
     let database: CollectorDatabase | null = null;
+    let runtimeStage: RuntimeStage = "open_database";
     try {
       const now = clockMs();
       if (!Number.isFinite(now)) throw new Error("Invalid collector clock.");
       const scheduledFor = new Date(now).toISOString();
       database = await dependencies.openDatabase();
       const adapter = new PostgresCmrAdapter(database, clockMs);
+      runtimeStage = "assert_runtime_identity";
       await adapter.assertRuntimeIdentity();
+      runtimeStage = "reap_expired_execution";
       await adapter.reapExpiredExecution();
+      runtimeStage = "resolve_plan";
       const resolution = await adapter.resolvePlan(mode, scheduledFor);
       if (resolution.state === "current") {
         return jsonResponse({
@@ -248,6 +259,7 @@ export function createCmrEdgeHandler(dependencies: CmrEdgeRuntimeDependencies) {
         });
       }
 
+      runtimeStage = "harvest";
       const summary = await harvestCmrFireMaskCatalog({
         plan: resolution.plan,
         fetchImpl,
@@ -260,7 +272,9 @@ export function createCmrEdgeHandler(dependencies: CmrEdgeRuntimeDependencies) {
       return jsonResponse(publicSummary(summary));
     } catch (error) {
       const diagnostic = diagnosticFor(error);
-      reportDiagnostic(diagnostic);
+      reportDiagnostic(diagnostic.stage === undefined
+        ? Object.freeze({ ...diagnostic, stage: runtimeStage })
+        : diagnostic);
       if (diagnostic.category === "busy") {
         return jsonResponse(
           { status: "busy", retryAfterSeconds: 30 },
