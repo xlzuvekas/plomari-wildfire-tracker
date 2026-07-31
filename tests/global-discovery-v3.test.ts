@@ -258,6 +258,12 @@ describe("v3 global discovery contracts", () => {
       }).success,
     ).toBe(false);
     expect(
+      nearbyDiscoveryRequestSchema.safeParse({
+        ...request,
+        cell: "wm/010/0518/0352",
+      }).success,
+    ).toBe(false);
+    expect(
       exploreDiscoveryRequestSchema.safeParse({
         schemaVersion: GLOBAL_DISCOVERY_SCHEMA_VERSION,
         kind: "explore-candidates",
@@ -272,6 +278,15 @@ describe("v3 global discovery contracts", () => {
         time: {
           asOf: "2026-07-31T15:06:00.000Z",
           knownAt: "2026-07-31T15:05:00.000Z",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      nearbyDiscoveryRequestSchema.safeParse({
+        ...request,
+        time: {
+          asOf: "2026-07-31T15:00:00Z",
+          knownAt: "2026-07-31T15:05:00Z",
         },
       }).success,
     ).toBe(false);

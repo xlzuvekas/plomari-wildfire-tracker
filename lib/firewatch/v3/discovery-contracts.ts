@@ -35,7 +35,7 @@ const areaCellKeySchema = z
   .trim()
   .min(1)
   .max(64)
-  .refine((value) => parseAreaCellKey(value) !== null, {
+  .refine((value) => parseAreaCellKey(value)?.cellKey === value, {
     message: "Expected a canonical Firewatch coarse-area cell key",
   });
 
@@ -52,6 +52,11 @@ const ianaTimeZoneSchema = z
       return false;
     }
   }, "Expected an IANA time-zone identifier");
+
+const discoveryCutoffSchema = utcInstantSchema.refine(
+  (value) => new Date(value).toISOString() === value,
+  "Expected a canonical millisecond UTC discovery cutoff",
+);
 
 /**
  * An opaque keyset cursor. Clients may store and return this value, but must
@@ -110,8 +115,8 @@ export const globalExploreScopeSchema = z.strictObject({
 
 const timeQuerySchema = z
   .strictObject({
-    asOf: utcInstantSchema,
-    knownAt: utcInstantSchema,
+    asOf: discoveryCutoffSchema,
+    knownAt: discoveryCutoffSchema,
   })
   .superRefine((time, context) => {
     if (Date.parse(time.asOf) > Date.parse(time.knownAt)) {
