@@ -8,6 +8,7 @@ type ExploreSearchParameters = Record<
 export type ExplorePageOptions = Readonly<{
   fixtureMode: boolean;
   initialSuggestedCell: string | null;
+  thermalV3Enabled: boolean;
 }>;
 
 function oneValue(value: string | readonly string[] | undefined) {
@@ -17,6 +18,7 @@ function oneValue(value: string | readonly string[] | undefined) {
 export function resolveExplorePageOptions(
   parameters: ExploreSearchParameters,
   environment: string,
+  thermalV3UiEnabled?: string,
 ): ExplorePageOptions {
   const requestedCell = oneValue(parameters.cell);
   const parsedCell = requestedCell ? parseAreaCellKey(requestedCell) : null;
@@ -26,6 +28,7 @@ export function resolveExplorePageOptions(
       oneValue(parameters.fixture) === "synthetic",
     initialSuggestedCell:
       parsedCell?.cellKey === requestedCell ? requestedCell : null,
+    thermalV3Enabled: thermalV3UiEnabled === "true",
   });
 }
 
