@@ -24,7 +24,7 @@ connection.
   is surfaced on first load without replaying the older lookback.
 - [x] **Offline resilience (PWA).** `app/manifest.ts` + PNG/SVG icons +
   `public/sw.js`: network-first for navigations and an explicit allowlist of the
-  three public data endpoints. Cached data fallbacks are tagged and surfaced as
+  four public data endpoints. Cached data fallbacks are tagged and surfaced as
   stale snapshots; data storage is capped at 24 responses. `/_next/static` and
   basemap/overlay tiles remain cache-first (tiles capped at 400 entries).
   Registered in production builds only.
@@ -84,13 +84,15 @@ connection.
 - [ ] **Extract shared incident config.** Incident center/radius/start time are
   hardcoded in `app/page.tsx` and each API route. Move to `lib/incident.ts` —
   prerequisite for multi-incident support and template reuse.
-- [ ] **Split `app/page.tsx` (~3,500 lines).** `lib/types.ts`, `lib/format.ts`,
+- [ ] **Split `app/page.tsx` (~4,900 lines).** `lib/types.ts`, `lib/format.ts`,
   `lib/geo.ts` (destination, midpoint, distance/bearing, scenarioShape), and
   components for the dock, sheets, ribbon, and map. No behavior change.
-- [ ] **Add tests.** Route normalizers (FIRMS CSV parsing, feed relevance,
-  category/severity, 24h window) are pure logic with zero coverage. Vitest +
-  fixtures.
-- [ ] **CI.** GitHub Action running `npm run lint` and `npm run build` on PRs.
+- [x] **Add tests.** Vitest covers the route suites (thermal, updates, wind,
+  fireservice), truth contracts and fixture replay, the CMR collector and
+  production runtime, demand policy, and the service worker.
+- [x] **CI.** GitHub Action runs lint, typecheck, the full test suite, and the
+  production build, plus a database job (Supabase `db lint` + pgTAP) on pushes
+  and pull requests.
 
 ## Larger features
 
@@ -117,7 +119,7 @@ connection.
 - [ ] **Replace steady-state X polling with X Activity API delivery.** After a
   narrow-write, idempotent Supabase ingest path exists, register one verified
   webhook and `post.create` subscriptions for the three official accounts.
-  Keep the current 60-second, CDN-cached reads only as an incident-mode/failure
+  Keep the current five-minute, CDN-cached reads only as an incident-mode/failure
   fallback, add replay handling, and configure hard spend limits plus 50/80%
   usage alerts before enabling the webhook in production.
 - [ ] **Post-incident burn-scar layer.** Sentinel-2 false-color via no-key WMTS
