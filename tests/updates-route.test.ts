@@ -72,6 +72,64 @@ describe("GET /api/updates", () => {
       .toBe(false);
   });
 
+  it("drops feed items whose links are not plain http(s) URLs", async () => {
+    const rss = `<rss><channel>
+      <item>
+        <title>Φωτιά στο Πλωμάρι - πρώτη ενημέρωση</title>
+        <link>&#106;avascript:alert(1)</link>
+        <pubDate>Wed, 30 Jul 2026 09:00:00 +0300</pubDate>
+      </item>
+      <item>
+        <title>Πλωμάρι: πυρκαγιά σε εξέλιξη κοντά στη Μελίντα</title>
+        <link>https://example.test/plomari-fire</link>
+        <pubDate>Wed, 30 Jul 2026 09:05:00 +0300</pubDate>
+      </item>
+    </channel></rss>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(rss, {
+          status: 200,
+          headers: { "Content-Type": "application/xml" },
+        }),
+      ),
+    );
+
+    const response = await GET(new Request("http://localhost/api/updates"));
+    const payload = await response.json();
+    const urls = payload.items.map((item: { url: string }) => item.url);
+
+    expect(response.status).toBe(200);
+    expect(urls).toContain("https://example.test/plomari-fire");
+    expect(urls.every((url: string) => /^https?:/.test(url))).toBe(true);
+    expect(JSON.stringify(payload.items)).not.toContain("javascript:");
+  });
+
+  it("classifies an oversized upstream body as an unavailable source", async () => {
+    const oversized = "x".repeat(2_000_001);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(oversized, {
+          status: 200,
+          headers: { "Content-Type": "application/xml" },
+        }),
+      ),
+    );
+
+    const response = await GET(new Request("http://localhost/api/updates"));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.items).toEqual([]);
+    expect(
+      payload.sources.some(
+        (source: { errorCode: string | null }) =>
+          source.errorCode === "unavailable",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps successful active-incident feeds on the advertised five-minute cache", async () => {
     vi.stubEnv("X_BEARER_TOKEN", "server-only-test-token");
     vi.stubGlobal(

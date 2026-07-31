@@ -206,6 +206,7 @@ describe("GET /api/v3/satellite-passes", () => {
       result: {
         state: "catalog-footprints",
         validEmpty: false,
+        count: { value: 1, relation: "exact" },
         coverage: "catalog-footprint-intersection",
         anomalyAssessment: "not_assessed",
       },
@@ -276,6 +277,106 @@ describe("GET /api/v3/satellite-passes", () => {
     }
   });
 
+  it("labels a truncated pass count as a minimum in data and wording", async () => {
+    configureRouteEnvironment();
+    installRouteFetch(SCAN_ROW, [
+      PASS_ROW,
+      {
+        ...PASS_ROW,
+        observation_id: "018f0000-0000-7000-8000-000000000716",
+        catalog_granule_id: "G124-LANCEMODIS",
+      },
+    ]);
+
+    const response = await GET(
+      new Request(
+        "http://localhost/api/v3/satellite-passes?cell=wm%2F11%2F1174%2F807&limit=1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.passes).toHaveLength(1);
+    expect(payload.page).toEqual({ limit: 1, truncated: true });
+    expect(payload.result.count).toEqual({
+      value: 1,
+      relation: "at-least",
+    });
+    expect(payload.result.message).toBe(
+      "At least 1 CMR FireMask catalog footprint intersect this area in the catalog window.",
+    );
+  });
+
+  it.each([
+    {
+      boundary: "lower",
+      observedFrom: "2026-07-29T05:50:00+00:00",
+      observedTo: "2026-07-29T06:00:00+00:00",
+    },
+    {
+      boundary: "upper",
+      observedFrom: "2026-07-30T18:00:00+00:00",
+      observedTo: "2026-07-30T18:00:00+00:00",
+    },
+  ])(
+    "accepts a pass touching the inclusive $boundary window boundary",
+    async ({ observedFrom, observedTo }) => {
+      configureRouteEnvironment();
+      installRouteFetch(SCAN_ROW, [
+        { ...PASS_ROW, observed_from: observedFrom, observed_to: observedTo },
+      ]);
+
+      const response = await GET(
+        new Request(
+          "http://localhost/api/v3/satellite-passes?cell=wm%2F11%2F1174%2F807",
+        ),
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.result.count).toEqual({ value: 1, relation: "exact" });
+      expect(payload.passes[0].times).toMatchObject({
+        observedFrom: new Date(observedFrom).toISOString(),
+        observedTo: new Date(observedTo).toISOString(),
+      });
+    },
+  );
+
+  it.each([
+    {
+      position: "before",
+      observedFrom: "2026-07-29T05:50:00+00:00",
+      observedTo: "2026-07-29T05:59:59.999+00:00",
+    },
+    {
+      position: "after",
+      observedFrom: "2026-07-30T18:00:00.001+00:00",
+      observedTo: "2026-07-30T18:10:00+00:00",
+    },
+  ])(
+    "fails closed on a pass wholly $position the requested window",
+    async ({ observedFrom, observedTo }) => {
+      configureRouteEnvironment();
+      const fetchMock = installRouteFetch(SCAN_ROW, [
+        { ...PASS_ROW, observed_from: observedFrom, observed_to: observedTo },
+      ]);
+
+      const response = await GET(
+        new Request(
+          "http://localhost/api/v3/satellite-passes?cell=wm%2F11%2F1174%2F807",
+        ),
+      );
+      const body = await response.text();
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("etag")).toBeNull();
+      expect(body).toContain("read_model_unavailable");
+      expect(body).not.toContain(PASS_ROW.catalog_granule_id);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("uses valid-empty only for an eligible complete current scan", async () => {
     configureRouteEnvironment();
     installRouteFetch(
@@ -301,6 +402,7 @@ describe("GET /api/v3/satellite-passes", () => {
     expect(payload.result).toEqual({
       state: "valid-empty",
       validEmpty: true,
+      count: { value: 0, relation: "exact" },
       coverage: "catalog-footprint-intersection",
       anomalyAssessment: "not_assessed",
       message:
