@@ -5,6 +5,18 @@ const CREDENTIAL_QUERY_KEY =
   /(^|[-_.])(authorization|auth|password|secret|signature|credential|api[-_]?key|key|token|access[-_]?token|refresh[-_]?token)([-_.]|$)/iu;
 // FIRMS Area embeds MAP_KEY in the first path segment after `/csv/`.
 const KNOWN_CREDENTIAL_PATH = /^\/api\/area\/csv\/[^/]+(?:\/|$)/iu;
+const FIRMS_AREA_SAFE_URL =
+  "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
+const FIRMS_MAP_KEY_PATH_SEGMENT = /^[A-Za-z0-9._~-]{8,512}$/u;
+const FIRMS_AREA_VALUE =
+  /^-?(?:0|[1-9]\d*)(?:\.\d+)?,-?(?:0|[1-9]\d*)(?:\.\d+)?,-?(?:0|[1-9]\d*)(?:\.\d+)?,-?(?:0|[1-9]\d*)(?:\.\d+)?$/u;
+const FIRMS_CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/u;
+const FIRMS_PRODUCTS = new Set([
+  "VIIRS_NOAA20_NRT",
+  "VIIRS_NOAA21_NRT",
+  "VIIRS_SNPP_NRT",
+  "MODIS_NRT",
+]);
 const MAX_SAFE_HEADER_VALUE_BYTES = 2_048;
 const MAX_SAFE_HEADERS_BYTES = 12_288;
 const MAX_SAFE_METADATA_BYTES = 24_576;
@@ -166,6 +178,10 @@ export type HttpTransportErrorEvidence = Readonly<{
   safeMetadata: SafeMetadata;
 }>;
 
+export type CredentialPathRedaction = Readonly<{
+  kind: "firms-area-v1";
+}>;
+
 /**
  * Database implementations map these three operations to the lease-fenced
  * `ingest.http_exchanges` lifecycle. `issue` must commit before resolving;
@@ -187,6 +203,7 @@ export type RecordedFetchOptions = Readonly<{
   fetchImpl: typeof fetch;
   ledger: HttpEvidenceLedger;
   requestEvidence: HttpRequestEvidence;
+  credentialPathRedaction?: CredentialPathRedaction;
   maximumResponseBytes: number;
   safeResponseHeaderNames?: readonly string[];
   responseMetadataSafe?: SafeMetadata;
@@ -203,6 +220,13 @@ export class EvidencePersistenceError extends Error {
   ) {
     super("Upstream data was withheld because its evidence was not durable.", options);
     this.name = "EvidencePersistenceError";
+  }
+}
+
+export class CredentialPathTransportError extends Error {
+  constructor() {
+    super("Credential-bearing upstream request failed before an HTTP response.");
+    this.name = "CredentialPathTransportError";
   }
 }
 
@@ -344,16 +368,205 @@ function validateActualQuery(
   }
 }
 
+function decodedSafePathSegment(value: string) {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    throw new TypeError("Network request contains an invalid path segment.");
+  }
+  if (decoded.includes("/") || decoded.includes("\\")) {
+    throw new TypeError("Network request contains an invalid path segment.");
+  }
+  return decoded;
+}
+
+function validCalendarDate(value: string) {
+  if (!FIRMS_CALENDAR_DATE.test(value)) return false;
+  const instant = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(instant.getTime()) &&
+    instant.toISOString().slice(0, 10) === value;
+}
+
+function validFirmsArea(value: string) {
+  if (!FIRMS_AREA_VALUE.test(value)) return false;
+  const coordinates = value.split(",").map(Number);
+  const [west, south, east, north] = coordinates;
+  return coordinates.length === 4 &&
+    west !== undefined &&
+    south !== undefined &&
+    east !== undefined &&
+    north !== undefined &&
+    west >= -180 &&
+    west <= 180 &&
+    east >= -180 &&
+    east <= 180 &&
+    south >= -90 &&
+    south <= 90 &&
+    north >= -90 &&
+    north <= 90 &&
+    west < east &&
+    south < north;
+}
+
+function validateFirmsAreaCredentialPath(
+  actualUrl: URL,
+  requestUrlSafe: URL,
+  evidence: HttpRequestEvidence,
+) {
+  const safeKeys = Object.keys(evidence.requestQuerySafe).sort();
+  const area = evidence.requestQuerySafe.area;
+  const date = evidence.requestQuerySafe.date;
+  const product = evidence.requestQuerySafe.product;
+  const headerKeys = Object.keys(evidence.requestHeadersSafe).sort();
+  const metadataKeys = Object.keys(evidence.requestMetadataSafe).sort();
+  if (
+    requestUrlSafe.href !== FIRMS_AREA_SAFE_URL ||
+    actualUrl.origin !== requestUrlSafe.origin ||
+    actualUrl.search !== "" ||
+    actualUrl.hash !== "" ||
+    evidence.method !== "GET" ||
+    evidence.requestBodyRedacted !== null ||
+    safeKeys.join(",") !== "area,date,product" ||
+    typeof area !== "string" ||
+    !validFirmsArea(area) ||
+    typeof date !== "string" ||
+    typeof product !== "string" ||
+    !FIRMS_PRODUCTS.has(product) ||
+    headerKeys.join(",") !== "accept" ||
+    evidence.requestHeadersSafe.accept !== "text/csv" ||
+    metadataKeys.join(",") !== "operation,product,scope" ||
+    evidence.requestMetadataSafe.operation !== "firms-area-csv" ||
+    evidence.requestMetadataSafe.product !== product ||
+    evidence.requestMetadataSafe.scope !== "geographic-area"
+  ) {
+    throw new TypeError("FIRMS request evidence does not match the Area API contract.");
+  }
+
+  const segments = actualUrl.pathname.split("/");
+  const credential = segments[4] ?? "";
+  const actualProduct = decodedSafePathSegment(segments[5] ?? "");
+  const actualArea = decodedSafePathSegment(segments[6] ?? "");
+  const dayRange = decodedSafePathSegment(segments[7] ?? "");
+  const historicalDate = segments[8] === undefined
+    ? null
+    : decodedSafePathSegment(segments[8]);
+  const rolling = /^rolling:([1-5])$/u.exec(date);
+  const historical = /^(\d{4}-\d{2}-\d{2})\/([1-5])$/u.exec(date);
+  const dateMatches = rolling !== null
+    ? segments.length === 8 &&
+      historicalDate === null &&
+      dayRange === rolling[1]
+    : historical !== null &&
+        validCalendarDate(historical[1] ?? "") &&
+        segments.length === 9 &&
+        dayRange === historical[2] &&
+        historicalDate === historical[1];
+
+  const durableEnvelope = JSON.stringify({
+    method: evidence.method,
+    url: evidence.requestUrlSafe,
+    query: evidence.requestQuerySafe,
+    headers: evidence.requestHeadersSafe,
+    metadata: evidence.requestMetadataSafe,
+    body: evidence.requestBodyRedacted,
+  });
+  if (
+    segments[0] !== "" ||
+    segments[1] !== "api" ||
+    segments[2] !== "area" ||
+    segments[3] !== "csv" ||
+    !KNOWN_CREDENTIAL_PATH.test(actualUrl.pathname) ||
+    !FIRMS_MAP_KEY_PATH_SEGMENT.test(credential) ||
+    actualProduct !== product ||
+    actualArea !== area ||
+    !dateMatches ||
+    durableEnvelope.includes(credential)
+  ) {
+    throw new TypeError("FIRMS credential-path evidence is invalid or unsafe.");
+  }
+}
+
+function validateFirmsAreaNetworkEnvelope(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+) {
+  if (input instanceof Request || init === undefined) {
+    throw new TypeError("FIRMS requests require the typed Area API envelope.");
+  }
+  const initKeys = Reflect.ownKeys(init);
+  if (
+    Object.getPrototypeOf(init) !== Object.prototype ||
+    init.method !== "GET" ||
+    init.redirect !== "manual" ||
+    initKeys.some(
+      (key) =>
+        typeof key !== "string" ||
+        key !== "headers" &&
+        key !== "method" &&
+        key !== "redirect" &&
+        key !== "signal",
+    ) ||
+    !initKeys.includes("headers") ||
+    !initKeys.includes("method") ||
+    !initKeys.includes("redirect")
+  ) {
+    throw new TypeError("FIRMS requests require the typed Area API envelope.");
+  }
+
+  let headers: Headers;
+  try {
+    headers = new Headers(init.headers);
+  } catch {
+    throw new TypeError("FIRMS requests require the typed Area API headers.");
+  }
+  const entries = [...headers.entries()];
+  if (
+    entries.length !== 1 ||
+    entries[0]?.[0] !== "accept" ||
+    entries[0]?.[1] !== "text/csv"
+  ) {
+    throw new TypeError("FIRMS requests require the typed Area API headers.");
+  }
+}
+
+function validateRequestTarget(
+  actualUrl: URL,
+  requestUrlSafe: URL,
+  evidence: HttpRequestEvidence,
+  redaction: CredentialPathRedaction | undefined,
+) {
+  if (redaction === undefined) {
+    if (
+      `${actualUrl.origin}${actualUrl.pathname}` !==
+        `${requestUrlSafe.origin}${requestUrlSafe.pathname}` ||
+      KNOWN_CREDENTIAL_PATH.test(actualUrl.pathname)
+    ) {
+      throw new TypeError("Evidence request URL must be credential-free HTTPS.");
+    }
+    validateActualQuery(actualUrl, evidence.requestQuerySafe);
+    return;
+  }
+  if (redaction.kind !== "firms-area-v1") {
+    throw new TypeError("Credential-path redaction mode is invalid.");
+  }
+  validateFirmsAreaCredentialPath(actualUrl, requestUrlSafe, evidence);
+}
+
 function validateRequestEvidence(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   evidence: HttpRequestEvidence,
+  credentialPathRedaction: CredentialPathRedaction | undefined,
 ) {
   if (!/^[A-Z][A-Z0-9_-]{0,31}$/u.test(evidence.method)) {
     throw new TypeError("Evidence request method is invalid.");
   }
   if (normalizedMethod(input, init) !== evidence.method) {
     throw new TypeError("Evidence request method does not match network request.");
+  }
+  if (credentialPathRedaction !== undefined) {
+    validateFirmsAreaNetworkEnvelope(input, init);
   }
   if (
     (evidence.method === "GET" || evidence.method === "HEAD") &&
@@ -379,9 +592,6 @@ function validateRequestEvidence(
     actualUrl.protocol !== "https:" ||
     actualUrl.username !== "" ||
     actualUrl.password !== "" ||
-    `${actualUrl.origin}${actualUrl.pathname}` !==
-      `${requestUrlSafe.origin}${requestUrlSafe.pathname}` ||
-    KNOWN_CREDENTIAL_PATH.test(actualUrl.pathname) ||
     evidence.requestUrlSafe.includes("?") ||
     evidence.requestUrlSafe.includes("#") ||
     /[\u0000-\u0020\u007f]/u.test(evidence.requestUrlSafe) ||
@@ -398,12 +608,17 @@ function validateRequestEvidence(
     SAFE_KEYS.requestQuery,
     MAX_SAFE_HEADERS_BYTES,
   );
-  validateActualQuery(actualUrl, evidence.requestQuerySafe);
   validateSafeHeaders(evidence.requestHeadersSafe);
   validateSafeMap(
     evidence.requestMetadataSafe,
     SAFE_KEYS.requestMetadata,
     MAX_SAFE_METADATA_BYTES,
+  );
+  validateRequestTarget(
+    actualUrl,
+    requestUrlSafe,
+    evidence,
+    credentialPathRedaction,
   );
 }
 
@@ -485,7 +700,12 @@ export async function recordedFetch(
       "Evidence-recording fetches require manual redirect handling.",
     );
   }
-  validateRequestEvidence(input, init, options.requestEvidence);
+  validateRequestEvidence(
+    input,
+    init,
+    options.requestEvidence,
+    options.credentialPathRedaction,
+  );
   validateMaximumResponseBytes(options.maximumResponseBytes);
   const allowedResponseHeaders = normalizeSafeResponseHeaderNames(
     options.safeResponseHeaderNames ?? [],
@@ -519,6 +739,9 @@ export async function recordedFetch(
         cause: persistenceError,
       });
     }
+    if (options.credentialPathRedaction !== undefined) {
+      throw new CredentialPathTransportError();
+    }
     throw error;
   }
 
@@ -526,7 +749,10 @@ export async function recordedFetch(
   try {
     body = await readBoundedBytes(response, options.maximumResponseBytes);
   } catch (error) {
-    throw new EvidencePersistenceError("capture_response", { cause: error });
+    throw new EvidencePersistenceError(
+      "capture_response",
+      options.credentialPathRedaction === undefined ? { cause: error } : undefined,
+    );
   }
 
   try {

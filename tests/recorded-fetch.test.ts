@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CredentialPathTransportError,
   recordedFetch,
   type HttpEvidenceLedger,
   type HttpExchangeReference,
@@ -8,6 +11,10 @@ import {
   type HttpResponseEvidence,
   type HttpTransportErrorEvidence,
 } from "../lib/evidence/recorded-fetch";
+import {
+  firmsAreaRequest,
+  firmsAreaRequestEvidence,
+} from "../lib/satellite/firms";
 
 const REFERENCE = Object.freeze({
   exchangeId: "41",
@@ -34,6 +41,21 @@ function ledger(overrides: Partial<HttpEvidenceLedger> = {}) {
     finishTransportError: vi.fn(async () => undefined),
     ...overrides,
   } satisfies HttpEvidenceLedger;
+}
+
+function requestFingerprint(request: HttpRequestEvidence) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        method: request.method,
+        url: request.requestUrlSafe,
+        query: request.requestQuerySafe,
+        headers: request.requestHeadersSafe,
+        metadata: request.requestMetadataSafe,
+        body: null,
+      }),
+    )
+    .digest("hex");
 }
 
 describe("recordedFetch", () => {
@@ -115,6 +137,289 @@ describe("recordedFetch", () => {
       "x-request-id": "safe-id",
     });
     expect(JSON.stringify(responseEvidence)).not.toContain("set-cookie");
+  });
+
+  it("records a FIRMS path-secret request without leaking the MAP key", async () => {
+    const firstKey = "firms-test-key-0000000000000001";
+    const secondKey = "firms-test-key-0000000000000002";
+    const area = Object.freeze({
+      west: 26.2,
+      south: 38.85,
+      east: 26.6,
+      north: 39.15,
+    });
+    const first = firmsAreaRequest({
+      mapKey: firstKey,
+      product: "VIIRS_NOAA20_NRT",
+      area,
+      date: { kind: "rolling", days: 2 },
+    });
+    const second = firmsAreaRequest({
+      mapKey: secondKey,
+      product: "VIIRS_NOAA20_NRT",
+      area,
+      date: { kind: "rolling", days: 2 },
+    });
+    const issued: HttpRequestEvidence[] = [];
+    const evidenceLedger = ledger({
+      issue: vi.fn(async (request) => {
+        issued.push(request);
+        return REFERENCE;
+      }),
+    });
+    const fetchImpl = vi.fn(async () =>
+      new Response("latitude,longitude\n", {
+        status: 200,
+        headers: { "content-type": "text/csv" },
+      }),
+    );
+
+    for (const request of [first, second]) {
+      await recordedFetch(request.url, request.requestInit, {
+        fetchImpl,
+        ledger: evidenceLedger,
+        requestEvidence: firmsAreaRequestEvidence(request),
+        credentialPathRedaction: request.credentialPathRedaction,
+        maximumResponseBytes: 1_024,
+      });
+    }
+
+    expect(issued).toHaveLength(2);
+    const serialized = JSON.stringify(issued);
+    expect(serialized).not.toContain(firstKey);
+    expect(serialized).not.toContain(secondKey);
+    expect(issued[0]?.requestUrlSafe).toBe(
+      "https://firms.modaps.eosdis.nasa.gov/api/area/csv",
+    );
+    expect(issued[0]?.requestQuerySafe).toEqual({
+      area: "26.2,38.85,26.6,39.15",
+      date: "rolling:2",
+      product: "VIIRS_NOAA20_NRT",
+    });
+    expect(requestFingerprint(issued[0] as HttpRequestEvidence)).toBe(
+      requestFingerprint(issued[1] as HttpRequestEvidence),
+    );
+  });
+
+  it("includes safe FIRMS product, AOI, and date fields in request identity", () => {
+    const area = Object.freeze({
+      west: 26.2,
+      south: 38.85,
+      east: 26.6,
+      north: 39.15,
+    });
+    const baseline = firmsAreaRequest({
+      mapKey: "firms-test-key-0000000000000001",
+      product: "VIIRS_NOAA20_NRT",
+      area,
+      date: { kind: "rolling", days: 2 },
+    });
+    const differentProduct = firmsAreaRequest({
+      mapKey: "firms-test-key-0000000000000001",
+      product: "MODIS_NRT",
+      area,
+      date: { kind: "rolling", days: 2 },
+    });
+    const differentArea = firmsAreaRequest({
+      mapKey: "firms-test-key-0000000000000001",
+      product: "VIIRS_NOAA20_NRT",
+      area: { ...area, east: 26.7 },
+      date: { kind: "rolling", days: 2 },
+    });
+    const differentDate = firmsAreaRequest({
+      mapKey: "firms-test-key-0000000000000001",
+      product: "VIIRS_NOAA20_NRT",
+      area,
+      date: { kind: "starting-on", date: "2026-07-29", days: 1 },
+    });
+    const baselineFingerprint = requestFingerprint(firmsAreaRequestEvidence(baseline));
+
+    expect(requestFingerprint(firmsAreaRequestEvidence(differentProduct))).not.toBe(
+      baselineFingerprint,
+    );
+    expect(requestFingerprint(firmsAreaRequestEvidence(differentArea))).not.toBe(
+      baselineFingerprint,
+    );
+    expect(requestFingerprint(firmsAreaRequestEvidence(differentDate))).not.toBe(
+      baselineFingerprint,
+    );
+  });
+
+  it("rejects tampered or credential-bearing FIRMS evidence before issuance", async () => {
+    const mapKey = "firms-test-key-0000000000000001";
+    const request = firmsAreaRequest({
+      mapKey,
+      product: "VIIRS_NOAA20_NRT",
+      area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+      date: { kind: "rolling", days: 2 },
+    });
+    const evidenceLedger = ledger();
+    const fetchImpl = vi.fn<typeof fetch>();
+    const evidence = firmsAreaRequestEvidence(request);
+
+    for (const requestEvidence of [
+      {
+        ...evidence,
+        requestQuerySafe: {
+          ...evidence.requestQuerySafe,
+          area: "26.2,38.85,26.7,39.15",
+        },
+      },
+      {
+        ...evidence,
+        requestMetadataSafe: { operation: mapKey },
+      },
+    ]) {
+      await expect(
+        recordedFetch(request.url, request.requestInit, {
+          fetchImpl,
+          ledger: evidenceLedger,
+          requestEvidence,
+          credentialPathRedaction: request.credentialPathRedaction,
+          maximumResponseBytes: 1_024,
+        }),
+      ).rejects.toBeInstanceOf(TypeError);
+    }
+    expect(evidenceLedger.issue).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects FIRMS method, body, and split-field credential smuggling", async () => {
+    const mapKey = "firms-test-key-0000000000000001";
+    const request = firmsAreaRequest({
+      mapKey,
+      product: "VIIRS_NOAA20_NRT",
+      area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+      date: { kind: "rolling", days: 2 },
+    });
+    const evidence = firmsAreaRequestEvidence(request);
+    const evidenceLedger = ledger();
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    await expect(
+      recordedFetch(
+        request.url,
+        { redirect: "manual", method: "POST", body: mapKey },
+        {
+          fetchImpl,
+          ledger: evidenceLedger,
+          requestEvidence: {
+            ...evidence,
+            method: "POST",
+            requestBodyRedacted: new TextEncoder().encode(mapKey),
+          },
+          credentialPathRedaction: request.credentialPathRedaction,
+          maximumResponseBytes: 1_024,
+        },
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    await expect(
+      recordedFetch(
+        request.url,
+        { ...request.requestInit, body: mapKey },
+        {
+          fetchImpl,
+          ledger: evidenceLedger,
+          requestEvidence: evidence,
+          credentialPathRedaction: request.credentialPathRedaction,
+          maximumResponseBytes: 1_024,
+        },
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    await expect(
+      recordedFetch(
+        request.url,
+        {
+          ...request.requestInit,
+          headers: {
+            ...request.requestInit.headers,
+            "accept-language": mapKey,
+          },
+        },
+        {
+          fetchImpl,
+          ledger: evidenceLedger,
+          requestEvidence: evidence,
+          credentialPathRedaction: request.credentialPathRedaction,
+          maximumResponseBytes: 1_024,
+        },
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    const midpoint = Math.floor(mapKey.length / 2);
+    await expect(
+      recordedFetch(request.url, request.requestInit, {
+        fetchImpl,
+        ledger: evidenceLedger,
+        requestEvidence: {
+          ...evidence,
+          requestHeadersSafe: {
+            ...evidence.requestHeadersSafe,
+            "accept-language": mapKey.slice(0, midpoint),
+          },
+          requestMetadataSafe: {
+            ...evidence.requestMetadataSafe,
+            collection: mapKey.slice(midpoint),
+          },
+        },
+        credentialPathRedaction: request.credentialPathRedaction,
+        maximumResponseBytes: 1_024,
+      }),
+    ).rejects.toBeInstanceOf(TypeError);
+
+    expect(evidenceLedger.issue).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes credential-path transport failures before rethrowing", async () => {
+    const mapKey = "firms-test-key-0000000000000001";
+    const request = firmsAreaRequest({
+      mapKey,
+      product: "MODIS_NRT",
+      area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+      date: { kind: "starting-on", date: "2026-07-29", days: 1 },
+    });
+    const issued: HttpRequestEvidence[] = [];
+    const terminalErrors: HttpTransportErrorEvidence[] = [];
+    const evidenceLedger = ledger({
+      issue: vi.fn(async (evidence) => {
+        issued.push(evidence);
+        return REFERENCE;
+      }),
+      finishTransportError: vi.fn(async (_reference, evidence) => {
+        terminalErrors.push(evidence);
+      }),
+    });
+
+    let thrown: unknown;
+    try {
+      await recordedFetch(request.url, request.requestInit, {
+        fetchImpl: vi.fn(async () => {
+          throw new Error(`GET ${request.url} failed`);
+        }),
+        ledger: evidenceLedger,
+        requestEvidence: firmsAreaRequestEvidence(request),
+        credentialPathRedaction: request.credentialPathRedaction,
+        maximumResponseBytes: 1_024,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(CredentialPathTransportError);
+    expect(String(thrown)).not.toContain(mapKey);
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(terminalErrors).toEqual([
+      {
+        errorClass: "network",
+        errorDetailSafe:
+          "Upstream request failed before an HTTP response was available.",
+        safeMetadata: {},
+      },
+    ]);
+    expect(JSON.stringify({ issued, terminalErrors })).not.toContain(mapKey);
   });
 
   it("never starts I/O when request issuance is not durable", async () => {
