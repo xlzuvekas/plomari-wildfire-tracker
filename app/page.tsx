@@ -31,6 +31,10 @@ import {
   zonedDateTimeAttribute,
 } from "@/lib/area-time";
 import { DEMAND_INTERVALS_MS } from "@/lib/firewatch/demand-policy";
+import { coarseAreaCellForLocation } from "@/lib/firewatch/map-context";
+import { footprintLeafletPolygons } from "@/lib/firewatch/v3/satellite-pass-client";
+import { satellitePassPresentationState } from "@/lib/firewatch/v3/satellite-pass-presentation";
+import { useSatellitePassArea } from "@/hooks/use-satellite-pass-area";
 
 type LatLngTuple = [number, number];
 type Confidence = "official" | "observed" | "reported" | "modeled";
@@ -39,6 +43,7 @@ type LayerKey =
   | "official"
   | "evacRoute"
   | "satellite"
+  | "satelliteCoverage"
   | "satelliteRaster"
   | "local"
   | "wind"
@@ -351,6 +356,7 @@ const STATIC_INTEL_OCCURRED_AT: Record<string, string> = {
 };
 
 const CURRENT_ONLY_LAYER_KEYS = new Set<LayerKey>([
+  "satelliteCoverage",
   "satelliteRaster",
   "wind",
   "smokeObserved",
@@ -1227,6 +1233,7 @@ export default function Home() {
     official: true,
     evacRoute: false,
     satellite: true,
+    satelliteCoverage: false,
     satelliteRaster: false,
     local: true,
     wind: true,
@@ -1276,6 +1283,18 @@ export default function Home() {
     [asOfEpoch],
   );
   const isLive = asOfSelection.mode === "live";
+  const satelliteAreaCell = useMemo(
+    () =>
+      coarseAreaCellForLocation(
+        userPosition?.lat ?? INCIDENT[0],
+        userPosition?.lon ?? INCIDENT[1],
+      ),
+    [userPosition],
+  );
+  const satellitePassArea = useSatellitePassArea(
+    satelliteAreaCell.cellKey,
+    isLive,
+  );
   const effectiveEpoch = effectiveAsOfEpoch(asOfSelection, ageEpoch);
   const clockIso =
     clockEpoch === null ? null : new Date(clockEpoch).toISOString();
@@ -1619,6 +1638,100 @@ export default function Home() {
     thermalData?.retrievedAt,
     language,
   );
+  const satellitePassData = satellitePassArea.data;
+  const satellitePasses = satellitePassData?.passes ?? [];
+  const latestSatellitePass = latestAtOrBefore(
+    satellitePasses,
+    (pass) => pass.times.observedTo,
+    LIVE_AS_OF,
+  );
+  const satellitePassObservedTime = formatAreaDateTime(
+    latestSatellitePass?.times.observedTo ??
+      satellitePassData?.scan.freshness.latestSourceObservedAt,
+    language,
+  );
+  const satellitePassCheckedTime = formatAreaDateTime(
+    satellitePassData?.scan.freshness.scanCheckedAt ??
+      satellitePassData?.scan.freshness.checkedAt,
+    language,
+  );
+  const satellitePassDeadlineEpoch = timestampEpoch(
+    satellitePassData?.scan.freshness.deadline,
+  );
+  const satellitePassStale = Boolean(
+    satellitePassData &&
+      (satellitePassArea.cachedSnapshot ||
+        satellitePassArea.error ||
+        satellitePassData.scan.coverageState !== "complete_current" ||
+        !satellitePassData.scan.freshness.isCurrent ||
+        satellitePassData.result.state === "complete-not-eligible" ||
+        satellitePassData.page.truncated ||
+        (satellitePassDeadlineEpoch !== null &&
+          satellitePassDeadlineEpoch < ageEpoch)),
+  );
+  const satellitePassUnavailable = Boolean(
+    (!satellitePassData && satellitePassArea.error) ||
+      satellitePassData?.result.state === "disabled" ||
+      satellitePassData?.result.state === "unconfigured" ||
+      satellitePassData?.result.state === "unavailable",
+  );
+  const satellitePassCount = satellitePassData?.page.truncated
+    ? `≥${satellitePasses.length}`
+    : String(satellitePasses.length);
+  const satellitePassIndeterminateEmpty = Boolean(
+    satellitePassData &&
+      satellitePasses.length === 0 &&
+      satellitePassData.result.state !== "valid-empty" &&
+      !satellitePassUnavailable,
+  );
+  const satellitePassAreaLabel = userPosition
+    ? localize(language, "your coarse area", "την ευρεία περιοχή σας")
+    : localize(language, "the incident area", "την περιοχή του συμβάντος");
+  const satellitePassPresentation = satellitePassPresentationState({
+    isLive,
+    loading: satellitePassArea.loading,
+    unavailable: satellitePassUnavailable,
+    stale: satellitePassStale,
+    validEmpty: satellitePassData?.result.state === "valid-empty",
+    indeterminateEmpty: satellitePassIndeterminateEmpty,
+  });
+  const satellitePassLayerDetail = satellitePassPresentation ===
+    "current-only-withheld"
+    ? localize(
+        language,
+        "Current-only CMR catalog coverage · hidden in history",
+        "Τρέχουσα μόνο κάλυψη καταλόγου CMR · κρυφή στο ιστορικό",
+      )
+    : satellitePassPresentation === "loading"
+      ? localize(
+          language,
+          `Checking persisted CMR coverage for ${satellitePassAreaLabel}`,
+          `Έλεγχος αποθηκευμένης κάλυψης CMR για ${satellitePassAreaLabel}`,
+        )
+      : satellitePassPresentation === "unavailable"
+        ? localize(
+            language,
+            "Persisted CMR coverage unavailable",
+            "Η αποθηκευμένη κάλυψη CMR δεν είναι διαθέσιμη",
+          )
+        : satellitePassPresentation === "stale" ||
+            satellitePassPresentation === "stale-valid-empty"
+          ? localize(
+              language,
+              `Cached, stale, or incomplete catalog coverage · checked ${satellitePassCheckedTime}`,
+              `Προσωρινά αποθηκευμένη, παλιά ή ελλιπής κάλυψη καταλόγου · έλεγχος ${satellitePassCheckedTime}`,
+            )
+          : satellitePassPresentation === "valid-empty"
+            ? localize(
+                language,
+                `No catalog footprints intersect ${satellitePassAreaLabel} · checked ${satellitePassCheckedTime}`,
+                `Δεν τέμνουν αποτυπώματα καταλόγου ${satellitePassAreaLabel} · έλεγχος ${satellitePassCheckedTime}`,
+              )
+            : localize(
+                language,
+                `CMR FireMask catalog coverage · checked ${satellitePassCheckedTime}`,
+                `Κάλυψη καταλόγου CMR FireMask · έλεγχος ${satellitePassCheckedTime}`,
+              );
   const thermalPollMinutes = Math.max(
     1,
     Math.round(
@@ -1718,9 +1831,12 @@ export default function Home() {
     updatesData?.fireServiceIncident?.statusLabel,
     language,
   );
-  const cachedSnapshotSources = (
-    ["wind", "updates", "thermal"] as const
-  ).filter((source) => snapshotSources[source]);
+  const cachedSnapshotSources = [
+    ...(["wind", "updates", "thermal"] as const).filter(
+      (source) => snapshotSources[source],
+    ),
+    ...(satellitePassArea.cachedSnapshot ? (["satellite"] as const) : []),
+  ];
   const cachedSnapshotLabel = cachedSnapshotSources
     .map(
       (source) =>
@@ -1728,6 +1844,11 @@ export default function Home() {
           wind: localize(language, "wind", "άνεμος"),
           updates: localize(language, "updates", "ενημερώσεις"),
           thermal: localize(language, "thermal", "θερμικά"),
+          satellite: localize(
+            language,
+            "satellite catalog",
+            "κατάλογος δορυφόρου",
+          ),
         })[source],
     )
     .join(" · ");
@@ -2617,6 +2738,61 @@ export default function Home() {
       });
     }
 
+    if (layers.satelliteCoverage && isLive && satellitePassData) {
+      satellitePassData.passes.forEach((pass) => {
+        footprintLeafletPolygons(pass.coverage.footprint).forEach((polygon) => {
+          const popup = document.createElement("div");
+          popup.className = "popup-copy";
+          const title = document.createElement("strong");
+          title.textContent = localize(
+            language,
+            "CMR CATALOG COVERAGE FOOTPRINT",
+            "ΑΠΟΤΥΠΩΜΑ ΚΑΛΥΨΗΣ ΚΑΤΑΛΟΓΟΥ CMR",
+          );
+          const source = document.createElement("span");
+          source.textContent = `${pass.satellite} · ${pass.sensor} · ${pass.product}`;
+          const observed = document.createElement("time");
+          observed.dateTime =
+            zonedDateTimeAttribute(pass.times.observedTo) ?? "";
+          observed.textContent = localize(
+            language,
+            `OBSERVED INTERVAL · ${formatAreaDateTime(pass.times.observedFrom, language)} → ${formatAreaDateTime(pass.times.observedTo, language)}`,
+            `ΔΙΑΣΤΗΜΑ ΠΑΡΑΤΗΡΗΣΗΣ · ${formatAreaDateTime(pass.times.observedFrom, language)} → ${formatAreaDateTime(pass.times.observedTo, language)}`,
+          );
+          const caveat = document.createElement("span");
+          caveat.textContent = localize(
+            language,
+            "Catalog footprint only. The granule intersects this coarse area; its pixels have not been assessed here for a thermal anomaly.",
+            "Μόνο αποτύπωμα καταλόγου. Το δορυφορικό αρχείο τέμνει αυτή την ευρεία περιοχή· τα εικονοστοιχεία του δεν έχουν αξιολογηθεί εδώ για θερμική ανωμαλία.",
+          );
+          popup.append(
+            title,
+            document.createElement("br"),
+            source,
+            document.createElement("br"),
+            observed,
+            document.createElement("br"),
+            caveat,
+          );
+          const leafletPolygon = polygon.map((ring) =>
+            ring.map(([latitude, longitude]) =>
+              [latitude, longitude] as LatLngTuple,
+            ),
+          );
+          L.polygon(leafletPolygon, {
+            color: satellitePassStale ? "#ffb347" : "#55ddff",
+            weight: 1.4,
+            opacity: satellitePassStale ? 0.58 : 0.74,
+            fillColor: satellitePassStale ? "#ffb347" : "#55ddff",
+            fillOpacity: 0.025,
+            dashArray: satellitePassStale ? "4 8" : "8 7",
+          })
+            .bindPopup(popup)
+            .addTo(group);
+        });
+      });
+    }
+
     if (layers.satellite) {
       thermalDetections.forEach((detection) => {
         const style = {
@@ -2970,6 +3146,8 @@ export default function Home() {
     smokeDistance,
     smokeMinutes,
     satelliteEpoch,
+    satellitePassData,
+    satellitePassStale,
     thermalDetections,
     effectiveEpoch,
     isLive,
@@ -3413,12 +3591,16 @@ export default function Home() {
                 <span className="locate-readout__privacy-long">
                   {localize(
                     language,
-                    "not sent to Firewatch; centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA",
-                    "δεν αποστέλλεται στο Firewatch· το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA",
+                    `exact fix stays on this device; Firewatch receives only a versioned ${Math.round(satelliteAreaCell.minimumSpanM / 1_000)}+ km coarse-area cell for local coverage, while centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA`,
+                    `η ακριβής θέση παραμένει στη συσκευή· το Firewatch λαμβάνει μόνο ένα έκδοση-ελεγχόμενο κελί ευρείας περιοχής ${Math.round(satelliteAreaCell.minimumSpanM / 1_000)}+ km για τοπική κάλυψη, ενώ το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA`,
                   )}
                 </span>
                 <span className="locate-readout__privacy-short">
-                  {localize(language, "ON DEVICE", "ΣΤΗ ΣΥΣΚΕΥΗ")}
+                  {localize(
+                    language,
+                    "EXACT GPS ON DEVICE · COARSE CELL SHARED",
+                    "ΑΚΡΙΒΕΣ GPS ΣΤΗ ΣΥΣΚΕΥΗ · ΚΟΙΝΟΠΟΙΕΙΤΑΙ ΕΥΡΥ ΚΕΛΙ",
+                  )}
                 </span>
               </strong>
               {userReadout.nearest ? (
@@ -3632,8 +3814,8 @@ export default function Home() {
                         )
                   : localize(
                       language,
-                      "9 LAYERS // SOURCE + FRESHNESS VISIBLE",
-                      "9 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
+                      "10 LAYERS // SOURCE + FRESHNESS VISIBLE",
+                      "10 ΕΠΙΠΕΔΑ // ΟΡΑΤΗ ΠΗΓΗ + ΩΡΑ ΕΝΗΜΕΡΩΣΗΣ",
                     )}
               </small>
             </div>
@@ -3793,6 +3975,22 @@ export default function Home() {
                   thermalLoading || thermalUnavailable
                     ? "—"
                     : String(thermalDetections.length),
+              },
+              {
+                key: "satelliteCoverage" as LayerKey,
+                accent: satellitePassStale ? "#ffb347" : "#55ddff",
+                icon: "◇",
+                label: localize(
+                  language,
+                  "Satellite catalog coverage",
+                  "Κάλυψη δορυφορικού καταλόγου",
+                ),
+                detail: satellitePassLayerDetail,
+                count: !isLive
+                  ? "LIVE"
+                  : satellitePassArea.loading || satellitePassUnavailable
+                    ? "—"
+                    : satellitePassCount,
               },
               {
                 key: "satelliteRaster" as LayerKey,
@@ -4064,6 +4262,101 @@ export default function Home() {
                 </small>
               </div>
             )}
+
+            <div
+              className={`thermal-summary satellite-coverage-summary${satellitePassStale ? " is-stale" : ""}`}
+            >
+              <strong>
+                {localize(
+                  language,
+                  "CMR PASS COVERAGE · CATALOG METADATA",
+                  "ΚΑΛΥΨΗ ΔΙΕΛΕΥΣΕΩΝ CMR · ΜΕΤΑΔΕΔΟΜΕΝΑ ΚΑΤΑΛΟΓΟΥ",
+                )}
+              </strong>
+              <small>
+                {satellitePassPresentation === "current-only-withheld"
+                  ? localize(
+                      language,
+                      "CURRENT-ONLY · WITHHELD AT THE SELECTED HISTORICAL TIME",
+                      "ΜΟΝΟ ΤΡΕΧΟΥΣΑ · ΑΠΟΚΡΥΠΤΕΤΑΙ ΣΤΗΝ ΕΠΙΛΕΓΜΕΝΗ ΙΣΤΟΡΙΚΗ ΩΡΑ",
+                    )
+                  : satellitePassPresentation === "loading"
+                    ? localize(
+                        language,
+                        "CHECKING PERSISTED COVERAGE",
+                        "ΕΛΕΓΧΟΣ ΑΠΟΘΗΚΕΥΜΕΝΗΣ ΚΑΛΥΨΗΣ",
+                      )
+                    : satellitePassPresentation === "unavailable"
+                      ? localize(
+                          language,
+                          "PERSISTED COVERAGE UNAVAILABLE",
+                          "Η ΑΠΟΘΗΚΕΥΜΕΝΗ ΚΑΛΥΨΗ ΔΕΝ ΕΙΝΑΙ ΔΙΑΘΕΣΙΜΗ",
+                        )
+                      : satellitePassPresentation === "stale" ||
+                          satellitePassPresentation === "stale-valid-empty"
+                        ? localize(
+                            language,
+                            satellitePassPresentation === "stale-valid-empty"
+                              ? "CACHED OR STALE SNAPSHOT · ITS LAST COMPLETED WINDOW HAD NO CATALOG FOOTPRINT INTERSECTIONS"
+                              : "CACHED, STALE, OR INCOMPLETE CATALOG COVERAGE · DO NOT TREAT AS CURRENT",
+                            satellitePassPresentation === "stale-valid-empty"
+                              ? "ΑΠΟΘΗΚΕΥΜΕΝΟ Ή ΠΑΛΙΟ ΣΤΙΓΜΙΟΤΥΠΟ · ΣΤΟ ΤΕΛΕΥΤΑΙΟ ΟΛΟΚΛΗΡΩΜΕΝΟ ΠΑΡΑΘΥΡΟ ΤΟΥ ΔΕΝ ΥΠΗΡΧΑΝ ΤΟΜΕΣ ΑΠΟΤΥΠΩΜΑΤΩΝ ΚΑΤΑΛΟΓΟΥ"
+                              : "ΑΠΟΘΗΚΕΥΜΕΝΗ, ΠΑΛΙΑ Ή ΕΛΛΙΠΗΣ ΚΑΛΥΨΗ ΚΑΤΑΛΟΓΟΥ · ΜΗΝ ΤΗ ΘΕΩΡΕΙΤΕ ΤΡΕΧΟΥΣΑ",
+                          )
+                        : satellitePassPresentation === "valid-empty"
+                          ? localize(
+                              language,
+                              "NO CATALOG FOOTPRINT INTERSECTIONS IN THE COMPLETED WINDOW",
+                              "ΚΑΜΙΑ ΤΟΜΗ ΑΠΟΤΥΠΩΜΑΤΟΣ ΚΑΤΑΛΟΓΟΥ ΣΤΟ ΟΛΟΚΛΗΡΩΜΕΝΟ ΠΑΡΑΘΥΡΟ",
+                            )
+                          : satellitePassPresentation === "indeterminate-empty"
+                            ? localize(
+                                language,
+                                "EMPTY RESULT INDETERMINATE · COVERAGE IS INCOMPLETE OR NOT ELIGIBLE",
+                                "ΑΠΡΟΣΔΙΟΡΙΣΤΟ ΚΕΝΟ ΑΠΟΤΕΛΕΣΜΑ · Η ΚΑΛΥΨΗ ΕΙΝΑΙ ΕΛΛΙΠΗΣ Ή ΜΗ ΕΠΙΛΕΞΙΜΗ",
+                              )
+                            : localize(
+                                language,
+                                `${satellitePassData?.page.truncated ? "AT LEAST " : ""}${satellitePasses.length} CATALOG FOOTPRINTS`,
+                                `${satellitePassData?.page.truncated ? "ΤΟΥΛΑΧΙΣΤΟΝ " : ""}${satellitePasses.length} ΑΠΟΤΥΠΩΜΑΤΑ ΚΑΤΑΛΟΓΟΥ`,
+                              )}
+              </small>
+              {isLive && satellitePassData && (
+                <small>
+                  {localize(language, "SCAN CHECKED", "ΕΛΕΓΧΟΣ ΣΑΡΩΣΗΣ")} ·{" "}
+                  <time
+                    dateTime={zonedDateTimeAttribute(
+                      satellitePassData.scan.freshness.scanCheckedAt ??
+                        satellitePassData.scan.freshness.checkedAt,
+                    )}
+                  >
+                    {satellitePassCheckedTime}
+                  </time>
+                  {" · "}
+                  {localize(
+                    language,
+                    "LATEST SOURCE OBSERVED IN RETURNED SCAN",
+                    "ΝΕΟΤΕΡΗ ΠΑΡΑΤΗΡΗΣΗ ΠΗΓΗΣ ΣΤΗ ΣΑΡΩΣΗ",
+                  )}
+                  {" · "}
+                  <time
+                    dateTime={zonedDateTimeAttribute(
+                      latestSatellitePass?.times.observedTo ??
+                        satellitePassData.scan.freshness.latestSourceObservedAt,
+                    )}
+                  >
+                    {satellitePassObservedTime}
+                  </time>
+                </small>
+              )}
+              <small className="satellite-coverage-caveat">
+                {localize(
+                  language,
+                  "ANOMALIES NOT ASSESSED · A FOOTPRINT IS COVERAGE, NOT A HOTSPOT, AND DOES NOT CLEAR AN OLDER DETECTION.",
+                  "ΔΕΝ ΕΓΙΝΕ ΑΞΙΟΛΟΓΗΣΗ ΑΝΩΜΑΛΙΩΝ · ΤΟ ΑΠΟΤΥΠΩΜΑ ΕΙΝΑΙ ΚΑΛΥΨΗ, ΟΧΙ ΘΕΡΜΟ ΣΗΜΕΙΟ, ΚΑΙ ΔΕΝ ΑΝΑΙΡΕΙ ΠΑΛΑΙΟΤΕΡΗ ΑΝΙΧΝΕΥΣΗ.",
+                )}
+              </small>
+            </div>
 
             {!thermalLoading &&
               !thermalUnavailable &&
