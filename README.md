@@ -327,6 +327,61 @@ database-proven continuous complete global scan lineage across the current
 stale scan, or partial scan can never produce that claim. The route is not yet
 wired into the v2 map.
 
+The first global-discovery v3 routes are deliberately honest about the current
+read-model boundary:
+
+- `GET /api/v3/explore/cells` returns `unconfigured` / `indeterminate` until a
+  persisted candidate aggregate exists. It never calls a provider and never
+  treats an empty database as “no wildfire.”
+- `GET /api/v3/areas/nearby?cell=wm/z/x/y` reads only the bounded
+  `api.nearby_incidents_v3` PostGIS projection. Vercel sends a named Supabase
+  secret API key whose fixed JWT template contains only
+  `role: firewatch_discovery_reader`; the public key alone, `anon`, `authenticated`,
+  collectors, and `service_role` cannot execute this RPC. The definer function
+  independently enforces public visibility, both cutoff-time and current
+  publication eligibility, mutable-gate clocks, a spatial-first latest-snapshot
+  proof, a five-second statement timeout, and all input/result bounds. It can
+  return persisted items under historical `asOf` and `knownAt` cutoffs, but
+  coverage remains `not_assessed` and `no-store`; omission can never authorize
+  `valid-empty`.
+
+Both routes accept only canonical millisecond UTC cutoffs within the bounded
+31-day discovery horizon. The current-view projection is not snapshot-stable,
+so both endpoints reject continuation cursors. Nearby requests one bounded
+page; if a cell contains more than the requested limit, the route returns 503
+instead of truncating, skipping, or duplicating incidents. A successful empty
+Nearby read uses an explicit `UTC` fallback, remains `not_assessed` /
+`indeterminate`, and does not claim local-time resolution or an all-clear.
+
+Nearby has a mandatory deployment credential. After applying the migration,
+create a named, individually revocable Supabase secret API key whose fixed JWT
+template is the new database role. This Management API request must be run by
+an operator with API-gateway-key write access; do not paste the management
+token into the repository or shell history:
+
+```bash
+curl 'https://api.supabase.com/v1/projects/cggrrimijkmmzpwhodqt/api-keys?reveal=true' \
+  --request POST \
+  --header 'Authorization: Bearer YOUR_SCOPED_MANAGEMENT_TOKEN' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "type":"secret",
+    "name":"firewatch-discovery-reader",
+    "description":"Vercel v3 Nearby read proxy only",
+    "secret_jwt_template":{"role":"firewatch_discovery_reader"}
+  }'
+```
+
+Store only the returned `sb_secret_...` value as server-only
+`SUPABASE_DISCOVERY_READER_KEY` in Vercel Production and Preview, redeploy, and
+verify a Nearby request. Never substitute the default `SUPABASE_SECRET_KEY`,
+`service_role`, or `SUPABASE_JWT_SECRET`. To rotate, create a replacement with
+the same fixed template, update and verify Vercel, then delete the old named
+key by its Management API key id. See Supabase's
+[API-key guide](https://supabase.com/docs/guides/getting-started/api-keys) and
+[platform API-key example](https://supabase.com/docs/guides/integrations/supabase-for-platforms)
+for secret-key handling and per-key rotation.
+
 ## Supabase development
 
 The local database requires Docker and the Supabase CLI:

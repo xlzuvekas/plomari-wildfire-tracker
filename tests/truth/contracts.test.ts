@@ -28,6 +28,7 @@ import {
   temporalValueSchema,
   TRUTH_JSON_SCHEMAS,
   truthJsonSchemaId,
+  utcInstantSchema,
   upgradeLegacyV10IngestionRun,
   type TruthJsonSchemaName,
 } from "../../lib/truth/v1";
@@ -143,6 +144,18 @@ describe("truth-layer v1 runtime contracts", () => {
         startedAt: "2026-07-29T16:59:00+03:00",
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects impossible UTC calendar dates instead of normalizing them", () => {
+    expect(
+      utcInstantSchema.safeParse("2026-02-30T12:00:00.000Z").success,
+    ).toBe(false);
+    expect(
+      utcInstantSchema.safeParse("2026-04-31T12:00:00.000Z").success,
+    ).toBe(false);
+    expect(
+      utcInstantSchema.safeParse("2026-02-28T12:00:00.000000000Z").success,
+    ).toBe(true);
   });
 
   it("retains date-only precision without fabricating midnight", () => {
