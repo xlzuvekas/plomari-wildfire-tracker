@@ -87,6 +87,9 @@ describe("incident mobile safety surfaces", () => {
     expect(globalStyles).toMatch(
       /@media \(max-width: 1180px\) and \(max-height: 520px\) and \(orientation: landscape\)[\s\S]*?\.layer-hud,[\s\S]*?100dvh - var\(--mobile-head\) - var\(--mobile-dock\) - 8px[\s\S]*?\.locate-summary\s*\{[^}]*height:\s*44px;/u,
     );
+    expect(globalStyles).toMatch(
+      /\.has-mobile-sheet \.evacuation-banner,[\s\S]*?\.has-mobile-sheet \.evacuation-collapsed\s*\{[^}]*visibility:\s*hidden;/u,
+    );
     expect(globalStyles).toContain("env(safe-area-inset-left, 0px)");
     expect(globalStyles).toContain("env(safe-area-inset-right, 0px)");
     expect(globalStyles).toMatch(

@@ -3449,6 +3449,11 @@ button {
     visibility: hidden;
   }
 
+  .has-mobile-sheet .evacuation-banner,
+  .has-mobile-sheet .evacuation-collapsed {
+    visibility: hidden;
+  }
+
   .locate-summary {
     bottom: calc(var(--mobile-dock) + 4px);
     height: 44px;
