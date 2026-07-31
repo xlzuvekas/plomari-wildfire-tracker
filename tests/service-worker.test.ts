@@ -8,6 +8,107 @@ const serviceWorkerSource = readFileSync(
 );
 
 describe("service worker caching", () => {
+  it("pre-caches the exact versioned MapLibre worker pair", async () => {
+    const shellCache = { addAll: vi.fn().mockResolvedValue(undefined) };
+    const assetCache = { addAll: vi.fn().mockResolvedValue(undefined) };
+    const open = vi.fn((name: string) =>
+      Promise.resolve(name.endsWith("-shell") ? shellCache : assetCache),
+    );
+    const skipWaiting = vi.fn().mockResolvedValue(undefined);
+    const listeners = new Map<string, (event: unknown) => void>();
+
+    runInNewContext(serviceWorkerSource, {
+      self: {
+        location: { origin: "https://firewatch.test" },
+        skipWaiting,
+        addEventListener: (
+          type: string,
+          listener: (event: unknown) => void,
+        ) => listeners.set(type, listener),
+      },
+      caches: { open },
+      fetch: vi.fn(),
+      Headers,
+      Response,
+      URL,
+      Map,
+      Promise,
+      setTimeout,
+    });
+
+    let installPromise: Promise<unknown> | undefined;
+    listeners.get("install")?.({
+      waitUntil: (promise: Promise<unknown>) => {
+        installPromise = promise;
+      },
+    });
+    await installPromise;
+
+    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v4-shell");
+    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v4-maplibre");
+    expect(shellCache.addAll).toHaveBeenCalledWith(["/"]);
+    expect(assetCache.addAll).toHaveBeenCalledWith([
+      "/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs",
+      "/vendor/maplibre-gl/6.1.0/maplibre-gl-shared.mjs",
+    ]);
+    expect(skipWaiting).toHaveBeenCalledOnce();
+  });
+
+  it("serves the versioned MapLibre prefix cache-first", async () => {
+    const cached = new Response("worker", { status: 200 });
+    const cache = {
+      match: vi.fn().mockResolvedValue(cached),
+      put: vi.fn(),
+      keys: vi.fn(),
+      delete: vi.fn(),
+    };
+    const fetch = vi.fn();
+    const listeners = new Map<string, (event: unknown) => void>();
+
+    const open = vi.fn().mockResolvedValue(cache);
+    runInNewContext(serviceWorkerSource, {
+      self: {
+        location: { origin: "https://firewatch.test" },
+        addEventListener: (
+          type: string,
+          listener: (event: unknown) => void,
+        ) => listeners.set(type, listener),
+      },
+      caches: { open },
+      fetch,
+      Headers,
+      Response,
+      URL,
+      Map,
+      Promise,
+      setTimeout,
+    });
+
+    let responsePromise: Promise<Response> | undefined;
+    let backgroundPromise: Promise<unknown> | undefined;
+    const request = new Request(
+      "https://firewatch.test/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs",
+    );
+    listeners.get("fetch")?.({
+      request,
+      respondWith: (promise: Promise<Response>) => {
+        responsePromise = promise;
+      },
+      waitUntil: (promise: Promise<unknown>) => {
+        backgroundPromise = promise;
+      },
+    });
+
+    expect(await responsePromise).toBe(cached);
+    await backgroundPromise;
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith("firewatch-v4-maplibre");
+    expect(cache.match).toHaveBeenCalledWith(request);
+    expect(cache.keys).not.toHaveBeenCalled();
+    expect(cache.delete).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("keeps navigation snapshots isolated by the full query-bound request", async () => {
     const cache = {
       match: vi.fn().mockResolvedValue(undefined),
@@ -204,8 +305,8 @@ describe("service worker caching", () => {
     });
 
     expect(await responsePromise).toBe(response);
-    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v3-data");
-    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v3-data");
+    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v4-data");
+    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v4-data");
     expect(cache.keys).toHaveBeenCalledOnce();
   });
 
