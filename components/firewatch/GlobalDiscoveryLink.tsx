@@ -9,14 +9,14 @@ const COPY = Object.freeze({
   en: Object.freeze({
     label: "Global discovery",
     shortLabel: "Global",
-    boundary: "Partial or unconfigured",
+    boundary: "May be partial / unconfigured",
     accessibleLabel:
       "Open global wildfire discovery. Coverage may be partial or unconfigured.",
   }),
   el: Object.freeze({
     label: "Παγκόσμια ανίχνευση",
     shortLabel: "Παγκόσμια",
-    boundary: "Μερική ή μη ρυθμισμένη",
+    boundary: "Ίσως μερική / μη ρυθμισμένη",
     accessibleLabel:
       "Άνοιγμα παγκόσμιας ανίχνευσης πυρκαγιών. Η κάλυψη μπορεί να είναι μερική ή μη ρυθμισμένη.",
   }),

@@ -16,9 +16,9 @@ describe("global discovery navigation", () => {
 
     expect(markup.match(/href="\/explore"/g)).toHaveLength(2);
     expect(markup).toContain("Global discovery");
-    expect(markup).toContain("Partial or unconfigured");
+    expect(markup).toContain("May be partial / unconfigured");
     expect(markup).toContain("Παγκόσμια");
-    expect(markup).toContain("Μερική ή μη ρυθμισμένη");
+    expect(markup).toContain("Ίσως μερική / μη ρυθμισμένη");
     expect(markup).toContain("Coverage may be partial or unconfigured");
     expect(markup).toContain(
       "Η κάλυψη μπορεί να είναι μερική ή μη ρυθμισμένη",
