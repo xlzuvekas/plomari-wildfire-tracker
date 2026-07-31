@@ -249,7 +249,7 @@ begin
       latest_event.latest_observed_precision,
       latest_event.latest_observed_timezone,
       item_clock.item_known_at,
-      floor(pg_catalog.extract(epoch from item_clock.item_known_at) * 1000)::bigint
+      floor(extract(epoch from item_clock.item_known_at) * 1000)::bigint
         as item_order_millis
     from spatial_snapshots as snapshot
     join core.incidents as incident on incident.id = snapshot.incident_id
