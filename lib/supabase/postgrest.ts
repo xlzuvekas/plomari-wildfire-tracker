@@ -12,11 +12,13 @@ const apiResourceSchema = z.enum([
   "source_health",
 ]);
 const apiRpcSchema = z.enum([
+  "nearby_incidents_v3",
   "satellite_passes_for_cell",
   "satellite_scan_status_for_window",
 ]);
 const timeoutSchema = z.number().int().min(1).max(10_000);
 const responseByteLimitSchema = z.number().int().min(1).max(8_000_000);
+const apiKeySchema = z.string().trim().min(16).max(8_192);
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_RESPONSE_BYTES = 512_000;
@@ -46,6 +48,7 @@ export type PostgrestReadOptions = Readonly<{
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  apiKey?: string;
 }>;
 
 type ReadPostgrestRowsInput<Schema extends z.ZodType> =
@@ -85,6 +88,9 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const endpoint = new URL(input.pathname, environment.url);
+  const apiKey = apiKeySchema.parse(
+    input.apiKey ?? environment.publishableKey,
+  );
 
   Object.entries(input.query).forEach(([name, value]) => {
     endpoint.searchParams.set(name, value);
@@ -97,7 +103,7 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
       headers: {
         Accept: "application/json",
         "Accept-Profile": "api",
-        apikey: environment.publishableKey,
+        apikey: apiKey,
       },
       signal: controller.signal,
     });
@@ -114,9 +120,31 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
       throw new SupabasePostgrestReadError("invalid_response");
     }
 
-    const body = await response.text();
-    if (Buffer.byteLength(body, "utf8") > maxResponseBytes) {
-      throw new SupabasePostgrestReadError("invalid_response");
+    let body: string;
+    if (response.body === null) {
+      body = await response.text();
+      if (Buffer.byteLength(body, "utf8") > maxResponseBytes) {
+        throw new SupabasePostgrestReadError("invalid_response");
+      }
+    } else {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let receivedBytes = 0;
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          receivedBytes += chunk.value.byteLength;
+          if (receivedBytes > maxResponseBytes) {
+            await reader.cancel();
+            throw new SupabasePostgrestReadError("invalid_response");
+          }
+          chunks.push(chunk.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      body = Buffer.concat(chunks, receivedBytes).toString("utf8");
     }
 
     let decoded: unknown;
@@ -154,8 +182,9 @@ export async function readPostgrestRows<Schema extends z.ZodType>(
 }
 
 /**
- * Reads a stable, read-only function through PostgREST using the same
- * publishable-key and bounded-response boundary as curated views.
+ * Reads an allowlisted function through PostgREST using either the standard
+ * publishable key or an explicitly supplied scoped API key, plus a streaming
+ * byte bound.
  */
 export async function readPostgrestRpcRows<Schema extends z.ZodType>(
   input: ReadPostgrestRpcRowsInput<Schema>,

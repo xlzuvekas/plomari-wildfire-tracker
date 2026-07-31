@@ -8,6 +8,7 @@ import {
 } from "../lib/supabase/postgrest";
 import { sourceCatalogRowSchema } from "../lib/supabase/source-read-model";
 import {
+  readSupabaseDiscoveryReaderApiKey,
   readSupabaseServerEnvironment,
   SupabaseServerConfigurationError,
   type SupabaseServerEnvironment,
@@ -92,6 +93,27 @@ describe("server-only Supabase environment", () => {
     ).toBe("http://127.0.0.1:54321");
   });
 
+  it("accepts only the dedicated secret API-key format", () => {
+    const key = `sb_secret_${"a".repeat(48)}`;
+    expect(
+      readSupabaseDiscoveryReaderApiKey({
+        SUPABASE_DISCOVERY_READER_KEY: key,
+      }),
+    ).toBe(key);
+
+    for (const invalid of [
+      `sb_publishable_${"a".repeat(48)}`,
+      "sb_secret_too-short",
+      `eyJhbGciOiJIUzI1NiJ9.${"a".repeat(48)}.${"b".repeat(43)}`,
+    ]) {
+      expect(() =>
+        readSupabaseDiscoveryReaderApiKey({
+          SUPABASE_DISCOVERY_READER_KEY: invalid,
+        }),
+      ).toThrow(SupabaseServerConfigurationError);
+    }
+  });
+
   it("fails closed without disclosing invalid environment values", () => {
     const invalidKey = "sensitive-but-invalid";
 
@@ -146,6 +168,38 @@ describe("typed api-schema PostgREST reads", () => {
     expect(headers.get("apikey")).toBe(TEST_ENVIRONMENT.publishableKey);
     expect(headers.has("authorization")).toBe(false);
     expect(init?.cache).toBe("no-store");
+  });
+
+  it("cancels a chunked response as soon as its streaming byte bound is exceeded", async () => {
+    const encoder = new TextEncoder();
+    let cancelled = false;
+    let pullCount = 0;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(
+            encoder.encode(
+              pullCount++ === 0 ? '[{"source_id":"' : "x".repeat(256),
+            ),
+          );
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+    await expect(
+      readPostgrestRows({
+        environment: TEST_ENVIRONMENT,
+        fetchImpl: async () => response,
+        resource: "source_catalog",
+        query: {},
+        rowSchema: sourceCatalogRowSchema,
+        maxResponseBytes: 32,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+    expect(cancelled).toBe(true);
   });
 
   it("rejects malformed rows without surfacing the response body", async () => {

@@ -13,6 +13,7 @@ import type {
   WMSOptions,
 } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { GlobalDiscoveryLink } from "@/components/firewatch/GlobalDiscoveryLink";
 import {
   LIVE_AS_OF,
   clampAsOfEpoch,
@@ -3566,6 +3567,8 @@ export default function Home() {
         ))}
       </nav>
 
+      <GlobalDiscoveryLink language={language} variant="desktop" />
+
       <button
         type="button"
         className={`locate-control${
@@ -4902,6 +4905,7 @@ export default function Home() {
             </>
           )}
         </button>
+        <GlobalDiscoveryLink language={language} variant="mobile" />
       </nav>
 
       {layers.simulation && (

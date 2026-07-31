@@ -34,6 +34,13 @@ const supabaseServerEnvironmentSchema = z.strictObject({
   SUPABASE_PUBLISHABLE_KEY: z.string().trim().min(16).max(8_192),
 });
 
+const discoveryReaderApiKeySchema = z
+  .string()
+  .trim()
+  .min(32)
+  .max(8_192)
+  .regex(/^sb_secret_[A-Za-z0-9_-]+$/u);
+
 export type SupabaseServerEnvironment = Readonly<{
   url: string;
   publishableKey: string;
@@ -43,6 +50,7 @@ export type SupabaseServerEnvironmentInput = Readonly<{
   [name: string]: string | undefined;
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
+  SUPABASE_DISCOVERY_READER_KEY?: string;
 }>;
 
 export class SupabaseServerConfigurationError extends Error {
@@ -52,6 +60,21 @@ export class SupabaseServerConfigurationError extends Error {
     super("Supabase server reads are not configured.");
     this.name = "SupabaseServerConfigurationError";
   }
+}
+
+/**
+ * A named Supabase secret API key whose immutable JWT template contains only
+ * role=firewatch_discovery_reader. It is individually revocable and does not
+ * expose a project signing key or service-role credential to Vercel.
+ */
+export function readSupabaseDiscoveryReaderApiKey(
+  environment: SupabaseServerEnvironmentInput = processEnvironment,
+) {
+  const parsed = discoveryReaderApiKeySchema.safeParse(
+    environment.SUPABASE_DISCOVERY_READER_KEY,
+  );
+  if (!parsed.success) throw new SupabaseServerConfigurationError();
+  return parsed.data;
 }
 
 /**

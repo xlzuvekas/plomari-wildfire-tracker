@@ -39,11 +39,49 @@ const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const UTC_INSTANT_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const UTC_INSTANT_COMPONENTS =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/;
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const SOURCE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const VERSION_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,63}$/;
 const LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
+
+function hasNormalizedUtcComponents(value: string): boolean {
+  const match = UTC_INSTANT_COMPONENTS.exec(value);
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] =
+    match;
+  if (
+    yearText === undefined ||
+    monthText === undefined ||
+    dayText === undefined ||
+    hourText === undefined ||
+    minuteText === undefined ||
+    secondText === undefined
+  ) {
+    return false;
+  }
+  const expected = {
+    year: Number(yearText),
+    month: Number(monthText),
+    day: Number(dayText),
+    hour: Number(hourText),
+    minute: Number(minuteText),
+    second: Number(secondText),
+  };
+  const instant = new Date(0);
+  instant.setUTCFullYear(expected.year, expected.month - 1, expected.day);
+  instant.setUTCHours(expected.hour, expected.minute, expected.second, 0);
+  return (
+    instant.getUTCFullYear() === expected.year &&
+    instant.getUTCMonth() === expected.month - 1 &&
+    instant.getUTCDate() === expected.day &&
+    instant.getUTCHours() === expected.hour &&
+    instant.getUTCMinutes() === expected.minute &&
+    instant.getUTCSeconds() === expected.second
+  );
+}
 
 export const uuidV7Schema = z
   .string()
@@ -54,6 +92,10 @@ export const utcInstantSchema = z
   .string()
   .regex(UTC_INSTANT_PATTERN, "Expected an RFC 3339 UTC instant ending in Z")
   .refine((value) => Number.isFinite(Date.parse(value)), "Invalid UTC instant")
+  .refine(
+    hasNormalizedUtcComponents,
+    "UTC instant contains an impossible date or time",
+  )
   .describe("RFC 3339 UTC instant");
 
 export const localDateSchema = z
