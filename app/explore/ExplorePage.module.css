@@ -459,6 +459,10 @@
   line-height: 1.55;
 }
 
+.globeLoader[data-state="error"] {
+  border-color: rgba(255, 106, 82, 0.48);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .mapLink:hover,
   .modeControl button:hover,

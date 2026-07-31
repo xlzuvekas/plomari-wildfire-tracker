@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   useCallback,
@@ -29,25 +28,68 @@ import {
   type GlobalDiscoveryClient,
   type GlobalDiscoveryControllerSnapshot,
 } from "../../lib/firewatch/v3";
+import type { ExploreGlobeProps } from "./ExploreGlobe";
 
 import styles from "./ExplorePage.module.css";
 
-const DynamicExploreGlobe = dynamic(
-  () => import("./ExploreGlobe").then(({ ExploreGlobe }) => ExploreGlobe),
-  {
-    ssr: false,
-    loading: () => (
-      <section className={styles.globeLoader} aria-label="Global candidate map">
-        <p className={styles.eyebrow}>EXPLORE // AGGREGATE GLOBE</p>
-        <h2>Loading globe renderer</h2>
-        <p role="status">
-          The keyboard-accessible candidate list remains available while the
-          map code loads.
-        </p>
-      </section>
-    ),
-  },
-);
+type ExploreGlobeModule = typeof import("./ExploreGlobe");
+type ExploreGlobeModuleLoader = () => Promise<ExploreGlobeModule>;
+type ExploreGlobeLoadState =
+  | Readonly<{ status: "loading" }>
+  | Readonly<{
+      status: "ready";
+      Component: ExploreGlobeModule["ExploreGlobe"];
+    }>
+  | Readonly<{ status: "error" }>;
+
+export async function loadExploreGlobeModule(
+  loader: ExploreGlobeModuleLoader = () => import("./ExploreGlobe"),
+): Promise<Exclude<ExploreGlobeLoadState, { status: "loading" }>> {
+  try {
+    const globeModule = await loader();
+    return { status: "ready", Component: globeModule.ExploreGlobe };
+  } catch {
+    return { status: "error" };
+  }
+}
+
+function LazyExploreGlobe(props: ExploreGlobeProps) {
+  const [loadState, setLoadState] = useState<ExploreGlobeLoadState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let disposed = false;
+    void loadExploreGlobeModule().then((nextState) => {
+      if (!disposed) setLoadState(nextState);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  if (loadState.status === "ready") {
+    const Globe = loadState.Component;
+    return <Globe {...props} />;
+  }
+
+  const failed = loadState.status === "error";
+  return (
+    <section
+      className={styles.globeLoader}
+      data-state={failed ? "error" : "loading"}
+      aria-label="Global candidate map"
+    >
+      <p className={styles.eyebrow}>EXPLORE // AGGREGATE GLOBE</p>
+      <h2>{failed ? "Globe renderer unavailable" : "Loading globe renderer"}</h2>
+      <p role="status">
+        {failed
+          ? "The map code could not load. The authoritative, keyboard-accessible candidate list remains available below."
+          : "The keyboard-accessible candidate list remains available while the map code loads."}
+      </p>
+    </section>
+  );
+}
 
 type ExplorePageClientProps = Readonly<{
   fixtureMode: boolean;
@@ -601,7 +643,7 @@ export function ExplorePageClient({
           aria-label="Discovery results"
         >
           {mode === "explore" ? (
-            <DynamicExploreGlobe
+            <LazyExploreGlobe
               requestStatus={globeRequestStatus}
               response={globeResponse}
               selected={selected}

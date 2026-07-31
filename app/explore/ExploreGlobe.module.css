@@ -193,6 +193,12 @@
   transform: scale(0.96);
 }
 
+/* MapLibre toggles this class when a DOM marker is behind the globe. */
+.shell :global(.maplibregl-marker-covered) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .footer {
   display: grid;
   gap: 0.25rem;

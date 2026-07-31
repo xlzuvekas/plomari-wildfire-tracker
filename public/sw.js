@@ -10,9 +10,10 @@
  *     capped so the cache cannot grow without bound.
  */
 
-// v3 keeps cache writes off the response-critical path and retires earlier
-// caches whose misses could delay tiles while Cache Storage was updated.
-const VERSION = "firewatch-v3";
+// v4 adds the version-pinned MapLibre worker modules required by the Explore
+// globe and retires earlier caches. Cache writes stay off the response-critical
+// path so Cache Storage bookkeeping cannot delay tiles.
+const VERSION = "firewatch-v4";
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 const DATA_CACHE = `${VERSION}-data`;
@@ -21,6 +22,11 @@ const SHELL_LIMIT = 8;
 const ASSET_LIMIT = 80;
 const TILE_LIMIT = 400;
 const DATA_LIMIT = 24;
+const MAPLIBRE_ASSET_PREFIX = "/vendor/maplibre-gl/6.1.0/";
+const MAPLIBRE_ASSETS = [
+  `${MAPLIBRE_ASSET_PREFIX}maplibre-gl-worker.mjs`,
+  `${MAPLIBRE_ASSET_PREFIX}maplibre-gl-shared.mjs`,
+];
 const PUBLIC_DATA_PATHS = new Set([
   "/api/wind",
   "/api/updates",
@@ -38,9 +44,10 @@ const TILE_HOSTS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches
-      .open(SHELL_CACHE)
-      .then((cache) => cache.addAll(["/"]))
+    Promise.all([
+      caches.open(SHELL_CACHE).then((cache) => cache.addAll(["/"])),
+      caches.open(ASSET_CACHE).then((cache) => cache.addAll(MAPLIBRE_ASSETS)),
+    ])
       .then(() => self.skipWaiting()),
   );
 });
@@ -183,6 +190,10 @@ self.addEventListener("fetch", (event) => {
       return;
     }
     if (url.pathname.startsWith("/_next/static/")) {
+      respondCacheFirst(event, request, ASSET_CACHE, ASSET_LIMIT);
+      return;
+    }
+    if (url.pathname.startsWith(MAPLIBRE_ASSET_PREFIX)) {
       respondCacheFirst(event, request, ASSET_CACHE, ASSET_LIMIT);
       return;
     }

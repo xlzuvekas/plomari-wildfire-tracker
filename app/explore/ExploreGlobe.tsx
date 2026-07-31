@@ -22,6 +22,8 @@ import styles from "./ExploreGlobe.module.css";
 const CANDIDATE_SOURCE_ID = "firewatch-aggregate-candidate-cells";
 const CANDIDATE_FILL_LAYER_ID = "firewatch-aggregate-candidate-fill";
 const CANDIDATE_LINE_LAYER_ID = "firewatch-aggregate-candidate-outline";
+export const MAPLIBRE_WORKER_URL =
+  "/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs";
 const ESRI_ATTRIBUTION =
   "Tiles © Esri, Maxar, Earthstar Geographics, and the GIS User Community";
 
@@ -94,7 +96,7 @@ const WORLD_IMAGERY_STYLE = {
 
 type RequestStatus = "loading" | "ready" | "error";
 
-type ExploreGlobeProps = Readonly<{
+export type ExploreGlobeProps = Readonly<{
   requestStatus: RequestStatus;
   response: ExploreDiscoveryResponse | null;
   selected: DiscoverySelection | null;
@@ -169,6 +171,7 @@ export function ExploreGlobe({
       try {
         const maplibre = await import("maplibre-gl");
         if (disposed) return;
+        maplibre.setWorkerUrl(MAPLIBRE_WORKER_URL);
         maplibreRef.current = maplibre;
         const map = new maplibre.Map({
           container,
@@ -275,7 +278,11 @@ export function ExploreGlobe({
           cell: candidate.displayArea.cell,
         });
       });
-      return new maplibre.Marker({ element: button, anchor: "center" })
+      return new maplibre.Marker({
+        element: button,
+        anchor: "center",
+        opacityWhenCovered: 0,
+      })
         .setLngLat(markerModel.center)
         .addTo(map);
     });
@@ -297,7 +304,7 @@ export function ExploreGlobe({
       center: candidateMapMarker(selectedCandidate).center,
       zoom: Math.max(map.getZoom(), 4),
     });
-  }, [response, selectionId]);
+  }, [mapRevision, response, selectionId]);
 
   return (
     <section className={styles.shell} aria-labelledby={headingId}>

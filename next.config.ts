@@ -46,10 +46,35 @@ export const SECURITY_HEADERS = [
   },
 ];
 
+const IMMUTABLE_MODULE_HEADERS = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=31536000, immutable",
+  },
+  {
+    key: "Content-Type",
+    value: "application/javascript; charset=utf-8",
+  },
+];
+
+export const MAPLIBRE_WORKER_HEADER_RULES = [
+  {
+    source:
+      "/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs",
+    headers: IMMUTABLE_MODULE_HEADERS,
+  },
+  {
+    source:
+      "/vendor/maplibre-gl/6.1.0/maplibre-gl-shared.mjs",
+    headers: IMMUTABLE_MODULE_HEADERS,
+  },
+];
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
     return [
+      ...MAPLIBRE_WORKER_HEADER_RULES,
       {
         source: "/(.*)",
         headers: SECURITY_HEADERS,

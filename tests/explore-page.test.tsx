@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ExplorePageClient } from "../app/explore/ExplorePageClient";
+import {
+  ExplorePageClient,
+  loadExploreGlobeModule,
+} from "../app/explore/ExplorePageClient";
 import { resolveExplorePageOptions } from "../app/explore/explore-page-options";
 
 const exploreClientSource = readFileSync(
@@ -93,7 +96,7 @@ describe("Explore route shell", () => {
   });
 
   it("loads the MapLibre renderer only for Explore and keeps provider calls out of the browser", () => {
-    expect(exploreClientSource).toContain("dynamic(");
+    expect(exploreClientSource).toContain('() => import("./ExploreGlobe")');
     expect(exploreClientSource).toContain('mode === "explore" ? (');
     expect(exploreGlobeSource).toContain('await import("maplibre-gl")');
     expect(exploreGlobeSource).not.toMatch(/leaflet|FIRMS_MAP_KEY/iu);
@@ -102,6 +105,47 @@ describe("Explore route shell", () => {
     );
     expect(exploreGlobeSource).toContain("aggregate display-cell bounds");
     expect(exploreGlobeSource).toContain("failIfMajorPerformanceCaveat");
+  });
+
+  it("contains a rejected globe chunk without replacing the candidate list", async () => {
+    await expect(
+      loadExploreGlobeModule(async () => {
+        throw new Error("chunk unavailable");
+      }),
+    ).resolves.toEqual({ status: "error" });
+    expect(exploreClientSource).toContain(
+      "The authoritative, keyboard-accessible candidate list remains available below.",
+    );
+    expect(exploreClientSource).toMatch(
+      /<LazyExploreGlobe[\s\S]*<DiscoveryPanel/u,
+    );
+  });
+
+  it("configures the versioned worker before map construction and retries a pre-load selection when ready", () => {
+    const importIndex = exploreGlobeSource.indexOf(
+      'await import("maplibre-gl")',
+    );
+    const workerIndex = exploreGlobeSource.indexOf(
+      "maplibre.setWorkerUrl(MAPLIBRE_WORKER_URL)",
+    );
+    const mapIndex = exploreGlobeSource.indexOf("new maplibre.Map({");
+
+    expect(importIndex).toBeGreaterThanOrEqual(0);
+    expect(workerIndex).toBeGreaterThan(importIndex);
+    expect(mapIndex).toBeGreaterThan(workerIndex);
+    expect(exploreGlobeSource).toContain(
+      '"/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs"',
+    );
+    expect(exploreGlobeSource).toContain(
+      "}, [mapRevision, response, selectionId]);",
+    );
+  });
+
+  it("hides covered globe markers from pointer and keyboard interaction", () => {
+    expect(exploreGlobeSource).toContain("opacityWhenCovered: 0");
+    expect(exploreGlobeStyles).toMatch(
+      /:global\(\.maplibregl-marker-covered\)\s*\{[^}]*visibility:\s*hidden;[^}]*pointer-events:\s*none;/u,
+    );
   });
 
   it("preserves a useful mobile viewport, touch targets, resize handling, and visible credit", () => {
