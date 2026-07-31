@@ -105,14 +105,24 @@ select ok(
      on revision.collection_target_id = target.id
    join core.sources as source on source.id = target.source_id
    where source.slug = 'nasa-firms'
-     and target.target_key = 'global-discovery')
+     and target.public_id = '018f0000-0000-7000-8000-000000000401'
+     and target.target_key = 'global-discovery'
+     and revision.public_id = '018f0000-0000-7000-8000-000000000501'
+     and revision.version_no = 1)
   and not exists (
     select 1
     from core.adapter_releases as adapter
     join core.sources as source on source.id = adapter.source_id
+    left join ingest.adapter_release_state as adapter_state
+      on adapter_state.adapter_release_id = adapter.id
     where source.slug = 'nasa-firms'
+      and (
+        adapter_state.adapter_release_id is null
+        or adapter_state.enabled
+        or adapter_state.retired_at is not null
+      )
   ),
-  'FIRMS source, path-secret endpoint, and target are restricted and inert without an adapter'
+  'FIRMS source, path-secret endpoint, foundation target revision, and adapters remain inert'
 );
 
 select ok(
