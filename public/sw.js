@@ -17,7 +17,7 @@ const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 const DATA_CACHE = `${VERSION}-data`;
 const TILE_CACHE = `${VERSION}-tiles`;
-const SHELL_LIMIT = 1;
+const SHELL_LIMIT = 8;
 const ASSET_LIMIT = 80;
 const TILE_LIMIT = 400;
 const DATA_LIMIT = 24;
@@ -187,11 +187,11 @@ self.addEventListener("fetch", (event) => {
       return;
     }
     if (request.mode === "navigate") {
-      // Cache successful navigations under one key so query variants cannot
-      // grow the shell cache without bound. The actual request still goes to
-      // the network whenever connectivity is available.
+      // Keep the complete navigation request as the key. Search parameters
+      // can carry server-rendered coarse-area intent, so one area's HTML must
+      // never replay for another area while offline.
       event.respondWith(
-        networkFirst(request, SHELL_CACHE, SHELL_LIMIT, false, "/"),
+        networkFirst(request, SHELL_CACHE, SHELL_LIMIT),
       );
     }
     return;
