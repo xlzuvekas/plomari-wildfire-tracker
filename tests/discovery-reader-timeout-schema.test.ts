@@ -16,6 +16,10 @@ const rollback = readFileSync(
   ),
   "utf8",
 );
+const continuousIntegration = readFileSync(
+  new URL("../.github/workflows/ci.yml", import.meta.url),
+  "utf8",
+);
 
 describe("discovery reader transaction timeout", () => {
   it("sets the role boundary before RPC execution and clears weaker function settings", () => {
@@ -42,5 +46,13 @@ describe("discovery reader transaction timeout", () => {
     expect(rollback).not.toMatch(/\b(?:delete|drop|truncate)\b/u);
     expect(rollback).toContain("notify pgrst, 'reload config'");
     expect(rollback).toContain("notify pgrst, 'reload schema'");
+  });
+
+  it("starts PostgREST before executing the real HTTP timeout probe in CI", () => {
+    expect(continuousIntegration).toContain("- run: supabase start");
+    expect(continuousIntegration).not.toContain("- run: supabase db start");
+    expect(continuousIntegration.indexOf("- run: supabase start")).toBeLessThan(
+      continuousIntegration.indexOf("- run: npm run test:discovery-timeout"),
+    );
   });
 });

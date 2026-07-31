@@ -41,7 +41,9 @@ jobs:
         with:
           version: 2.101.0
           github-token: ${{ github.token }}
-      - run: supabase db start
+      # The discovery timeout probe calls the real local PostgREST endpoint;
+      # database-only startup intentionally omits API_URL and cannot verify it.
+      - run: supabase start
       - run: >-
           supabase db lint --local --schema core,ingest,truth,api
           --level error --fail-on error
