@@ -9,7 +9,7 @@ const FIRMS_AREA_SAFE_URL =
   "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
 const FIRMS_MAP_KEY_PATH_SEGMENT = /^[A-Za-z0-9._~-]{8,512}$/u;
 const FIRMS_AREA_VALUE =
-  /^-?(?:0|[1-9]\d*)(?:\.\d+)?,-?(?:0|[1-9]\d*)(?:\.\d+)?,-?(?:0|[1-9]\d*)(?:\.\d+)?,-?(?:0|[1-9]\d*)(?:\.\d+)?$/u;
+  /^-?(?:0|[1-9]\d*)\.\d{6},-?(?:0|[1-9]\d*)\.\d{6},-?(?:0|[1-9]\d*)\.\d{6},-?(?:0|[1-9]\d*)\.\d{6}$/u;
 const FIRMS_CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const FIRMS_PRODUCTS = new Set([
   "VIIRS_NOAA20_NRT",
@@ -121,6 +121,7 @@ const SAFE_KEYS = Object.freeze({
     "cache_mode",
     "collection",
     "cursor_kind",
+    "issued_at",
     "operation",
     "page",
     "page_size",
@@ -172,8 +173,17 @@ export type HttpResponseEvidence = Readonly<{
   safeMetadata: SafeMetadata;
 }>;
 
+/** Durable raw-response occurrence returned by ledgers that expose replay identity. */
+export type HttpResponseOccurrence = Readonly<{
+  rawObjectId: string;
+  httpExchangeId: string;
+  runId: string;
+  contentSha256: string;
+  retrievedAt: string;
+}>;
+
 export type HttpTransportErrorEvidence = Readonly<{
-  errorClass: "timeout" | "network";
+  errorClass: "timeout" | "network" | "upstream";
   errorDetailSafe: string;
   safeMetadata: SafeMetadata;
 }>;
@@ -192,7 +202,7 @@ export interface HttpEvidenceLedger {
   finishResponse(
     reference: HttpExchangeReference,
     response: HttpResponseEvidence,
-  ): Promise<void>;
+  ): Promise<HttpResponseOccurrence | void>;
   finishTransportError(
     reference: HttpExchangeReference,
     error: HttpTransportErrorEvidence,
@@ -208,6 +218,61 @@ export type RecordedFetchOptions = Readonly<{
   safeResponseHeaderNames?: readonly string[];
   responseMetadataSafe?: SafeMetadata;
 }>;
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("Canonical JSON cannot contain non-finite numbers.");
+    }
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, entry]) => [key, canonicalJsonValue(entry)]),
+    );
+  }
+  throw new TypeError("Canonical JSON contains an unsupported value.");
+}
+
+function hexadecimal(bytes: Uint8Array) {
+  return [...bytes]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function contentSha256(value: Uint8Array | string) {
+  const source =
+    typeof value === "string" ? new TextEncoder().encode(value) : value;
+  const bytes = new Uint8Array(source.byteLength);
+  bytes.set(source);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return hexadecimal(new Uint8Array(digest));
+}
+
+/** Matches the canonical request fingerprint stored by the HTTP exchange ledger. */
+export async function requestEvidenceFingerprintSha256(
+  request: HttpRequestEvidence,
+) {
+  const canonical = JSON.stringify(canonicalJsonValue({
+    method: request.method,
+    url: request.requestUrlSafe,
+    query: request.requestQuerySafe,
+    headers: request.requestHeadersSafe,
+    metadata: request.requestMetadataSafe,
+    body: null,
+  }));
+  return contentSha256(canonical);
+}
 
 export class EvidencePersistenceError extends Error {
   constructor(
@@ -227,6 +292,13 @@ export class CredentialPathTransportError extends Error {
   constructor() {
     super("Credential-bearing upstream request failed before an HTTP response.");
     this.name = "CredentialPathTransportError";
+  }
+}
+
+export class CredentialPathResponseError extends Error {
+  constructor() {
+    super("Credential-bearing upstream response was withheld.");
+    this.name = "CredentialPathResponseError";
   }
 }
 
@@ -388,9 +460,25 @@ function validCalendarDate(value: string) {
     instant.toISOString().slice(0, 10) === value;
 }
 
+function validCanonicalUtcInstant(value: unknown) {
+  if (typeof value !== "string") return false;
+  const instant = new Date(value);
+  return Number.isFinite(instant.getTime()) && instant.toISOString() === value;
+}
+
 function validFirmsArea(value: string) {
   if (!FIRMS_AREA_VALUE.test(value)) return false;
-  const coordinates = value.split(",").map(Number);
+  const coordinateValues = value.split(",");
+  if (
+    coordinateValues.some(
+      (coordinate) =>
+        coordinate === "-0.000000" ||
+        Number(coordinate).toFixed(6) !== coordinate,
+    )
+  ) {
+    return false;
+  }
+  const coordinates = coordinateValues.map(Number);
   const [west, south, east, north] = coordinates;
   return coordinates.length === 4 &&
     west !== undefined &&
@@ -420,6 +508,7 @@ function validateFirmsAreaCredentialPath(
   const product = evidence.requestQuerySafe.product;
   const headerKeys = Object.keys(evidence.requestHeadersSafe).sort();
   const metadataKeys = Object.keys(evidence.requestMetadataSafe).sort();
+  const issuedAt = evidence.requestMetadataSafe.issued_at;
   if (
     requestUrlSafe.href !== FIRMS_AREA_SAFE_URL ||
     actualUrl.origin !== requestUrlSafe.origin ||
@@ -435,7 +524,8 @@ function validateFirmsAreaCredentialPath(
     !FIRMS_PRODUCTS.has(product) ||
     headerKeys.join(",") !== "accept" ||
     evidence.requestHeadersSafe.accept !== "text/csv" ||
-    metadataKeys.join(",") !== "operation,product,scope" ||
+    metadataKeys.join(",") !== "issued_at,operation,product,scope" ||
+    !validCanonicalUtcInstant(issuedAt) ||
     evidence.requestMetadataSafe.operation !== "firms-area-csv" ||
     evidence.requestMetadataSafe.product !== product ||
     evidence.requestMetadataSafe.scope !== "geographic-area"
@@ -485,6 +575,7 @@ function validateFirmsAreaCredentialPath(
   ) {
     throw new TypeError("FIRMS credential-path evidence is invalid or unsafe.");
   }
+  return credential;
 }
 
 function validateFirmsAreaNetworkEnvelope(
@@ -535,7 +626,7 @@ function validateRequestTarget(
   requestUrlSafe: URL,
   evidence: HttpRequestEvidence,
   redaction: CredentialPathRedaction | undefined,
-) {
+): string | null {
   if (redaction === undefined) {
     if (
       `${actualUrl.origin}${actualUrl.pathname}` !==
@@ -545,12 +636,12 @@ function validateRequestTarget(
       throw new TypeError("Evidence request URL must be credential-free HTTPS.");
     }
     validateActualQuery(actualUrl, evidence.requestQuerySafe);
-    return;
+    return null;
   }
   if (redaction.kind !== "firms-area-v1") {
     throw new TypeError("Credential-path redaction mode is invalid.");
   }
-  validateFirmsAreaCredentialPath(actualUrl, requestUrlSafe, evidence);
+  return validateFirmsAreaCredentialPath(actualUrl, requestUrlSafe, evidence);
 }
 
 function validateRequestEvidence(
@@ -558,7 +649,7 @@ function validateRequestEvidence(
   init: RequestInit | undefined,
   evidence: HttpRequestEvidence,
   credentialPathRedaction: CredentialPathRedaction | undefined,
-) {
+): string | null {
   if (!/^[A-Z][A-Z0-9_-]{0,31}$/u.test(evidence.method)) {
     throw new TypeError("Evidence request method is invalid.");
   }
@@ -614,7 +705,7 @@ function validateRequestEvidence(
     SAFE_KEYS.requestMetadata,
     MAX_SAFE_METADATA_BYTES,
   );
-  validateRequestTarget(
+  return validateRequestTarget(
     actualUrl,
     requestUrlSafe,
     evidence,
@@ -683,12 +774,165 @@ function classifyTransportError(error: unknown): HttpTransportErrorEvidence {
   });
 }
 
+const CREDENTIAL_PATH_RESPONSE_DETAIL =
+  "Credential-bearing upstream response was withheld.";
+
+type CredentialPathTerminalReason =
+  | "credential_exposure"
+  | "credential_redirect"
+  | "response_capture_failed"
+  | "response_validation_failed";
+
+function credentialPathTerminalEvidence(
+  reason: CredentialPathTerminalReason,
+): HttpTransportErrorEvidence {
+  return Object.freeze({
+    errorClass: "upstream" as const,
+    errorDetailSafe: CREDENTIAL_PATH_RESPONSE_DETAIL,
+    safeMetadata: Object.freeze({ reason, terminal: true }),
+  });
+}
+
+async function finishCredentialPathTerminal(
+  ledger: HttpEvidenceLedger,
+  reference: HttpExchangeReference,
+  reason: CredentialPathTerminalReason,
+): Promise<never> {
+  try {
+    await ledger.finishTransportError(
+      reference,
+      credentialPathTerminalEvidence(reason),
+    );
+  } catch {
+    throw new EvidencePersistenceError("finish_transport_error");
+  }
+  throw new CredentialPathResponseError();
+}
+
+function percentDecodedOnce(value: string) {
+  return value.replace(/%([0-9a-f]{2})/giu, (_match, hexadecimal: string) =>
+    String.fromCharCode(Number.parseInt(hexadecimal, 16))
+  );
+}
+
+function decodedCodePoint(
+  match: string,
+  value: string,
+  radix: 10 | 16,
+) {
+  const codePoint = Number.parseInt(value, radix);
+  return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match;
+}
+
+function escapedTextDecodedOnce(value: string) {
+  return percentDecodedOnce(value)
+    .replace(/\\u([0-9a-f]{4})/giu, (_match, hexadecimal: string) =>
+      String.fromCharCode(Number.parseInt(hexadecimal, 16))
+    )
+    .replace(/&#x([0-9a-f]{1,6});/giu, (match, hexadecimal: string) =>
+      decodedCodePoint(match, hexadecimal, 16)
+    )
+    .replace(/&#([0-9]{1,7});/gu, (match, decimal: string) =>
+      decodedCodePoint(match, decimal, 10)
+    );
+}
+
+function base64Ascii(value: string) {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const bytes = new TextEncoder().encode(value);
+  let encoded = "";
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index] ?? 0;
+    const second = bytes[index + 1] ?? 0;
+    const third = bytes[index + 2] ?? 0;
+    const combined = (first << 16) | (second << 8) | third;
+    encoded += alphabet[(combined >> 18) & 63] ?? "";
+    encoded += alphabet[(combined >> 12) & 63] ?? "";
+    encoded += index + 1 < bytes.length
+      ? (alphabet[(combined >> 6) & 63] ?? "")
+      : "=";
+    encoded += index + 2 < bytes.length ? (alphabet[combined & 63] ?? "") : "=";
+  }
+  return encoded;
+}
+
+function credentialEncodedVariants(credential: string) {
+  const bytes = new TextEncoder().encode(credential);
+  const hexadecimal = [...bytes]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const base64 = base64Ascii(credential);
+  return Object.freeze([
+    base64,
+    base64.replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, ""),
+    hexadecimal,
+    hexadecimal.toUpperCase(),
+  ]);
+}
+
+function textContainsCredential(value: string, credential: string) {
+  if (value.includes(credential)) return true;
+  if (
+    credentialEncodedVariants(credential).some(
+      (variant) => variant.length > 0 && value.includes(variant),
+    )
+  ) {
+    return true;
+  }
+  let decoded = value;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const next = escapedTextDecodedOnce(decoded);
+    if (next.includes(credential)) return true;
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return false;
+}
+
+function bytesContainCredential(body: Uint8Array, credential: string) {
+  const credentialBytes = new TextEncoder().encode(credential);
+  if (credentialBytes.byteLength === 0 || body.byteLength < credentialBytes.byteLength) {
+    return false;
+  }
+  const finalStart = body.byteLength - credentialBytes.byteLength;
+  for (let start = 0; start <= finalStart; start += 1) {
+    let matches = true;
+    for (let offset = 0; offset < credentialBytes.byteLength; offset += 1) {
+      if (body[start + offset] !== credentialBytes[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return true;
+  }
+  return false;
+}
+
+function responseContainsCredential(
+  response: Response,
+  body: Uint8Array,
+  credential: string,
+) {
+  if (bytesContainCredential(body, credential)) return true;
+  if (textContainsCredential(response.statusText, credential)) return true;
+  for (const [name, value] of response.headers) {
+    if (
+      textContainsCredential(name, credential.toLowerCase()) ||
+      textContainsCredential(value, credential)
+    ) {
+      return true;
+    }
+  }
+  return textContainsCredential(new TextDecoder().decode(body), credential);
+}
+
 /**
  * Fetches only after request issuance is durable, and returns a response only
  * after exact application-visible response bytes (including error/empty
- * bodies) are durable. Redirects must remain manual; a caller that follows a
- * validated 3xx target must issue that target through a new recordedFetch call.
- * Callers must provide credential-redacted request evidence explicitly.
+ * bodies) are durable. Redirects must remain manual. Credential-path redirects
+ * are always withheld and terminalized without persisting their response
+ * material. Callers must provide credential-redacted request evidence explicitly.
  */
 export async function recordedFetch(
   input: RequestInfo | URL,
@@ -700,7 +944,7 @@ export async function recordedFetch(
       "Evidence-recording fetches require manual redirect handling.",
     );
   }
-  validateRequestEvidence(
+  const credentialPathValue = validateRequestEvidence(
     input,
     init,
     options.requestEvidence,
@@ -749,20 +993,56 @@ export async function recordedFetch(
   try {
     body = await readBoundedBytes(response, options.maximumResponseBytes);
   } catch (error) {
+    if (credentialPathValue !== null) {
+      return finishCredentialPathTerminal(
+        options.ledger,
+        reference,
+        "response_capture_failed",
+      );
+    }
     throw new EvidencePersistenceError(
       "capture_response",
-      options.credentialPathRedaction === undefined ? { cause: error } : undefined,
+      { cause: error },
     );
+  }
+
+  if (credentialPathValue !== null) {
+    const credentialExposure = responseContainsCredential(
+      response,
+      body,
+      credentialPathValue,
+    );
+    if (credentialExposure || (response.status >= 300 && response.status <= 399)) {
+      return finishCredentialPathTerminal(
+        options.ledger,
+        reference,
+        credentialExposure ? "credential_exposure" : "credential_redirect",
+      );
+    }
+  }
+
+  let capturedSafeHeaders: SafeHeaders;
+  try {
+    capturedSafeHeaders = safeResponseHeaders(
+      response.headers,
+      allowedResponseHeaders,
+    );
+  } catch (error) {
+    if (credentialPathValue !== null) {
+      return finishCredentialPathTerminal(
+        options.ledger,
+        reference,
+        "response_validation_failed",
+      );
+    }
+    throw error;
   }
 
   try {
     await options.ledger.finishResponse(reference, {
       status: response.status,
       body,
-      safeHeaders: safeResponseHeaders(
-        response.headers,
-        allowedResponseHeaders,
-      ),
+      safeHeaders: capturedSafeHeaders,
       safeMetadata: responseMetadataSafe,
     });
   } catch (error) {

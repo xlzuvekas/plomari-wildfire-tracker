@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CredentialPathResponseError,
   CredentialPathTransportError,
   recordedFetch,
   type HttpEvidenceLedger,
@@ -20,6 +21,7 @@ const REFERENCE = Object.freeze({
   exchangeId: "41",
   runId: "17",
 }) satisfies HttpExchangeReference;
+const FIRMS_ISSUED_AT = "2026-07-30T12:00:00.000Z";
 
 const MANUAL_REDIRECT = Object.freeze({
   redirect: "manual" as const,
@@ -56,6 +58,54 @@ function requestFingerprint(request: HttpRequestEvidence) {
       }),
     )
     .digest("hex");
+}
+
+type CredentialEchoSurface =
+  | "body"
+  | "status-text"
+  | "location"
+  | "header-name"
+  | "header-value"
+  | "percent-encoded"
+  | "malformed-binary";
+
+function credentialEchoResponse(
+  surface: CredentialEchoSurface,
+  mapKey: string,
+  requestUrl: string,
+) {
+  if (surface === "status-text") {
+    return new Response(null, { status: 502, statusText: mapKey });
+  }
+  if (surface === "location") {
+    return new Response(null, {
+      status: 302,
+      headers: { location: requestUrl },
+    });
+  }
+  if (surface === "header-name") {
+    return new Response(null, { status: 502, headers: { [mapKey]: "echo" } });
+  }
+  if (surface === "header-value") {
+    return new Response(null, {
+      status: 502,
+      headers: { "x-request-id": mapKey },
+    });
+  }
+  if (surface === "percent-encoded") {
+    const encoded = [...new TextEncoder().encode(mapKey)]
+      .map((byte) => `%${byte.toString(16).padStart(2, "0")}`)
+      .join("");
+    return new Response(encoded, { status: 502 });
+  }
+  if (surface === "malformed-binary") {
+    const keyBytes = new TextEncoder().encode(mapKey);
+    const bytes = new Uint8Array(keyBytes.byteLength + 3);
+    bytes.set([0xff, 0xfe, 0x80]);
+    bytes.set(keyBytes, 3);
+    return new Response(bytes, { status: 502 });
+  }
+  return new Response(`Upstream echoed ${mapKey}`, { status: 502 });
 }
 
 describe("recordedFetch", () => {
@@ -153,12 +203,14 @@ describe("recordedFetch", () => {
       product: "VIIRS_NOAA20_NRT",
       area,
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const second = firmsAreaRequest({
       mapKey: secondKey,
       product: "VIIRS_NOAA20_NRT",
       area,
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const issued: HttpRequestEvidence[] = [];
     const evidenceLedger = ledger({
@@ -192,13 +244,170 @@ describe("recordedFetch", () => {
       "https://firms.modaps.eosdis.nasa.gov/api/area/csv",
     );
     expect(issued[0]?.requestQuerySafe).toEqual({
-      area: "26.2,38.85,26.6,39.15",
+      area: "26.200000,38.850000,26.600000,39.150000",
       date: "rolling:2",
       product: "VIIRS_NOAA20_NRT",
     });
     expect(requestFingerprint(issued[0] as HttpRequestEvidence)).toBe(
       requestFingerprint(issued[1] as HttpRequestEvidence),
     );
+  });
+
+  it.each([
+    "body",
+    "status-text",
+    "location",
+    "header-name",
+    "header-value",
+    "percent-encoded",
+    "malformed-binary",
+  ] as const)(
+    "withholds a credential echoed through the response %s",
+    async (surface) => {
+      const mapKey = "firms-test-key-0000000000000001";
+      const request = firmsAreaRequest({
+        mapKey,
+        product: "VIIRS_NOAA20_NRT",
+        area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+        date: { kind: "rolling", days: 1 },
+        issuedAt: FIRMS_ISSUED_AT,
+      });
+      const issued: HttpRequestEvidence[] = [];
+      const terminalErrors: HttpTransportErrorEvidence[] = [];
+      const capturedResponses: HttpResponseEvidence[] = [];
+      const evidenceLedger = ledger({
+        issue: vi.fn(async (evidence) => {
+          issued.push(evidence);
+          return REFERENCE;
+        }),
+        finishResponse: vi.fn(async (_reference, evidence) => {
+          capturedResponses.push(evidence);
+        }),
+        finishTransportError: vi.fn(async (_reference, evidence) => {
+          terminalErrors.push(evidence);
+        }),
+      });
+
+      let thrown: unknown;
+      try {
+        await recordedFetch(request.url, request.requestInit, {
+          fetchImpl: vi.fn(async () =>
+            credentialEchoResponse(surface, mapKey, request.url)
+          ),
+          ledger: evidenceLedger,
+          requestEvidence: firmsAreaRequestEvidence(request),
+          credentialPathRedaction: request.credentialPathRedaction,
+          maximumResponseBytes: 4_096,
+          safeResponseHeaderNames: ["x-request-id"],
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(CredentialPathResponseError);
+      expect(String(thrown)).not.toContain(mapKey);
+      expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+      expect(capturedResponses).toEqual([]);
+      expect(terminalErrors).toEqual([
+        {
+          errorClass: "upstream",
+          errorDetailSafe: "Credential-bearing upstream response was withheld.",
+          safeMetadata: {
+            reason: "credential_exposure",
+            terminal: true,
+          },
+        },
+      ]);
+      expect(
+        JSON.stringify({ issued, terminalErrors, capturedResponses }),
+      ).not.toContain(mapKey);
+    },
+  );
+
+  it("withholds even a clean credential-path redirect", async () => {
+    const mapKey = "firms-test-key-0000000000000001";
+    const request = firmsAreaRequest({
+      mapKey,
+      product: "VIIRS_NOAA20_NRT",
+      area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+      date: { kind: "rolling", days: 1 },
+      issuedAt: FIRMS_ISSUED_AT,
+    });
+    const terminalErrors: HttpTransportErrorEvidence[] = [];
+    const evidenceLedger = ledger({
+      finishTransportError: vi.fn(async (_reference, evidence) => {
+        terminalErrors.push(evidence);
+      }),
+    });
+
+    await expect(
+      recordedFetch(request.url, request.requestInit, {
+        fetchImpl: vi.fn(async () =>
+          new Response(null, {
+            status: 307,
+            headers: {
+              location: "https://firms.modaps.eosdis.nasa.gov/maintenance",
+            },
+          })
+        ),
+        ledger: evidenceLedger,
+        requestEvidence: firmsAreaRequestEvidence(request),
+        credentialPathRedaction: request.credentialPathRedaction,
+        maximumResponseBytes: 1_024,
+      }),
+    ).rejects.toBeInstanceOf(CredentialPathResponseError);
+    expect(evidenceLedger.finishResponse).not.toHaveBeenCalled();
+    expect(terminalErrors).toEqual([
+      {
+        errorClass: "upstream",
+        errorDetailSafe: "Credential-bearing upstream response was withheld.",
+        safeMetadata: { reason: "credential_redirect", terminal: true },
+      },
+    ]);
+  });
+
+  it("persists and returns a clean credential-path response", async () => {
+    const mapKey = "firms-test-key-0000000000000001";
+    const request = firmsAreaRequest({
+      mapKey,
+      product: "VIIRS_NOAA20_NRT",
+      area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+      date: { kind: "rolling", days: 1 },
+      issuedAt: FIRMS_ISSUED_AT,
+    });
+    const capturedResponses: HttpResponseEvidence[] = [];
+    const evidenceLedger = ledger({
+      finishResponse: vi.fn(async (_reference, evidence) => {
+        capturedResponses.push(evidence);
+      }),
+    });
+    const body = "latitude,longitude\n";
+
+    const response = await recordedFetch(request.url, request.requestInit, {
+      fetchImpl: vi.fn(async () =>
+        new Response(body, {
+          status: 200,
+          headers: {
+            "content-type": "text/csv",
+            "x-request-id": "safe-firms-request-id",
+          },
+        })
+      ),
+      ledger: evidenceLedger,
+      requestEvidence: firmsAreaRequestEvidence(request),
+      credentialPathRedaction: request.credentialPathRedaction,
+      maximumResponseBytes: 1_024,
+      safeResponseHeaderNames: ["content-type", "x-request-id"],
+    });
+
+    expect(await response.text()).toBe(body);
+    expect(capturedResponses).toHaveLength(1);
+    expect(capturedResponses[0]?.safeHeaders).toEqual({
+      "content-type": "text/csv",
+      "x-request-id": "safe-firms-request-id",
+    });
+    expect(evidenceLedger.finishTransportError).not.toHaveBeenCalled();
+    expect(JSON.stringify(capturedResponses)).not.toContain(mapKey);
   });
 
   it("includes safe FIRMS product, AOI, and date fields in request identity", () => {
@@ -213,24 +422,28 @@ describe("recordedFetch", () => {
       product: "VIIRS_NOAA20_NRT",
       area,
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const differentProduct = firmsAreaRequest({
       mapKey: "firms-test-key-0000000000000001",
       product: "MODIS_NRT",
       area,
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const differentArea = firmsAreaRequest({
       mapKey: "firms-test-key-0000000000000001",
       product: "VIIRS_NOAA20_NRT",
       area: { ...area, east: 26.7 },
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const differentDate = firmsAreaRequest({
       mapKey: "firms-test-key-0000000000000001",
       product: "VIIRS_NOAA20_NRT",
       area,
       date: { kind: "starting-on", date: "2026-07-29", days: 1 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const baselineFingerprint = requestFingerprint(firmsAreaRequestEvidence(baseline));
 
@@ -252,6 +465,7 @@ describe("recordedFetch", () => {
       product: "VIIRS_NOAA20_NRT",
       area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const evidenceLedger = ledger();
     const fetchImpl = vi.fn<typeof fetch>();
@@ -284,6 +498,42 @@ describe("recordedFetch", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "25.9,38.850000,26.600000,39.150000",
+    "-0.000000,38.850000,26.600000,39.150000",
+    "26.2000000,38.850000,26.600000,39.150000",
+  ])("rejects noncanonical FIRMS area %s before issuance", async (area) => {
+    const request = firmsAreaRequest({
+      mapKey: "firms-test-key-0000000000000001",
+      product: "VIIRS_NOAA20_NRT",
+      area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
+      date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
+    });
+    const evidence = firmsAreaRequestEvidence(request);
+    const evidenceLedger = ledger();
+    const fetchImpl = vi.fn<typeof fetch>();
+    const tamperedUrl = request.url.replace(
+      request.requestQuerySafe.area,
+      area,
+    );
+
+    await expect(
+      recordedFetch(tamperedUrl, request.requestInit, {
+        fetchImpl,
+        ledger: evidenceLedger,
+        requestEvidence: {
+          ...evidence,
+          requestQuerySafe: { ...evidence.requestQuerySafe, area },
+        },
+        credentialPathRedaction: request.credentialPathRedaction,
+        maximumResponseBytes: 1_024,
+      }),
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(evidenceLedger.issue).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects FIRMS method, body, and split-field credential smuggling", async () => {
     const mapKey = "firms-test-key-0000000000000001";
     const request = firmsAreaRequest({
@@ -291,6 +541,7 @@ describe("recordedFetch", () => {
       product: "VIIRS_NOAA20_NRT",
       area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
       date: { kind: "rolling", days: 2 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const evidence = firmsAreaRequestEvidence(request);
     const evidenceLedger = ledger();
@@ -380,6 +631,7 @@ describe("recordedFetch", () => {
       product: "MODIS_NRT",
       area: { west: 26.2, south: 38.85, east: 26.6, north: 39.15 },
       date: { kind: "starting-on", date: "2026-07-29", days: 1 },
+      issuedAt: FIRMS_ISSUED_AT,
     });
     const issued: HttpRequestEvidence[] = [];
     const terminalErrors: HttpTransportErrorEvidence[] = [];

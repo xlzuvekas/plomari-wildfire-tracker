@@ -1,4 +1,14 @@
-import type { HttpRequestEvidence } from "../evidence/recorded-fetch";
+import {
+  contentSha256,
+  recordedFetch,
+  requestEvidenceFingerprintSha256,
+  type HttpExchangeReference,
+  type HttpEvidenceLedger,
+  type HttpRequestEvidence,
+  type HttpResponseEvidence,
+  type HttpResponseOccurrence,
+  type RecordedFetchOptions,
+} from "../evidence/recorded-fetch";
 
 export const FIRMS_AREA_ENDPOINT =
   "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
@@ -57,18 +67,102 @@ export type FirmsAreaRequestDescriptor = Readonly<{
   }>;
 }>;
 
-export type FirmsParseRequest = Readonly<{
+const FIRMS_AREA_PARSE_CONTEXT_BRAND = Symbol("firms-area-parse-context-v1");
+const FIRMS_AREA_PARSE_CONTEXTS = new WeakSet<object>();
+const FIRMS_AREA_REQUEST_CONTEXTS = new WeakMap<
+  FirmsAreaRequestDescriptor,
+  FirmsAreaParseContext
+>();
+const FIRMS_AREA_RESPONSE_BRAND = Symbol("firms-area-response-v1");
+
+type FirmsAreaParseContextBrand = Readonly<{
+  [FIRMS_AREA_PARSE_CONTEXT_BRAND]: true;
+}>;
+
+type FirmsAreaParseContext = Readonly<{
+  kind: "firms-area-parse-context-v1";
   product: FirmsProduct;
   area: FirmsArea;
-  date: FirmsDateSelection;
-  requestedAt: string;
+  issuedAt: string;
+  date:
+    | Readonly<{ kind: "rolling"; dayCount: FirmsDayRange }>
+    | Readonly<{
+        kind: "starting-on";
+        dateFrom: string;
+        dayCount: FirmsDayRange;
+      }>;
+}> & FirmsAreaParseContextBrand;
+
+type FirmsAreaResponseState = Readonly<{
+  context: FirmsAreaParseContext;
+  retrievedAt: string;
+  body: Uint8Array;
+}>;
+
+type FirmsAreaResponseBrand = Readonly<{
+  [FIRMS_AREA_RESPONSE_BRAND]: true;
+}>;
+
+/**
+ * Credential-free response capability produced only by the live recorded
+ * fetch boundary or by validation of one joined durable exchange record.
+ * Request scope and response bytes are held together in private module state.
+ */
+export type FirmsAreaResponse = Readonly<{
+  kind: "firms-area-response-v1";
+  product: FirmsProduct;
+  issuedAt: string;
+  retrievedAt: string;
+}> & FirmsAreaResponseBrand;
+
+const FIRMS_AREA_RESPONSES = new WeakMap<
+  FirmsAreaResponse,
+  FirmsAreaResponseState
+>();
+
+export type FirmsAreaFetchOptions = Readonly<
+  Omit<
+    RecordedFetchOptions,
+    | "credentialPathRedaction"
+    | "ledger"
+    | "maximumResponseBytes"
+    | "requestEvidence"
+  > & {
+    ledger: FirmsAreaEvidenceLedger;
+    maximumResponseBytes?: number;
+  }
+>;
+
+export interface FirmsAreaEvidenceLedger extends HttpEvidenceLedger {
+  finishResponse(
+    reference: HttpExchangeReference,
+    response: HttpResponseEvidence,
+  ): Promise<HttpResponseOccurrence>;
+}
+
+/**
+ * One database-joined immutable exchange/raw-object/blob record. The loader
+ * must obtain these fields from one trusted query; this type is not proof of
+ * database provenance by itself.
+ */
+export type FirmsAreaTrustedJoinedRecord = Readonly<{
+  reference: HttpExchangeReference;
+  requestFingerprintSha256: string;
+  request: HttpRequestEvidence;
+  response: HttpResponseEvidence;
+  exchangeResponseRawObjectId: string;
+  responseOccurrence: HttpResponseOccurrence;
 }>;
 
 const MAP_KEY = /^[A-Za-z0-9._~-]{8,512}$/u;
 const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/u;
 const DECIMAL_COORDINATE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/u;
+const CANONICAL_AREA =
+  /^-?(?:0|[1-9]\d*)\.\d{6},-?(?:0|[1-9]\d*)\.\d{6},-?(?:0|[1-9]\d*)\.\d{6},-?(?:0|[1-9]\d*)\.\d{6}$/u;
 const SOURCE_DECIMAL = /^-?(?:\d+(?:\.\d+)?|\.\d+)$/u;
 const SOURCE_UNSIGNED_INTEGER = /^(?:0|[1-9]\d*)$/u;
+const SOURCE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/u;
+const MAX_SOURCE_NUMBER_LENGTH = 64;
 
 function canonicalCalendarDate(value: string) {
   const match = CALENDAR_DATE.exec(value);
@@ -80,16 +174,58 @@ function canonicalCalendarDate(value: string) {
     : null;
 }
 
+function canonicalUtcInstant(value: string, label: "issuance" | "retrieval") {
+  if (typeof value !== "string") {
+    throw new TypeError(`The FIRMS ${label} time must be canonical UTC.`);
+  }
+  const instant = new Date(value);
+  if (
+    !Number.isFinite(instant.getTime()) ||
+    instant.toISOString() !== value
+  ) {
+    throw new TypeError(`The FIRMS ${label} time must be canonical UTC.`);
+  }
+  return instant;
+}
+
 function canonicalCoordinate(value: number, minimum: number, maximum: number) {
   if (!Number.isFinite(value) || value < minimum || value > maximum) {
     throw new TypeError("FIRMS area coordinates are invalid.");
   }
   const normalized = Object.is(value, -0) ? 0 : value;
-  const result = String(normalized);
-  if (!DECIMAL_COORDINATE.test(result)) {
-    throw new TypeError("FIRMS area coordinates must use decimal notation.");
+  const result = normalized.toFixed(6);
+  if (
+    !DECIMAL_COORDINATE.test(result) ||
+    Number(result) !== normalized
+  ) {
+    throw new TypeError(
+      "FIRMS area coordinates must be exact to at most six decimal places.",
+    );
   }
   return result;
+}
+
+function brandedParseContext(
+  product: FirmsProduct,
+  area: FirmsArea,
+  issuedAt: string,
+  date: FirmsAreaParseContext["date"],
+): FirmsAreaParseContext {
+  const context = {
+    kind: "firms-area-parse-context-v1" as const,
+    product,
+    area: Object.freeze({ ...area }),
+    issuedAt,
+    date: Object.freeze({ ...date }),
+  } as FirmsAreaParseContext;
+  Object.defineProperty(context, FIRMS_AREA_PARSE_CONTEXT_BRAND, {
+    configurable: false,
+    enumerable: false,
+    value: true,
+    writable: false,
+  });
+  FIRMS_AREA_PARSE_CONTEXTS.add(context);
+  return Object.freeze(context);
 }
 
 function validDayRange(value: FirmsDayRange) {
@@ -106,6 +242,7 @@ export function firmsAreaRequest(input: Readonly<{
   product: FirmsProduct;
   area: FirmsArea;
   date: FirmsDateSelection;
+  issuedAt: string;
 }>): FirmsAreaRequestDescriptor {
   if (!MAP_KEY.test(input.mapKey)) {
     throw new TypeError("The FIRMS MAP key is invalid.");
@@ -116,26 +253,46 @@ export function firmsAreaRequest(input: Readonly<{
   if (!validDayRange(input.date.days)) {
     throw new TypeError("The FIRMS day range is invalid.");
   }
+  const issuedAt = canonicalUtcInstant(input.issuedAt, "issuance").toISOString();
 
   const west = canonicalCoordinate(input.area.west, -180, 180);
   const south = canonicalCoordinate(input.area.south, -90, 90);
   const east = canonicalCoordinate(input.area.east, -180, 180);
   const north = canonicalCoordinate(input.area.north, -90, 90);
-  if (input.area.west >= input.area.east || input.area.south >= input.area.north) {
+  const canonicalArea = Object.freeze({
+    west: Number(west),
+    south: Number(south),
+    east: Number(east),
+    north: Number(north),
+  });
+  if (
+    canonicalArea.west >= canonicalArea.east ||
+    canonicalArea.south >= canonicalArea.north
+  ) {
     throw new TypeError("The FIRMS area bounds must be ordered.");
   }
   const area = `${west},${south},${east},${north}`;
 
   let dateSafe: string;
   let datePath: string;
+  let parseDate: FirmsAreaParseContext["date"];
   if (input.date.kind === "rolling") {
     dateSafe = `rolling:${input.date.days}`;
     datePath = String(input.date.days);
+    parseDate = Object.freeze({
+      kind: "rolling",
+      dayCount: input.date.days,
+    });
   } else {
     const date = canonicalCalendarDate(input.date.date);
     if (date === null) throw new TypeError("The FIRMS request date is invalid.");
     dateSafe = `${date}/${input.date.days}`;
     datePath = `${input.date.days}/${date}`;
+    parseDate = Object.freeze({
+      kind: "starting-on",
+      dateFrom: date,
+      dayCount: input.date.days,
+    });
   }
 
   const requestQuerySafe = Object.freeze({
@@ -143,19 +300,30 @@ export function firmsAreaRequest(input: Readonly<{
     date: dateSafe,
     product: input.product,
   });
-  return Object.freeze({
+  const descriptor = Object.freeze({
     url: `${FIRMS_AREA_ENDPOINT}/${input.mapKey}/${input.product}/${area}/${datePath}`,
     requestInit: FIRMS_AREA_REQUEST_INIT,
     credentialPathRedaction: FIRMS_AREA_PATH_REDACTION,
     requestUrlSafe: FIRMS_AREA_ENDPOINT,
     requestQuerySafe,
   });
+  FIRMS_AREA_REQUEST_CONTEXTS.set(
+    descriptor,
+    brandedParseContext(input.product, canonicalArea, issuedAt, parseDate),
+  );
+  return descriptor;
 }
 
 /** Complete credential-free evidence envelope accepted by recordedFetch. */
 export function firmsAreaRequestEvidence(
   request: FirmsAreaRequestDescriptor,
 ): HttpRequestEvidence {
+  const context = FIRMS_AREA_REQUEST_CONTEXTS.get(request);
+  if (context === undefined) {
+    throw new TypeError(
+      "FIRMS request evidence requires an exact firmsAreaRequest descriptor.",
+    );
+  }
   return Object.freeze({
     method: "GET",
     requestUrlSafe: request.requestUrlSafe,
@@ -166,8 +334,273 @@ export function firmsAreaRequestEvidence(
       operation: "firms-area-csv",
       product: request.requestQuerySafe.product,
       scope: "geographic-area",
+      issued_at: context.issuedAt,
     }),
   });
+}
+
+function canonicalAreaFromEvidence(value: unknown): FirmsArea {
+  if (typeof value !== "string" || !CANONICAL_AREA.test(value)) {
+    throw new TypeError("The recorded FIRMS area is not canonical.");
+  }
+  const parts = value.split(",");
+  if (
+    parts.length !== 4 ||
+    parts.some(
+      (part) => part === "-0.000000" || Number(part).toFixed(6) !== part,
+    )
+  ) {
+    throw new TypeError("The recorded FIRMS area is not canonical.");
+  }
+  const [west, south, east, north] = parts.map(Number);
+  if (
+    west === undefined ||
+    south === undefined ||
+    east === undefined ||
+    north === undefined ||
+    west < -180 ||
+    west > 180 ||
+    east < -180 ||
+    east > 180 ||
+    south < -90 ||
+    south > 90 ||
+    north < -90 ||
+    north > 90 ||
+    west >= east ||
+    south >= north
+  ) {
+    throw new TypeError("The recorded FIRMS area is invalid.");
+  }
+  return Object.freeze({ west, south, east, north });
+}
+
+function contextFromRecordedEvidence(
+  evidence: HttpRequestEvidence,
+): FirmsAreaParseContext {
+  const queryKeys = Object.keys(evidence.requestQuerySafe).sort().join(",");
+  const headerKeys = Object.keys(evidence.requestHeadersSafe).sort().join(",");
+  const metadataKeys = Object.keys(evidence.requestMetadataSafe).sort().join(",");
+  const product = evidence.requestQuerySafe.product;
+  const issuedAt = evidence.requestMetadataSafe.issued_at;
+  if (
+    evidence.method !== "GET" ||
+    evidence.requestUrlSafe !== FIRMS_AREA_ENDPOINT ||
+    evidence.requestBodyRedacted !== null ||
+    queryKeys !== "area,date,product" ||
+    headerKeys !== "accept" ||
+    evidence.requestHeadersSafe.accept !== "text/csv" ||
+    metadataKeys !== "issued_at,operation,product,scope" ||
+    evidence.requestMetadataSafe.operation !== "firms-area-csv" ||
+    evidence.requestMetadataSafe.product !== product ||
+    evidence.requestMetadataSafe.scope !== "geographic-area" ||
+    typeof product !== "string" ||
+    !FIRMS_PRODUCTS.includes(product as FirmsProduct) ||
+    typeof issuedAt !== "string"
+  ) {
+    throw new TypeError("The recorded FIRMS request evidence is invalid.");
+  }
+
+  const area = canonicalAreaFromEvidence(evidence.requestQuerySafe.area);
+  const canonicalIssuedAt = canonicalUtcInstant(issuedAt, "issuance").toISOString();
+  const date = evidence.requestQuerySafe.date;
+  if (typeof date !== "string") {
+    throw new TypeError("The recorded FIRMS date selection is invalid.");
+  }
+  const rolling = /^rolling:([1-5])$/u.exec(date);
+  if (rolling !== null) {
+    return brandedParseContext(
+      product as FirmsProduct,
+      area,
+      canonicalIssuedAt,
+      Object.freeze({
+        kind: "rolling" as const,
+        dayCount: Number(rolling[1]) as FirmsDayRange,
+      }),
+    );
+  }
+  const historical = /^(\d{4}-\d{2}-\d{2})\/([1-5])$/u.exec(date);
+  const dateFrom = historical?.[1];
+  if (dateFrom === undefined || canonicalCalendarDate(dateFrom) === null) {
+    throw new TypeError("The recorded FIRMS date selection is invalid.");
+  }
+  return brandedParseContext(
+    product as FirmsProduct,
+    area,
+    canonicalIssuedAt,
+    Object.freeze({
+      kind: "starting-on" as const,
+      dateFrom,
+      dayCount: Number(historical?.[2]) as FirmsDayRange,
+    }),
+  );
+}
+
+function boundFirmsAreaResponse(
+  context: FirmsAreaParseContext,
+  retrievedAtInput: string,
+  bodyInput: Uint8Array,
+): FirmsAreaResponse {
+  const retrievedAt = canonicalUtcInstant(
+    retrievedAtInput,
+    "retrieval",
+  ).toISOString();
+  const envelope = {
+    kind: "firms-area-response-v1" as const,
+    product: context.product,
+    issuedAt: context.issuedAt,
+    retrievedAt,
+  } as FirmsAreaResponse;
+  Object.defineProperty(envelope, FIRMS_AREA_RESPONSE_BRAND, {
+    configurable: false,
+    enumerable: false,
+    value: true,
+    writable: false,
+  });
+  FIRMS_AREA_RESPONSES.set(envelope, Object.freeze({
+    context,
+    retrievedAt,
+    body: new Uint8Array(bodyInput),
+  }));
+  return Object.freeze(envelope);
+}
+
+async function validateResponseOccurrence(
+  reference: HttpExchangeReference,
+  occurrence: HttpResponseOccurrence,
+  body: Uint8Array,
+  exchangeResponseRawObjectId?: string,
+) {
+  if (
+    !/^[1-9]\d*$/u.test(reference.exchangeId) ||
+    !/^[1-9]\d*$/u.test(reference.runId) ||
+    !/^[1-9]\d*$/u.test(occurrence.rawObjectId) ||
+    occurrence.httpExchangeId !== reference.exchangeId ||
+    occurrence.runId !== reference.runId ||
+    !/^[0-9a-f]{64}$/u.test(occurrence.contentSha256) ||
+    (exchangeResponseRawObjectId !== undefined &&
+      exchangeResponseRawObjectId !== occurrence.rawObjectId)
+  ) {
+    throw new TypeError(
+      "The FIRMS response occurrence does not match its joined exchange.",
+    );
+  }
+  canonicalUtcInstant(occurrence.retrievedAt, "retrieval");
+  if (await contentSha256(body) !== occurrence.contentSha256) {
+    throw new TypeError(
+      "The FIRMS response bytes do not match their durable occurrence.",
+    );
+  }
+}
+
+/**
+ * Performs the credential-path request and returns only a response capability
+ * bound to the exact descriptor that was durably issued.
+ */
+export async function recordedFirmsAreaFetch(
+  request: FirmsAreaRequestDescriptor,
+  options: FirmsAreaFetchOptions,
+): Promise<FirmsAreaResponse> {
+  const context = FIRMS_AREA_REQUEST_CONTEXTS.get(request);
+  if (context === undefined) {
+    throw new TypeError(
+      "FIRMS fetch requires an exact firmsAreaRequest descriptor.",
+    );
+  }
+  const maximumResponseBytes =
+    options.maximumResponseBytes ?? FIRMS_MAX_RESPONSE_BYTES;
+  if (
+    !Number.isSafeInteger(maximumResponseBytes) ||
+    maximumResponseBytes < 0 ||
+    maximumResponseBytes > FIRMS_MAX_RESPONSE_BYTES
+  ) {
+    throw new TypeError("The FIRMS response limit is invalid.");
+  }
+  let issuedReference: HttpExchangeReference | undefined;
+  let responseOccurrence: HttpResponseOccurrence | undefined;
+  const ledger: HttpEvidenceLedger = {
+    issue: async (evidence) => {
+      const reference = await options.ledger.issue(evidence);
+      issuedReference = reference;
+      return reference;
+    },
+    finishResponse: async (reference, evidence) => {
+      const occurrence = await options.ledger.finishResponse(reference, evidence);
+      responseOccurrence = occurrence;
+      return occurrence;
+    },
+    finishTransportError: (reference, error) =>
+      options.ledger.finishTransportError(reference, error),
+  };
+  const response = await recordedFetch(request.url, request.requestInit, {
+    ...options,
+    ledger,
+    requestEvidence: firmsAreaRequestEvidence(request),
+    credentialPathRedaction: request.credentialPathRedaction,
+    maximumResponseBytes,
+  });
+  if (response.status !== 200) {
+    throw new Error("The FIRMS Area API returned a non-success response.");
+  }
+  const body = new Uint8Array(await response.arrayBuffer());
+  if (issuedReference === undefined || responseOccurrence === undefined) {
+    throw new TypeError(
+      "The FIRMS evidence ledger did not return a durable response occurrence.",
+    );
+  }
+  await validateResponseOccurrence(issuedReference, responseOccurrence, body);
+  return boundFirmsAreaResponse(
+    context,
+    responseOccurrence.retrievedAt,
+    body,
+  );
+}
+
+/**
+ * Rehydrates a response capability from one trusted database join. This checks
+ * the schema's exact exchange/raw-object/content invariants, but the caller is
+ * responsible for obtaining the record from the immutable persistence layer.
+ */
+export async function firmsAreaResponseFromTrustedJoinedRecord(
+  exchange: FirmsAreaTrustedJoinedRecord,
+): Promise<FirmsAreaResponse> {
+  if (
+    exchange === null ||
+    typeof exchange !== "object" ||
+    exchange.reference === null ||
+    typeof exchange.reference !== "object" ||
+    typeof exchange.reference.exchangeId !== "string" ||
+    exchange.reference.exchangeId.length === 0 ||
+    typeof exchange.reference.runId !== "string" ||
+    exchange.reference.runId.length === 0 ||
+    !/^[0-9a-f]{64}$/u.test(exchange.requestFingerprintSha256) ||
+    typeof exchange.exchangeResponseRawObjectId !== "string" ||
+    exchange.responseOccurrence === null ||
+    typeof exchange.responseOccurrence !== "object" ||
+    exchange.response === null ||
+    typeof exchange.response !== "object" ||
+    exchange.response.status !== 200 ||
+    !(exchange.response.body instanceof Uint8Array)
+  ) {
+    throw new TypeError("The recorded FIRMS exchange is invalid.");
+  }
+  const context = contextFromRecordedEvidence(exchange.request);
+  const fingerprint = await requestEvidenceFingerprintSha256(exchange.request);
+  if (fingerprint !== exchange.requestFingerprintSha256) {
+    throw new TypeError(
+      "The recorded FIRMS request fingerprint does not match its safe evidence.",
+    );
+  }
+  await validateResponseOccurrence(
+    exchange.reference,
+    exchange.responseOccurrence,
+    exchange.response.body,
+    exchange.exchangeResponseRawObjectId,
+  );
+  return boundFirmsAreaResponse(
+    context,
+    exchange.responseOccurrence.retrievedAt,
+    exchange.response.body,
+  );
 }
 
 const VIIRS_HEADERS = Object.freeze([
@@ -372,7 +805,13 @@ function exactHeaderIndex(product: FirmsProduct, row: readonly string[]) {
 
 function finiteNumber(value: string) {
   const source = value.trim();
-  if (!SOURCE_DECIMAL.test(source)) return null;
+  if (
+    source.length === 0 ||
+    source.length > MAX_SOURCE_NUMBER_LENGTH ||
+    !SOURCE_DECIMAL.test(source)
+  ) {
+    return null;
+  }
   const result = Number(source);
   return Number.isFinite(result) ? result : null;
 }
@@ -438,7 +877,7 @@ function viirsConfidence(rawValue: string) {
 }
 
 function parseRow(
-  request: FirmsParseRequest,
+  request: FirmsAreaParseContext,
   dateRange: Readonly<{ start: string; end: string }>,
   row: readonly string[],
   header: ReadonlyMap<string, number>,
@@ -488,7 +927,7 @@ function parseRow(
   const satelliteRaw = field(row, header, "satellite");
   const instrumentRaw = field(row, header, "instrument").toUpperCase();
   const version = field(row, header, "version");
-  if (version === "" || version.length > 64) reasons.add("invalid-version");
+  if (!SOURCE_VERSION.test(version)) reasons.add("invalid-version");
   const scanKm = positiveNumber(field(row, header, "scan"));
   const trackKm = positiveNumber(field(row, header, "track"));
   const frpMw = nonnegativeNumber(field(row, header, "frp"));
@@ -597,44 +1036,63 @@ function utcDatePlusDays(date: string, days: number) {
   return instant.toISOString().slice(0, 10);
 }
 
-function validateParseRequest(request: FirmsParseRequest) {
-  if (request === null || typeof request !== "object") {
-    throw new TypeError("The FIRMS parse request is invalid.");
+function validateParseContext(
+  context: FirmsAreaParseContext,
+  retrievedAtInput: string,
+) {
+  if (
+    context === null ||
+    typeof context !== "object" ||
+    context.kind !== "firms-area-parse-context-v1" ||
+    Reflect.get(context, FIRMS_AREA_PARSE_CONTEXT_BRAND) !== true ||
+    !FIRMS_AREA_PARSE_CONTEXTS.has(context) ||
+    !Object.isFrozen(context) ||
+    !Object.isFrozen(context.area) ||
+    !Object.isFrozen(context.date)
+  ) {
+    throw new TypeError(
+      "The FIRMS parse context must come from firmsAreaRequest.",
+    );
   }
-  if (!FIRMS_PRODUCTS.includes(request.product)) {
+  if (!FIRMS_PRODUCTS.includes(context.product)) {
     throw new TypeError("The FIRMS product is invalid.");
   }
-  canonicalCoordinate(request.area.west, -180, 180);
-  canonicalCoordinate(request.area.south, -90, 90);
-  canonicalCoordinate(request.area.east, -180, 180);
-  canonicalCoordinate(request.area.north, -90, 90);
-  if (request.area.west >= request.area.east || request.area.south >= request.area.north) {
+  canonicalCoordinate(context.area.west, -180, 180);
+  canonicalCoordinate(context.area.south, -90, 90);
+  canonicalCoordinate(context.area.east, -180, 180);
+  canonicalCoordinate(context.area.north, -90, 90);
+  if (
+    context.area.west >= context.area.east ||
+    context.area.south >= context.area.north
+  ) {
     throw new TypeError("The FIRMS area bounds must be ordered.");
   }
-  if (!validDayRange(request.date.days)) {
+  if (!validDayRange(context.date.dayCount)) {
     throw new TypeError("The FIRMS day range is invalid.");
   }
-  const requestedAt = new Date(request.requestedAt);
-  if (
-    typeof request.requestedAt !== "string" ||
-    !Number.isFinite(requestedAt.getTime()) ||
-    requestedAt.toISOString() !== request.requestedAt
-  ) {
-    throw new TypeError("The FIRMS request time must be canonical UTC.");
+  const issuedAt = canonicalUtcInstant(context.issuedAt, "issuance");
+  const retrievedAt = canonicalUtcInstant(retrievedAtInput, "retrieval");
+  if (issuedAt.getTime() > retrievedAt.getTime()) {
+    throw new TypeError("The FIRMS retrieval time cannot precede issuance.");
   }
 
-  if (request.date.kind === "rolling") {
-    const end = request.requestedAt.slice(0, 10);
+  if (context.date.kind === "rolling") {
+    const end = context.issuedAt.slice(0, 10);
+    if (retrievedAtInput.slice(0, 10) !== end) {
+      throw new TypeError(
+        "A rolling FIRMS request crossing UTC midnight has an ambiguous date window.",
+      );
+    }
     return Object.freeze({
-      start: utcDatePlusDays(end, 1 - request.date.days),
+      start: utcDatePlusDays(end, 1 - context.date.dayCount),
       end,
     });
   }
-  const start = canonicalCalendarDate(request.date.date);
+  const start = canonicalCalendarDate(context.date.dateFrom);
   if (start === null) throw new TypeError("The FIRMS request date is invalid.");
   return Object.freeze({
     start,
-    end: utcDatePlusDays(start, request.date.days - 1),
+    end: utcDatePlusDays(start, context.date.dayCount - 1),
   });
 }
 
@@ -645,25 +1103,33 @@ function validateParseRequest(request: FirmsParseRequest) {
  * satellite coverage or proof that the requested area has no anomaly.
  */
 export function parseFirmsCsv(
-  request: FirmsParseRequest,
-  input: string | Uint8Array,
+  response: FirmsAreaResponse,
   maximumBytes = FIRMS_MAX_RESPONSE_BYTES,
 ): FirmsParseResult {
-  const dateRange = validateParseRequest(request);
-  const { product } = request;
+  const state = FIRMS_AREA_RESPONSES.get(response);
+  if (
+    state === undefined ||
+    Reflect.get(response, FIRMS_AREA_RESPONSE_BRAND) !== true ||
+    !Object.isFrozen(response)
+  ) {
+    throw new TypeError(
+      "FIRMS parsing requires an issued or durably replayed response envelope.",
+    );
+  }
+  const { context, retrievedAt, body: input } = state;
+  const dateRange = validateParseContext(context, retrievedAt);
+  const { product } = context;
   if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) {
     throw new TypeError("The FIRMS response limit is invalid.");
   }
-  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  const bytes = input;
   if (bytes.byteLength > maximumBytes) {
     return errorResult(product, "response-too-large");
   }
 
   let text: string;
   try {
-    text = typeof input === "string"
-      ? input
-      : new TextDecoder("utf-8", { fatal: true }).decode(input);
+    text = new TextDecoder("utf-8", { fatal: true }).decode(input);
   } catch {
     return errorResult(product, "invalid-encoding");
   }
@@ -678,7 +1144,7 @@ export function parseFirmsCsv(
   const detections: FirmsDetection[] = [];
   const rejectedRows: FirmsRejectedRow[] = [];
   dataRows.forEach((row, itemIndex) => {
-    const parsedRow = parseRow(request, dateRange, row, header, itemIndex);
+    const parsedRow = parseRow(context, dateRange, row, header, itemIndex);
     if ("reasons" in parsedRow) rejectedRows.push(parsedRow);
     else detections.push(parsedRow);
   });
