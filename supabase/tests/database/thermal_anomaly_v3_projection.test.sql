@@ -576,7 +576,7 @@ select is(
     from first_read
     cross join lateral api.thermal_anomalies_v3(
       10, 587, 391,
-      pg_catalog.date_trunc('milliseconds', now()),
+      first_read.item_known_at,
       first_read.item_known_at,
       10
     )
