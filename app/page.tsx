@@ -5244,7 +5244,13 @@ export default function Home() {
                   )}
           </strong>
           <small>
-            {thermalUnavailable
+            {thermalLoading
+              ? localize(
+                  language,
+                  "WAITING FOR FIRST FIRMS RESPONSE · NO ASSESSMENT YET",
+                  "ΑΝΑΜΟΝΗ ΠΡΩΤΗΣ ΑΠΟΚΡΙΣΗΣ FIRMS · ΔΕΝ ΥΠΑΡΧΕΙ ΑΚΟΜΗ ΑΞΙΟΛΟΓΗΣΗ",
+                )
+              : thermalUnavailable
               ? localize(
                   language,
                   "No historical points substituted · raster is a separate layer",
