@@ -7,7 +7,78 @@ const serviceWorkerSource = readFileSync(
   "utf8",
 );
 
-describe("service worker tile caching", () => {
+describe("service worker caching", () => {
+  it("keeps navigation snapshots isolated by the full query-bound request", async () => {
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn().mockResolvedValue(undefined),
+      keys: vi.fn().mockResolvedValue([]),
+      delete: vi.fn().mockResolvedValue(true),
+    };
+    const listeners = new Map<string, (event: unknown) => void>();
+    const response = new Response("<!doctype html>", { status: 200 });
+
+    runInNewContext(serviceWorkerSource, {
+      self: {
+        location: { origin: "https://firewatch.test" },
+        addEventListener: (
+          type: string,
+          listener: (event: unknown) => void,
+        ) => listeners.set(type, listener),
+      },
+      caches: { open: vi.fn().mockResolvedValue(cache) },
+      fetch: vi.fn().mockResolvedValue(response),
+      Headers,
+      Response,
+      URL,
+      Map,
+      Promise,
+      setTimeout: (callback: () => void) => {
+        callback();
+        return 0;
+      },
+    });
+
+    let responsePromise: Promise<Response> | undefined;
+    const firstRequest = {
+      method: "GET",
+      mode: "navigate",
+      url: "https://firewatch.test/explore?cell=wm%2F10%2F587%2F391",
+    };
+    listeners.get("fetch")?.({
+      request: firstRequest,
+      respondWith: (promise: Promise<Response>) => {
+        responsePromise = promise;
+      },
+    });
+
+    expect(await responsePromise).toBe(response);
+    const secondRequest = {
+      method: "GET",
+      mode: "navigate",
+      url: "https://firewatch.test/explore?cell=wm%2F10%2F518%2F352",
+    };
+    listeners.get("fetch")?.({
+      request: secondRequest,
+      respondWith: (promise: Promise<Response>) => {
+        responsePromise = promise;
+      },
+    });
+    expect(await responsePromise).toBe(response);
+
+    expect(cache.put).toHaveBeenNthCalledWith(
+      1,
+      firstRequest,
+      expect.any(Response),
+    );
+    expect(cache.put).toHaveBeenNthCalledWith(
+      2,
+      secondRequest,
+      expect.any(Response),
+    );
+    expect(firstRequest.url).not.toBe(secondRequest.url);
+  });
+
   it("returns an uncached tile before its cache write and prune finish", async () => {
     let resolvePut: (() => void) | undefined;
     const putFinished = new Promise<void>((resolve) => {
