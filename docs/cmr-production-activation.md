@@ -32,6 +32,11 @@ SHA-256 in the release workflow. Record the immutable Git commit and digest;
 do not use a placeholder or a dirty-worktree hash. Apply the migrations before
 activating any catalog switch.
 
+For a Supabase-managed deployment, record the deployed function's exact
+`ezbr_sha256` value as `core.adapter_releases.artifact_digest`. Platform
+deployment version numbers may also advance when secrets change, so they are
+operational metadata rather than the immutable artifact identity.
+
 The disabled bootstrap contains no real `core.adapter_releases` row. As a
 `firewatch_catalog_admin`, register release 1 for source
 `nasa-cmr-firemask`, including:
@@ -163,6 +168,12 @@ Set this value as the Edge Function secret without putting it in the repository
 or shell history (for example, use a protected temporary env file with
 `supabase secrets set --env-file ...`). Never reuse the application service key
 as the database password.
+
+Rotate this login only while its scheduler is stopped. Update the Edge secret
+before allowing any new invocation. Repeated stale-password attempts can trip
+Supavisor's circuit breaker for up to two minutes; if that occurs, stop all
+clients and allow the full lockout interval to expire before one verification
+attempt. Retrying during the interval extends the lockout.
 
 ## 3. Configure named caller authentication
 
@@ -314,5 +325,6 @@ Implementation references:
 - [Supabase Edge Function authentication](https://supabase.com/docs/guides/functions/auth)
 - [Connecting Edge Functions to Postgres](https://supabase.com/docs/guides/functions/connect-to-postgres)
 - [Supabase database connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres)
+- [Supavisor password-rotation circuit breaker](https://supabase.com/docs/guides/troubleshooting/supavisor-error-circuit-breaker-open-after-password-rotation-0fdb72)
 - [Scheduling Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions)
 - [Edge Function dependency management](https://supabase.com/docs/guides/functions/dependencies)
