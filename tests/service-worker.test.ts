@@ -8,6 +8,40 @@ const serviceWorkerSource = readFileSync(
 );
 
 describe("service worker caching", () => {
+  it("never intercepts or caches persisted thermal-anomaly snapshots", () => {
+    const listeners = new Map<string, (event: unknown) => void>();
+    runInNewContext(serviceWorkerSource, {
+      self: {
+        location: { origin: "https://firewatch.test" },
+        addEventListener: (
+          type: string,
+          listener: (event: unknown) => void,
+        ) => listeners.set(type, listener),
+      },
+      caches: { open: vi.fn() },
+      fetch: vi.fn(),
+      Headers,
+      Response,
+      URL,
+      Map,
+      Promise,
+      setTimeout,
+    });
+    const respondWith = vi.fn();
+
+    listeners.get("fetch")?.({
+      request: new Request(
+        "https://firewatch.test/api/v3/thermal-anomalies?cell=wm%2F10%2F587%2F391",
+      ),
+      respondWith,
+    });
+
+    expect(respondWith).not.toHaveBeenCalled();
+    expect(serviceWorkerSource).not.toContain(
+      '"/api/v3/thermal-anomalies"',
+    );
+  });
+
   it("pre-caches the exact versioned MapLibre worker pair", async () => {
     const shellCache = { addAll: vi.fn().mockResolvedValue(undefined) };
     const assetCache = { addAll: vi.fn().mockResolvedValue(undefined) };
