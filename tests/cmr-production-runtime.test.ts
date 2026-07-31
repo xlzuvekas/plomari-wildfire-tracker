@@ -54,6 +54,10 @@ function identityRow() {
   };
 }
 
+function jsonArgument(value: unknown) {
+  return typeof value === "string" ? JSON.parse(value) as unknown : value;
+}
+
 function currentDatabase(
   onClose: () => void,
   completion: Readonly<Record<string, unknown>> = {
@@ -303,7 +307,7 @@ describe("CMR collector replay occurrences", () => {
           statement.includes("from ingest.cmr_granule_details as detail") &&
           statement.includes("jsonb_to_recordset")
         ) {
-          const input = JSON.parse(String(parameters[0])) as Array<{
+          const input = jsonArgument(parameters[0]) as Array<{
             content_sha256: string;
           }>;
           return [{
@@ -391,11 +395,19 @@ describe("CMR collector replay occurrences", () => {
       null,
     ]);
     expect(contentBlobs[0]?.parameters[1]).toBe(contentBlobs[1]?.parameters[1]);
+    const job = statements.find(({ statement }) =>
+      statement.includes("insert into ingest.jobs")
+    );
+    expect(job?.parameters[8]).toMatchObject({
+      collector: "cmr_firemask_catalog",
+      plan: { scanKind: "bootstrap" },
+    });
+    expect(typeof job?.parameters[8]).toBe("object");
     const finishedExchanges = statements.filter(({ statement }) =>
       statement.includes("ingest.finish_http_exchange")
     );
     expect(finishedExchanges.map(({ parameters }) =>
-      JSON.parse(String(parameters[6]))["content-encoding"]
+      (jsonArgument(parameters[6]) as Record<string, unknown>)["content-encoding"]
     )).toEqual(["gzip", "br"]);
     const product = CMR_FIREMASK_PRODUCTS[0];
     if (product === undefined) throw new Error("CMR product fixture is missing.");
@@ -467,7 +479,7 @@ describe("CMR collector replay occurrences", () => {
       statement.includes("insert into ingest.cmr_granule_occurrences")
     );
     expect(occurrence).toBeDefined();
-    expect(JSON.parse(String(occurrence?.parameters[4]))).toEqual([{
+    expect(jsonArgument(occurrence?.parameters[4])).toEqual([{
       item_index: 0,
       observation_cursor: "99",
       product: "VNP14IMG_NRT",
@@ -498,7 +510,7 @@ describe("CMR collector replay occurrences", () => {
       1,
       0,
     ]);
-    expect(JSON.parse(String(failedHealth?.parameters[8]))).toEqual({
+    expect(jsonArgument(failedHealth?.parameters[8])).toEqual({
       anomalyAssessment: "not_assessed",
       catalogMetadataOnly: true,
       failure: { class: "rate_limit", reason: "rate_limit" },

@@ -171,7 +171,11 @@ function safeWorkerId() {
 }
 
 function jsonParameter(value: unknown) {
-  return canonicalJson(value);
+  // postgres.js learns the parameter OID from the explicit `::jsonb` cast and
+  // serializes JavaScript objects itself. Passing pre-encoded JSON text causes
+  // that serializer to encode the text a second time, turning an object into a
+  // JSON string and violating the database's object/array invariants.
+  return JSON.parse(canonicalJson(value)) as unknown;
 }
 
 export function cmrRejectionIdentity(input: Readonly<{
