@@ -2041,6 +2041,15 @@ button {
   font-weight: 500;
 }
 
+.map-marker b small {
+  display: block;
+  margin-top: 2px;
+  color: #b6cbd0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.035em;
+}
+
 .map-marker--fire {
   color: var(--red);
 }
@@ -2062,17 +2071,31 @@ button {
   font-size: 9px;
 }
 
-.map-marker--arrow {
+.map-marker--arrow,
+.map-marker--report {
   color: var(--amber);
 }
 
 .map-marker--arrow span,
+.map-marker--report span,
 .map-marker--wind span {
   width: 14px;
   height: 8px;
   border: 0;
   border-radius: 0;
   clip-path: polygon(0 34%, 66% 34%, 66% 0, 100% 50%, 66% 100%, 66% 66%, 0 66%);
+}
+
+.map-marker--report {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  white-space: normal;
+}
+
+.map-marker--report b {
+  max-width: 228px;
+  line-height: 1.25;
+  text-align: left;
 }
 
 .route-arrow-shell .map-marker--arrow {
@@ -2733,7 +2756,8 @@ button {
   .has-mobile-sheet .view-controls,
   .has-mobile-sheet .scenario-hud,
   .has-scenario .mission-hud,
-  .has-locate-readout .mission-hud {
+  .has-locate-readout .mission-hud,
+  .has-locate-readout .scenario-hud {
     display: none;
   }
 
@@ -3274,9 +3298,9 @@ button {
   .locate-summary {
     position: absolute;
     z-index: 1200;
-    right: 8px;
+    right: max(8px, env(safe-area-inset-right));
     bottom: calc(var(--mobile-dock) + 12px);
-    left: 8px;
+    left: max(8px, env(safe-area-inset-left));
     display: grid;
     height: 56px;
     max-height: 56px;
@@ -3313,7 +3337,7 @@ button {
     align-self: end;
     color: var(--green);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: 0.04em;
   }
@@ -3321,7 +3345,7 @@ button {
   .locate-summary span {
     align-self: start;
     color: var(--muted);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     line-height: 1.2;
   }
 
@@ -3331,7 +3355,7 @@ button {
     grid-row: 1 / span 2;
     color: var(--cyan);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.06em;
     text-align: right;
@@ -3350,6 +3374,22 @@ button {
   .has-locate-readout .locate-control,
   .has-locate-readout .view-controls {
     display: none;
+  }
+
+  .has-locate-readout:not(.has-mobile-sheet) .leaflet-control-attribution {
+    max-width: calc(
+      100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 16px
+    );
+    margin-right: max(0px, env(safe-area-inset-right)) !important;
+    margin-bottom: calc(var(--mobile-dock) + 76px) !important;
+  }
+
+  .location-context {
+    font-size: 0.8125rem;
+  }
+
+  .location-context small {
+    font-size: 0.75rem;
   }
 
   .hud-tabs button {
@@ -3393,6 +3433,32 @@ button {
 @media (max-width: 1180px) and (max-height: 700px) {
   .leaflet-control-zoom {
     display: none;
+  }
+}
+
+@media (max-width: 1180px) and (max-height: 520px) and (orientation: landscape) {
+  .layer-hud,
+  .intel-hud {
+    max-height: min(
+      70dvh,
+      calc(100dvh - var(--mobile-head) - var(--mobile-dock) - 8px)
+    );
+  }
+
+  .has-mobile-sheet .time-scrubber {
+    visibility: hidden;
+  }
+
+  .locate-summary {
+    bottom: calc(var(--mobile-dock) + 4px);
+    height: 44px;
+    max-height: 44px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+
+  .has-locate-readout:not(.has-mobile-sheet) .leaflet-control-attribution {
+    margin-bottom: calc(var(--mobile-dock) + 56px) !important;
   }
 }
 

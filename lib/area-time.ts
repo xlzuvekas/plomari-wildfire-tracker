@@ -3,8 +3,65 @@ export type AreaTimeLanguage = "en" | "el";
 export const AREA_TIME_ZONE = "Europe/Athens";
 
 const OFFSET_TIMESTAMP = /(?:Z|[+-]\d{2}:\d{2})$/i;
+const ZONED_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|([+-])(\d{2}):(\d{2}))$/i;
 const LOCAL_DATE_TIME =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+
+type WallTimeParts = Readonly<{
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  millisecond: number;
+}>;
+
+function validWallTime(parts: WallTimeParts) {
+  const leapYear =
+    parts.year % 4 === 0 &&
+    (parts.year % 100 !== 0 || parts.year % 400 === 0);
+  const daysInMonth = [
+    31,
+    leapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  return (
+    parts.month >= 1 &&
+    parts.month <= 12 &&
+    parts.day >= 1 &&
+    parts.day <= (daysInMonth[parts.month - 1] ?? 0) &&
+    parts.hour >= 0 &&
+    parts.hour <= 23 &&
+    parts.minute >= 0 &&
+    parts.minute <= 59 &&
+    parts.second >= 0 &&
+    parts.second <= 59
+  );
+}
+
+function wallTimeParts(match: RegExpMatchArray): WallTimeParts | null {
+  const parts = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6] ?? "0"),
+    millisecond: Number((match[7] ?? "0").padEnd(3, "0").slice(0, 3)),
+  };
+  return validWallTime(parts) ? parts : null;
+}
 
 function areaLocale(language: AreaTimeLanguage) {
   return language === "el" ? "el-GR" : "en-GB";
@@ -18,7 +75,8 @@ function safeLocale(value: string | undefined) {
   }
 }
 
-function safeTimeZone(value: string) {
+function safeTimeZone(value: string | null | undefined) {
+  if (typeof value !== "string" || value.length === 0) return null;
   try {
     new Intl.DateTimeFormat("en-GB", { timeZone: value }).format(0);
     return value;
@@ -63,10 +121,59 @@ function offsetSuffix(offsetMinutes: number) {
   ).padStart(2, "0")}`;
 }
 
+function wallTimeAt(date: Date, timeZone: string): Omit<WallTimeParts, "millisecond"> {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return {
+    year: Number(part(parts, "year")),
+    month: Number(part(parts, "month")),
+    day: Number(part(parts, "day")),
+    hour: Number(part(parts, "hour")),
+    minute: Number(part(parts, "minute")),
+    second: Number(part(parts, "second")),
+  };
+}
+
+function sameWallTime(
+  actual: Omit<WallTimeParts, "millisecond">,
+  expected: WallTimeParts,
+) {
+  return (
+    actual.year === expected.year &&
+    actual.month === expected.month &&
+    actual.day === expected.day &&
+    actual.hour === expected.hour &&
+    actual.minute === expected.minute &&
+    actual.second === expected.second
+  );
+}
+
 export function parseZonedInstant(
   value: string | null | undefined,
 ): Date | null {
-  if (!value || !OFFSET_TIMESTAMP.test(value)) return null;
+  if (!value) return null;
+  const match = value.match(ZONED_DATE_TIME);
+  const components = match ? wallTimeParts(match) : null;
+  if (!match || components === null) return null;
+  if (match[8] !== "Z" && match[8] !== "z") {
+    const offsetHours = Number(match[10]);
+    const offsetMinutes = Number(match[11]);
+    if (
+      offsetHours > 14 ||
+      offsetMinutes > 59 ||
+      (offsetHours === 14 && offsetMinutes !== 0)
+    ) {
+      return null;
+    }
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
@@ -83,18 +190,37 @@ export function normalizeAthensWallTime(
   if (OFFSET_TIMESTAMP.test(value)) {
     return parseZonedInstant(value) ? value : null;
   }
-  if (!LOCAL_DATE_TIME.test(value)) return null;
+  const match = value.match(LOCAL_DATE_TIME);
+  const expected = match ? wallTimeParts(match) : null;
+  if (match === null || expected === null) return null;
 
-  const approximateUtc = new Date(`${value}Z`);
-  if (Number.isNaN(approximateUtc.getTime())) return null;
-  const firstOffset = offsetMinutesForInstant(approximateUtc, AREA_TIME_ZONE);
-  if (firstOffset === null) return null;
-  const candidate = new Date(
-    approximateUtc.getTime() - firstOffset * 60_000,
+  const approximateUtc = new Date(
+    Date.UTC(
+      expected.year,
+      expected.month - 1,
+      expected.day,
+      expected.hour,
+      expected.minute,
+      expected.second,
+      expected.millisecond,
+    ),
   );
-  const actualOffset = offsetMinutesForInstant(candidate, AREA_TIME_ZONE);
-  if (actualOffset === null) return null;
-  return `${value}${offsetSuffix(actualOffset)}`;
+  const possibleOffsets = new Set<number>();
+  for (const deltaHours of [-36, 0, 36]) {
+    const offset = offsetMinutesForInstant(
+      new Date(approximateUtc.getTime() + deltaHours * 60 * 60_000),
+      AREA_TIME_ZONE,
+    );
+    if (offset !== null) possibleOffsets.add(offset);
+  }
+  const matchingOffsets = [...possibleOffsets].filter((offset) => {
+    const candidate = new Date(
+      approximateUtc.getTime() - offset * 60_000,
+    );
+    return sameWallTime(wallTimeAt(candidate, AREA_TIME_ZONE), expected);
+  });
+  if (matchingOffsets.length !== 1) return null;
+  return `${value}${offsetSuffix(matchingOffsets[0] ?? 0)}`;
 }
 
 export function zonedDateTimeAttribute(

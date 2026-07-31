@@ -18,6 +18,11 @@ describe("area timestamps", () => {
     expect(zonedDateTimeAttribute("2026-07-30T18:00")).toBeUndefined();
   });
 
+  test("rejects normalized impossible calendar dates", () => {
+    expect(parseZonedInstant("2026-02-30T10:00:00Z")).toBeNull();
+    expect(formatAreaDateTime("2026-02-30T10:00:00Z")).toBe("TIME UNKNOWN");
+  });
+
   test("formats a complete date, local clock and Athens timezone", () => {
     expect(formatAreaDateTime("2026-07-29T13:58:00Z")).toBe(
       "29 Jul 2026 · 16:58 · Europe/Athens · UTC+03:00",
@@ -63,6 +68,17 @@ describe("area timestamps", () => {
       context: "",
       label: "TIME UNKNOWN",
     });
+
+    expect(
+      presentZonedDateTime("2026-07-29T13:58:00Z", {
+        timeZone: undefined as unknown as string,
+      }),
+    ).toEqual({
+      dateTime: undefined,
+      primary: "TIME UNKNOWN",
+      context: "",
+      label: "TIME UNKNOWN",
+    });
   });
 
   test("formats date-only source semantics without inventing a clock time", () => {
@@ -75,6 +91,11 @@ describe("area timestamps", () => {
     );
     expect(normalizeAthensWallTime("2026-01-30T18:00")).toBe(
       "2026-01-30T18:00+02:00",
+    );
+    expect(normalizeAthensWallTime("2026-03-29T03:30")).toBeNull();
+    expect(normalizeAthensWallTime("2026-10-25T03:30")).toBeNull();
+    expect(normalizeAthensWallTime("2026-10-25T03:30+03:00")).toBe(
+      "2026-10-25T03:30+03:00",
     );
   });
 });

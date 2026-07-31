@@ -22,6 +22,7 @@ import {
   filterAtOrBefore,
   isTimestampVisibleAt,
   latestAtOrBefore,
+  liveAsOfRangeMaximum,
   timestampEpoch,
   type AsOfSelection,
 } from "@/lib/as-of";
@@ -34,7 +35,11 @@ import {
   zonedDateTimeAttribute,
 } from "@/lib/area-time";
 import { DEMAND_INTERVALS_MS } from "@/lib/firewatch/demand-policy";
-import { initialArchivedAlertCollapsed } from "@/lib/firewatch/incident-ui";
+import {
+  initialArchivedAlertCollapsed,
+  readBrowserPreference,
+  writeBrowserPreference,
+} from "@/lib/firewatch/incident-ui";
 import { coarseAreaCellForLocation } from "@/lib/firewatch/map-context";
 import { footprintLeafletPolygons } from "@/lib/firewatch/v3/satellite-pass-client";
 import { satellitePassPresentationState } from "@/lib/firewatch/v3/satellite-pass-presentation";
@@ -731,10 +736,11 @@ const BASEMAPS: Record<
 };
 
 function markerHtml(
-  kind: "fire" | "settlement" | "arrow" | "wind" | "you",
+  kind: "fire" | "settlement" | "arrow" | "report" | "wind" | "you",
   label: string,
+  context?: string,
 ) {
-  return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}</b></div>`;
+  return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}${context ? `<small>${context}</small>` : ""}</b></div>`;
 }
 
 function localize(language: Language, english: string, greek: string) {
@@ -766,9 +772,8 @@ function ageMinutesFromTimestamp(
   value: string | null | undefined,
   nowEpoch: number,
 ) {
-  if (!value) return null;
-  const observedEpoch = new Date(value).getTime();
-  if (Number.isNaN(observedEpoch)) return null;
+  const observedEpoch = timestampEpoch(value);
+  if (observedEpoch === null) return null;
   const deltaMinutes = (nowEpoch - observedEpoch) / 60_000;
   return deltaMinutes >= 0
     ? Math.floor(deltaMinutes)
@@ -866,8 +871,11 @@ function mergeHistoricalThermalPayloads(
   const detectionsById = new Map<string, LiveThermalDetection>();
   payloads.forEach((payload) => {
     payload.detections.forEach((detection) => {
-      const observedEpoch = Date.parse(detection.observedAt);
-      if (observedEpoch >= INCIDENT_STARTED_EPOCH) {
+      const observedEpoch = timestampEpoch(detection.observedAt);
+      if (
+        observedEpoch !== null &&
+        observedEpoch >= INCIDENT_STARTED_EPOCH
+      ) {
         detectionsById.set(detection.id, detection);
       }
     });
@@ -883,11 +891,15 @@ function mergeHistoricalThermalPayloads(
         return left.product.localeCompare(right.product);
       }
       const timeDelta =
-        Date.parse(left.observedAt) - Date.parse(right.observedAt);
+        (timestampEpoch(left.observedAt) ?? 0) -
+        (timestampEpoch(right.observedAt) ?? 0);
       return timeDelta || left.id.localeCompare(right.id);
     })
     .map((detection) => {
-      const observedEpoch = Date.parse(detection.observedAt);
+      const observedEpoch = timestampEpoch(detection.observedAt);
+      if (observedEpoch === null) {
+        throw new Error("Invalid thermal observation time after filtering");
+      }
       const previous = previousByProduct.get(detection.product);
       const passId =
         previous &&
@@ -899,7 +911,9 @@ function mergeHistoricalThermalPayloads(
     });
 
   const detections = clustered.sort((left, right) => {
-    const timeDelta = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+    const timeDelta =
+      (timestampEpoch(right.observedAt) ?? 0) -
+      (timestampEpoch(left.observedAt) ?? 0);
     return timeDelta || left.id.localeCompare(right.id);
   });
   const incidentDetections = detections.filter(
@@ -937,7 +951,9 @@ function mergeHistoricalThermalPayloads(
       };
     })
     .sort((left, right) => {
-      const timeDelta = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+      const timeDelta =
+        (timestampEpoch(right.observedAt) ?? 0) -
+        (timestampEpoch(left.observedAt) ?? 0);
       return timeDelta || left.id.localeCompare(right.id);
     });
 
@@ -958,11 +974,19 @@ function mergeHistoricalThermalPayloads(
   const retrievedAt =
     payloads.map((payload) => payload.retrievedAt).sort().at(-1) ??
     base.retrievedAt;
+  const queryBounds = payloads.map((payload) => {
+    const from = timestampEpoch(payload.query.from);
+    const to = timestampEpoch(payload.query.to);
+    if (from === null || to === null || from > to) {
+      throw new Error("Invalid historical thermal query window");
+    }
+    return { from, to };
+  });
   const earliestQueryFrom = Math.min(
-    ...payloads.map((payload) => Date.parse(payload.query.from)),
+    ...queryBounds.map((bounds) => bounds.from),
   );
   const latestQueryTo = Math.max(
-    ...payloads.map((payload) => Date.parse(payload.query.to)),
+    ...queryBounds.map((bounds) => bounds.to),
   );
   const datasetIds = [
     ...new Set(
@@ -1012,6 +1036,17 @@ function mergeHistoricalThermalPayloads(
   });
   const latestObservedAt = detections[0]?.observedAt ?? null;
   const latestIncidentObservedAt = incidentDetections[0]?.observedAt ?? null;
+  const retrievedEpoch = timestampEpoch(retrievedAt);
+  const latestIncidentObservedEpoch = timestampEpoch(
+    latestIncidentObservedAt,
+  );
+  const observationAgeMinutes =
+    retrievedEpoch !== null && latestIncidentObservedEpoch !== null
+      ? Math.max(
+          0,
+          Math.round((retrievedEpoch - latestIncidentObservedEpoch) / 60_000),
+        )
+      : null;
 
   return {
     ...base,
@@ -1032,15 +1067,7 @@ function mergeHistoricalThermalPayloads(
     },
     latestObservedAt,
     latestIncidentObservedAt,
-    observationAgeMinutes: latestIncidentObservedAt
-      ? Math.max(
-          0,
-          Math.round(
-            (Date.parse(retrievedAt) - Date.parse(latestIncidentObservedAt)) /
-              60_000,
-          ),
-        )
-      : null,
+    observationAgeMinutes,
     complete: status === "ok" && payloads.every((payload) => payload.complete),
     datasets,
     summary: {
@@ -1117,6 +1144,8 @@ export default function Home() {
   const baseLayerRef = useRef<TileLayer | null>(null);
   const lastAutoSelectedLive = useRef<string | null>(null);
   const geoWatchId = useRef<number | null>(null);
+  const locateControlElement = useRef<HTMLButtonElement | null>(null);
+  const locationSummaryElement = useRef<HTMLButtonElement | null>(null);
   const pendingThermalAsOfEpoch = useRef<number | null>(null);
   const seenActionIds = useRef<Set<string> | null>(null);
   const panelElement = useRef<HTMLElement | null>(null);
@@ -1217,6 +1246,11 @@ export default function Home() {
     isLive,
   );
   const effectiveEpoch = effectiveAsOfEpoch(asOfSelection, ageEpoch);
+  const asOfRangeMaximum = liveAsOfRangeMaximum(
+    INCIDENT_STARTED_EPOCH,
+    ageEpoch,
+    AS_OF_STEP_MS,
+  );
   const clockIso =
     clockEpoch === null ? null : new Date(clockEpoch).toISOString();
   const clock = formatAreaDateTime(clockIso, language, {
@@ -1246,6 +1280,7 @@ export default function Home() {
   );
   const fieldReportLabel = fieldReportPresentation.label;
   const fieldReportPrimary = fieldReportPresentation.primary;
+  const fieldReportContext = fieldReportPresentation.context;
   const requestedImageDate = formatUtcDate(satelliteEpoch, language);
   const showArchivedOfficialAlert = isTimestampVisibleAt(
     OFFICIAL_ALERT_ISSUED_AT,
@@ -1469,7 +1504,8 @@ export default function Home() {
         thermalData?.detections.filter(
           (detection) =>
             detection.scope === "incident" &&
-            Date.parse(detection.observedAt) >= INCIDENT_STARTED_EPOCH,
+            (timestampEpoch(detection.observedAt) ?? 0) >=
+              INCIDENT_STARTED_EPOCH,
         ) ?? [],
         (detection) => detection.observedAt,
         asOfSelection,
@@ -1872,11 +1908,19 @@ export default function Home() {
   const changeLanguage = (nextLanguage: Language) => {
     setLanguage(nextLanguage);
     document.documentElement.lang = nextLanguage;
-    window.localStorage.setItem("firewatch-language", nextLanguage);
+    writeBrowserPreference(() =>
+      window.localStorage.setItem("firewatch-language", nextLanguage),
+    );
   };
 
   const closePanels = () => {
+    const restoreLocationSummary = compact && layerTab === "location";
     setPanelOpen(false);
+    if (restoreLocationSummary) {
+      window.requestAnimationFrame(() =>
+        locationSummaryElement.current?.focus(),
+      );
+    }
   };
 
   const updateAsOfFromRange = (value: number) => {
@@ -1934,7 +1978,7 @@ export default function Home() {
     setIsScrubbing(true);
     if (event.key === "End") {
       event.preventDefault();
-      updateAsOfFromRange(ageEpoch);
+      updateAsOfFromRange(asOfRangeMaximum);
     }
   };
 
@@ -2083,9 +2127,11 @@ export default function Home() {
 
   const setAlertCollapsedPersistent = (collapsed: boolean) => {
     setAlertCollapsed(collapsed);
-    window.localStorage.setItem(
-      "firewatch-alert-collapsed",
-      collapsed ? "1" : "0",
+    writeBrowserPreference(() =>
+      window.localStorage.setItem(
+        "firewatch-alert-collapsed",
+        collapsed ? "1" : "0",
+      ),
     );
   };
 
@@ -2122,6 +2168,7 @@ export default function Home() {
   }, []);
 
   const stopLocate = () => {
+    const restoreLocateControl = compact && layerTab === "location";
     if (geoWatchId.current !== null) {
       navigator.geolocation.clearWatch(geoWatchId.current);
     }
@@ -2131,6 +2178,9 @@ export default function Home() {
     if (layerTab === "location") {
       setLayerTab("layers");
       setPanelOpen(false);
+    }
+    if (restoreLocateControl) {
+      window.requestAnimationFrame(() => locateControlElement.current?.focus());
     }
   };
 
@@ -2166,7 +2216,9 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const stored = window.localStorage.getItem("firewatch-language");
+      const stored = readBrowserPreference(() =>
+        window.localStorage.getItem("firewatch-language"),
+      );
       const nextLanguage =
         stored === "en" || stored === "el"
           ? stored
@@ -2177,7 +2229,9 @@ export default function Home() {
       document.documentElement.lang = nextLanguage;
       setAlertCollapsed(
         initialArchivedAlertCollapsed(
-          window.localStorage.getItem("firewatch-alert-collapsed"),
+          readBrowserPreference(() =>
+            window.localStorage.getItem("firewatch-alert-collapsed"),
+          ),
           window.matchMedia("(max-width: 1180px)").matches,
         ),
       );
@@ -2919,15 +2973,16 @@ export default function Home() {
         icon: L.divIcon({
           className: "marker-shell",
           html: markerHtml(
-            "arrow",
+            "report",
             localize(
               language,
               `FIELD REPORT · ${fieldReportPrimary.toLocaleUpperCase("en-GB")} · ARCHIVED`,
               `ΑΝΑΦΟΡΑ ΠΕΔΙΟΥ · ${fieldReportPrimary.toLocaleUpperCase("el-GR")} · ΑΡΧΕΙΟ`,
             ),
+            fieldReportContext,
           ),
-          iconSize: [170, 30],
-          iconAnchor: [16, 15],
+          iconSize: [260, 56],
+          iconAnchor: [254, 28],
         }),
       }).addTo(group);
     }
@@ -3151,6 +3206,7 @@ export default function Home() {
     officialAlertIssuedLabel,
     fieldReportLabel,
     fieldReportPrimary,
+    fieldReportContext,
     showArchivedOfficialAlert,
     showFieldReport,
     language,
@@ -3189,6 +3245,11 @@ export default function Home() {
   const openLocationSheet = () => {
     setLayerTab("location");
     setPanelOpen(true);
+    window.requestAnimationFrame(() =>
+      panelElement.current
+        ?.querySelector<HTMLButtonElement>(".sheet-close")
+        ?.focus(),
+    );
   };
   const centerMapOnUser = () => {
     if (!userPosition) return;
@@ -3213,16 +3274,47 @@ export default function Home() {
             "Location unavailable on this device.",
             "Η τοποθεσία δεν είναι διαθέσιμη σε αυτή τη συσκευή.",
           );
+  const locationThermalCoverageLimited =
+    thermalStaleSnapshot ||
+    thermalData?.status === "partial" ||
+    (thermalData !== null && !thermalData.complete);
+  const locationEmptyThermalDetail = thermalLoading
+    ? localize(
+        language,
+        "Checking FIRMS thermal observations",
+        "Έλεγχος θερμικών παρατηρήσεων FIRMS",
+      )
+    : thermalUnavailable
+      ? localize(
+          language,
+          "Thermal observations unavailable · no assessment",
+          "Οι θερμικές παρατηρήσεις δεν είναι διαθέσιμες · χωρίς αξιολόγηση",
+        )
+      : locationThermalCoverageLimited
+        ? localize(
+            language,
+            "Thermal coverage stale or incomplete · no assessment",
+            "Η θερμική κάλυψη είναι παλιά ή ελλιπής · χωρίς αξιολόγηση",
+          )
+        : localize(
+            language,
+            "No FIRMS detections returned · not an all-clear",
+            "Δεν επιστράφηκαν ανιχνεύσεις FIRMS · όχι λήξη συναγερμού",
+          );
   const locationSummaryDetail = userReadout?.nearest
     ? `${userReadout.nearestKm.toFixed(1)} km ${
         userReadout.nearestDir ? `${userReadout.nearestDir} · ` : ""
-      }${localize(language, "nearest hotspot", "πλησιέστερη εστία")}`
+      }${localize(
+        language,
+        locationThermalCoverageLimited
+          ? "nearest known thermal detection · coverage limited"
+          : "nearest thermal detection",
+        locationThermalCoverageLimited
+          ? "πλησιέστερη γνωστή θερμική ανίχνευση · περιορισμένη κάλυψη"
+          : "πλησιέστερη θερμική ανίχνευση",
+      )}`
     : userReadout
-      ? localize(
-          language,
-          "No hotspots in the current window",
-          "Καμία εστία στο τρέχον παράθυρο",
-        )
+      ? locationEmptyThermalDetail
       : locationUnavailableMessage;
   const locationDetailContent =
     userReadout && userPosition ? (
@@ -3256,13 +3348,7 @@ export default function Home() {
             )
           </span>
         ) : (
-          <span>
-            {localize(
-              language,
-              "No satellite hotspots in the current window",
-              "Καμία δορυφορική εστία στο τρέχον παράθυρο",
-            )}
-          </span>
+          <span>{locationEmptyThermalDetail}</span>
         )}
         <span>
           {userReadout.routeKm.toFixed(1)} km{" "}
@@ -3544,9 +3630,9 @@ export default function Home() {
           <input
             type="range"
             min={INCIDENT_STARTED_EPOCH}
-            max={ageEpoch}
+            max={asOfRangeMaximum}
             step={AS_OF_STEP_MS}
-            value={asOfEpoch ?? ageEpoch}
+            value={asOfEpoch ?? asOfRangeMaximum}
             suppressHydrationWarning
             aria-valuetext={
               isLive
@@ -3722,6 +3808,7 @@ export default function Home() {
 
       <button
         type="button"
+        ref={locateControlElement}
         className={`locate-control${
           geoStatus === "on" || geoStatus === "locating" ? " is-active" : ""
         }`}
@@ -3764,6 +3851,7 @@ export default function Home() {
           )}
           expanded={locationSheetOpen}
           onOpen={openLocationSheet}
+          buttonRef={locationSummaryElement}
         />
       )}
 

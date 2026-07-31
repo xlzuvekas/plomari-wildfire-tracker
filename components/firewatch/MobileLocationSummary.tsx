@@ -1,3 +1,5 @@
+import type { Ref } from "react";
+
 type MobileLocationSummaryProps = Readonly<{
   title: string;
   detail: string;
@@ -5,6 +7,7 @@ type MobileLocationSummaryProps = Readonly<{
   accessibleLabel: string;
   expanded: boolean;
   onOpen: () => void;
+  buttonRef?: Ref<HTMLButtonElement>;
 }>;
 
 /**
@@ -19,15 +22,16 @@ export function MobileLocationSummary({
   accessibleLabel,
   expanded,
   onOpen,
+  buttonRef,
 }: MobileLocationSummaryProps) {
   return (
     <button
       type="button"
+      ref={buttonRef}
       className="locate-summary"
       aria-label={accessibleLabel}
       aria-controls="layers-sheet"
       aria-expanded={expanded}
-      aria-live="polite"
       onClick={onOpen}
     >
       <strong>{title}</strong>

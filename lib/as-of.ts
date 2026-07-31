@@ -1,3 +1,5 @@
+import { parseZonedInstant } from "./area-time";
+
 export type AsOfSelection =
   | { mode: "live" }
   | { mode: "historical"; epochMs: number };
@@ -5,9 +7,7 @@ export type AsOfSelection =
 export const LIVE_AS_OF: AsOfSelection = Object.freeze({ mode: "live" });
 
 export function timestampEpoch(value: string | null | undefined) {
-  if (!value) return null;
-  const epochMs = Date.parse(value);
-  return Number.isFinite(epochMs) ? epochMs : null;
+  return parseZonedInstant(value)?.getTime() ?? null;
 }
 
 export function clampAsOfEpoch(
@@ -28,6 +28,26 @@ export function clampAsOfEpoch(
 }
 
 /**
+ * Returns the first range step at or after currentTime. Keeping the maximum on
+ * the range's min-anchored step grid prevents browsers from sanitizing the
+ * visual right edge backward into a historical value.
+ */
+export function liveAsOfRangeMaximum(
+  incidentStartedAt: number,
+  currentTime: number,
+  stepMs: number,
+): number {
+  if (!Number.isFinite(stepMs) || stepMs <= 0) {
+    throw new RangeError("Invalid as-of range step");
+  }
+  clampAsOfEpoch(incidentStartedAt, incidentStartedAt, currentTime);
+  return (
+    incidentStartedAt +
+    Math.ceil((currentTime - incidentStartedAt) / stepMs) * stepMs
+  );
+}
+
+/**
  * Converts the range control's numeric value into the application's explicit
  * Live/null sentinel. The final half-step is reserved for Live so a thumb at
  * the visual right edge can never leave polling paused in a near-current
@@ -39,11 +59,14 @@ export function asOfEpochFromRangeValue(
   currentTime: number,
   stepMs: number,
 ): number | null {
-  if (!Number.isFinite(stepMs) || stepMs <= 0) {
-    throw new RangeError("Invalid as-of range step");
-  }
+  const liveMaximum = liveAsOfRangeMaximum(
+    incidentStartedAt,
+    currentTime,
+    stepMs,
+  );
+  if (value >= liveMaximum - stepMs / 2) return null;
   const clamped = clampAsOfEpoch(value, incidentStartedAt, currentTime);
-  return clamped >= currentTime - stepMs / 2 ? null : clamped;
+  return clamped;
 }
 
 export function effectiveAsOfEpoch(
