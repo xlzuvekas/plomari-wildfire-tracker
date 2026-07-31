@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { ExplorePageClient } from "../app/explore/ExplorePageClient";
 import { resolveExplorePageOptions } from "../app/explore/explore-page-options";
+
+const exploreClientSource = readFileSync(
+  new URL("../app/explore/ExplorePageClient.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("Explore route options", () => {
   it("allows synthetic data only through an explicit development query", () => {
@@ -60,8 +67,19 @@ describe("Explore route shell", () => {
     expect(markup).toContain("Find my coarse area");
     expect(markup).toContain("Confirm suggestion");
     expect(markup).toContain("Only that cell key leaves this device");
-    expect(markup).toContain("Unconfigured, partial, stale, and unavailable");
+    expect(markup).toContain(
+      "Not-assessed, unconfigured, partial, stale, and unavailable",
+    );
     expect(markup).not.toContain("Synthetic development data");
     expect(markup).not.toMatch(/latitude|longitude|accuracy/iu);
+  });
+
+  it("keeps device coordinates out of browser persistence", () => {
+    expect(exploreClientSource).toContain(
+      "coarseAreaCellForLocation(\n            position.coords.latitude,\n            position.coords.longitude,",
+    );
+    expect(exploreClientSource).not.toMatch(
+      /localStorage|sessionStorage|indexedDB|document\.cookie/iu,
+    );
   });
 });

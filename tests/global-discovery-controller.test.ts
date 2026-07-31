@@ -205,6 +205,12 @@ describe("global discovery controller", () => {
     };
     partial.result = { state: "indeterminate" };
     partial.candidates = [];
+    const notAssessed = structuredClone(SYNTHETIC_MARSEILLE_EXPLORE);
+    notAssessed.coverage = {
+      state: "not_assessed",
+      policyVersion: SYNTHETIC_MARSEILLE_EXPLORE.coverage.policyVersion,
+      scope: structuredClone(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
+    };
     let explorePass = 0;
     const client: GlobalDiscoveryClient = {
       async exploreCandidates() {
@@ -218,6 +224,13 @@ describe("global discovery controller", () => {
         }
         if (explorePass === 2) {
           return { kind: "snapshot", transport: "live", data: partial };
+        }
+        if (explorePass === 3) {
+          return {
+            kind: "snapshot",
+            transport: "live",
+            data: notAssessed,
+          };
         }
         return unavailable();
       },
@@ -240,8 +253,15 @@ describe("global discovery controller", () => {
     await controller.refresh();
     now += 300_000;
     await controller.refresh();
-
     let snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status === "ready") {
+      expect(snapshot.response.coverage.state).toBe("not_assessed");
+    }
+    now += 300_000;
+    await controller.refresh();
+
+    snapshot = controller.getSnapshot();
     expect(snapshot.status).toBe("error");
     if (snapshot.status === "error") {
       expect(snapshot.lastGood).toEqual(SYNTHETIC_MARSEILLE_EXPLORE);

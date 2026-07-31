@@ -594,8 +594,8 @@ export function ExplorePageClient({
           )}
           <p className={styles.dataBoundary}>
             These controls query Firewatch&apos;s persisted discovery API only.
-            Unconfigured, partial, stale, and unavailable coverage remains
-            explicit and is never presented as an all-clear.
+            Not-assessed, unconfigured, partial, stale, and unavailable
+            coverage remains explicit and is never presented as an all-clear.
           </p>
         </section>
       </div>
