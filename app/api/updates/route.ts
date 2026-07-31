@@ -427,6 +427,46 @@ function feedSummary(feed: FeedConfig) {
   };
 }
 
+// Upstream feeds and scraped pages are third-party input; a hijacked or broken
+// source must not be able to exhaust function memory with an unbounded body.
+const MAX_UPSTREAM_RESPONSE_BYTES = 2_000_000;
+
+async function readBoundedText(response: Response, maxBytes: number) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error("upstream response exceeded the size limit");
+  }
+
+  if (response.body === null) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let body = "";
+  let receivedBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Keep the size-limit classification even if the stream has
+          // already failed while being cancelled.
+        }
+        throw new Error("upstream response exceeded the size limit");
+      }
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+    return body;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function fetchText(
   url: string,
   headers: Record<string, string> = {},
@@ -446,7 +486,7 @@ async function fetchText(
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
+    return await readBoundedText(response, MAX_UPSTREAM_RESPONSE_BYTES);
   } finally {
     clearTimeout(timeout);
   }
@@ -470,9 +510,26 @@ async function fetchJson<T>(
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return (await response.json()) as T;
+    const body = await readBoundedText(response, MAX_UPSTREAM_RESPONSE_BYTES);
+    return JSON.parse(body) as T;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// Feed-supplied link values become href targets in the client. Entity decoding
+// happens before this check, so schemes like javascript: or data: smuggled via
+// numeric entities are rejected here rather than shipped to browsers.
+function safeHttpUrl(value: string): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
   }
 }
 
@@ -503,7 +560,7 @@ async function fetchFeed(feed: FeedConfig) {
       const title = plainText(tag(block, "title"), 240);
       const description =
         tag(block, "content:encoded") || tag(block, "description");
-      const url = plainText(tag(block, "link"), 600);
+      const url = safeHttpUrl(plainText(tag(block, "link"), 600));
       const guid = plainText(tag(block, "guid"), 600);
       const categories = tags(block, "category").join(" ");
       const publishedAt = parsedDate(
