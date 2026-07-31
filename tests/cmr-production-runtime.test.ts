@@ -748,11 +748,12 @@ describe("CMR production wiring", () => {
     );
     expect(runtimeSource).toContain("await adapter.reapExpiredExecution()");
     expect(adapterSource).toContain(
-      "and adapter.schema_version = $4",
+      "and adapter.schema_version = 'cmr-umm-g-1.6.7-pass-v1'",
     );
     expect(adapterSource).toContain(
-      "and revision.request_params = $7::jsonb",
+      '"reconciliationIntervalHours":24',
     );
+    expect(adapterSource).not.toContain("revision.request_params = $7::jsonb");
     expect(adapterSource).toContain(
       "and revision.geometry_precision_source = 'not_applicable'",
     );

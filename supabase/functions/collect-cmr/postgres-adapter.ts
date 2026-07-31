@@ -18,11 +18,7 @@ import {
   type CmrPersistedPage,
   type CmrPersistedPageResult,
 } from "../../../lib/satellite/cmr-collector.server.ts";
-import {
-  CMR_FIREMASK_PRODUCTS,
-  CMR_PAGE_SIZE,
-  type SatellitePass,
-} from "../../../lib/satellite/cmr.ts";
+import type { SatellitePass } from "../../../lib/satellite/cmr.ts";
 import {
   type CollectorDatabase,
   type DatabaseRow,
@@ -37,29 +33,6 @@ const ENDPOINT_KEY = "granules-umm-g-1-6-7";
 const TARGET_KEY = "global-firemask-granules";
 const LEASE_SECONDS = 150;
 const COLLECTOR_SCHEMA_VERSION = "cmr-umm-g-1.6.7-pass-v1";
-const CMR_ADAPTER_CAPABILITIES = Object.freeze({
-  anomalyAssessment: "not_assessed",
-  catalogMetadataOnly: true,
-  pagination: "CMR-Search-After",
-  products: CMR_FIREMASK_PRODUCTS.map((product) => product.shortName),
-  ummGVersion: "1.6.7",
-});
-const CMR_ADAPTER_CONFIG_SCHEMA = Object.freeze({});
-const CMR_TARGET_REQUEST_PARAMS = Object.freeze({
-  bootstrapLookbackHours: 36,
-  incrementalOverlapMinutes: 10,
-  maximumPagesPerProduct: 20,
-  pageSize: CMR_PAGE_SIZE,
-  products: CMR_FIREMASK_PRODUCTS.map((product) => ({
-    satellite: product.satellite,
-    shortName: product.shortName,
-    version: product.version,
-  })),
-  provider: "LANCEMODIS",
-  reconciliationIntervalHours: 24,
-  responseFormat: "umm_json",
-  sortKeys: ["-start_date", "granule_ur"],
-});
 
 export type CmrInvocationMode = "auto" | "bootstrap" | "reconciliation";
 
@@ -461,9 +434,9 @@ export class PostgresCmrAdapter
        join core.collection_target_revisions as revision
          on revision.id = health.collection_target_revision_id
         and revision.collection_target_id = health.collection_target_id
-       where source.slug = $1
-         and endpoint.endpoint_key = $2
-         and target.target_key = $3
+       where source.slug = 'nasa-cmr-firemask'
+         and endpoint.endpoint_key = 'granules-umm-g-1-6-7'
+         and target.target_key = 'global-firemask-granules'
          and core.is_current_collection_target_revision(
            health.collection_target_id,
            health.collection_target_revision_id,
@@ -630,10 +603,30 @@ export class PostgresCmrAdapter
          and revision.operational_role = 'context'
          and revision.cadence = interval '5 minutes'
          and revision.stale_after = interval '3 hours'
-         and revision.request_params = $7::jsonb
-         and adapter.schema_version = $4
-         and adapter.capabilities = $5::jsonb
-         and adapter.config_schema = $6::jsonb
+         and revision.request_params = '{
+           "bootstrapLookbackHours":36,
+           "incrementalOverlapMinutes":10,
+           "maximumPagesPerProduct":20,
+           "pageSize":200,
+           "products":[
+             {"satellite":"Suomi-NPP","shortName":"VNP14IMG_NRT","version":"2"},
+             {"satellite":"NOAA-20","shortName":"VJ114IMG_NRT","version":"2"},
+             {"satellite":"NOAA-21","shortName":"VJ214IMG_NRT","version":"2"}
+           ],
+           "provider":"LANCEMODIS",
+           "reconciliationIntervalHours":24,
+           "responseFormat":"umm_json",
+           "sortKeys":["-start_date","granule_ur"]
+         }'::jsonb
+         and adapter.schema_version = 'cmr-umm-g-1.6.7-pass-v1'
+         and adapter.capabilities = '{
+           "anomalyAssessment":"not_assessed",
+           "catalogMetadataOnly":true,
+           "pagination":"CMR-Search-After",
+           "products":["VNP14IMG_NRT","VJ114IMG_NRT","VJ214IMG_NRT"],
+           "ummGVersion":"1.6.7"
+         }'::jsonb
+         and adapter.config_schema = '{}'::jsonb
          and adapter_state.enabled
          and adapter_state.retired_at is null
          and not exists (
@@ -659,15 +652,6 @@ export class PostgresCmrAdapter
              and newer_state.enabled
              and newer_state.retired_at is null
          )`,
-      [
-        SOURCE_SLUG,
-        ENDPOINT_KEY,
-        TARGET_KEY,
-        COLLECTOR_SCHEMA_VERSION,
-        jsonParameter(CMR_ADAPTER_CAPABILITIES),
-        jsonParameter(CMR_ADAPTER_CONFIG_SCHEMA),
-        jsonParameter(CMR_TARGET_REQUEST_PARAMS),
-      ],
     );
     if (rows.length !== 1 || rows[0] === undefined) {
       throw new CmrCollectorDatabaseError(
