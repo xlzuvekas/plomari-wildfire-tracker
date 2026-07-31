@@ -15,7 +15,9 @@ import {
   DiscoveryPanel,
   type DiscoveryPanelState,
 } from "../../components/firewatch/DiscoveryPanel";
+import { ThermalEvidencePanel } from "../../components/firewatch/ThermalEvidencePanel";
 import type { DiscoverySelection } from "../../components/firewatch/discovery-presentation";
+import { useThermalAnomalyArea } from "../../hooks/use-thermal-anomaly-area";
 import {
   coarseAreaCellForLocation,
   parseAreaCellKey,
@@ -94,10 +96,42 @@ function LazyExploreGlobe(props: ExploreGlobeProps) {
 type ExplorePageClientProps = Readonly<{
   fixtureMode: boolean;
   initialSuggestedCell: string | null;
+  thermalV3Enabled: boolean;
 }>;
 
 type PageMode = "explore" | "nearby";
 const COMPACT_CONTROLS_QUERY = "(max-width: 52rem)";
+
+export type ThermalNearbyTarget = Readonly<{
+  cell: string;
+  asOf: string;
+  knownAt: string;
+  timeZone: string;
+}>;
+
+export function thermalNearbyTarget(
+  enabled: boolean,
+  mode: PageMode,
+  confirmedCell: string | null,
+  panelState: DiscoveryPanelState | null,
+): ThermalNearbyTarget | null {
+  if (
+    !enabled ||
+    mode !== "nearby" ||
+    confirmedCell === null ||
+    panelState?.mode !== "nearby-incidents" ||
+    panelState.status !== "ready" ||
+    panelState.response.scope.cell !== confirmedCell
+  ) {
+    return null;
+  }
+  return Object.freeze({
+    cell: confirmedCell,
+    asOf: panelState.response.time.asOf,
+    knownAt: panelState.response.time.knownAt,
+    timeZone: panelState.response.scope.timeZone,
+  });
+}
 
 function subscribeToCompactControls(onStoreChange: () => void) {
   const query = window.matchMedia(COMPACT_CONTROLS_QUERY);
@@ -239,6 +273,7 @@ function locationErrorMessage(code: number): string {
 export function ExplorePageClient({
   fixtureMode,
   initialSuggestedCell,
+  thermalV3Enabled,
 }: ExplorePageClientProps) {
   const client = useMemo(
     () =>
@@ -453,6 +488,21 @@ export function ExplorePageClient({
       : confirmedCell
         ? nearbyPanelState(snapshot, confirmedCell)
         : null;
+  const thermalUiActive = thermalV3Enabled && !fixtureMode;
+  const thermalTarget = thermalNearbyTarget(
+    thermalUiActive,
+    mode,
+    confirmedCell,
+    panelState,
+  );
+  const thermalState = useThermalAnomalyArea({
+    enabled:
+      thermalUiActive && mode === "nearby" && confirmedCell !== null,
+    cell: thermalTarget?.cell ?? null,
+    asOf: thermalTarget?.asOf ?? null,
+    knownAt: thermalTarget?.knownAt ?? null,
+    limit: 50,
+  });
   const globeRequestStatus =
     panelState?.mode === "explore-candidates"
       ? panelState.status
@@ -727,6 +777,13 @@ export function ExplorePageClient({
               </p>
             </div>
           )}
+          {thermalUiActive && mode === "nearby" && confirmedCell ? (
+            <ThermalEvidencePanel
+              state={thermalState}
+              timeZone={thermalTarget?.timeZone ?? "UTC"}
+              locale="en-GB"
+            />
+          ) : null}
           <p className={styles.dataBoundary}>
             These controls query Firewatch&apos;s persisted discovery API only.
             Not-assessed, unconfigured, partial, stale, and unavailable

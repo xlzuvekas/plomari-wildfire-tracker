@@ -19,6 +19,10 @@ export default async function ExplorePage({
   searchParams: Promise<ExploreSearchParameters>;
 }>) {
   const parameters = await searchParams;
-  const options = resolveExplorePageOptions(parameters, process.env.NODE_ENV);
+  const options = resolveExplorePageOptions(
+    parameters,
+    process.env.NODE_ENV,
+    process.env.FIREWATCH_THERMAL_V3_UI_ENABLED,
+  );
   return <ExplorePageClient {...options} />;
 }

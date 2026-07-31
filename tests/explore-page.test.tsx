@@ -6,9 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ExplorePageClient,
   loadExploreGlobeModule,
+  thermalNearbyTarget,
 } from "../app/explore/ExplorePageClient";
 import { synchronizeCandidateMarkerSelection } from "../app/explore/ExploreGlobe";
 import { resolveExplorePageOptions } from "../app/explore/explore-page-options";
+import { SYNTHETIC_PLOMARI_NEARBY } from "./fixtures/global-discovery-v3";
 
 const exploreClientSource = readFileSync(
   new URL("../app/explore/ExplorePageClient.tsx", import.meta.url),
@@ -65,14 +67,56 @@ describe("Explore route options", () => {
       ).initialSuggestedCell,
     ).toBeNull();
   });
+
+  it("keeps thermal v3 browser reads behind an exact server-only activation flag", () => {
+    expect(
+      resolveExplorePageOptions({}, "production", undefined).thermalV3Enabled,
+    ).toBe(false);
+    expect(
+      resolveExplorePageOptions({}, "production", "TRUE").thermalV3Enabled,
+    ).toBe(false);
+    expect(
+      resolveExplorePageOptions({}, "production", "true").thermalV3Enabled,
+    ).toBe(true);
+  });
 });
 
 describe("Explore route shell", () => {
+  it("starts a thermal read only from the exact current validated Nearby snapshot", () => {
+    const readyState = {
+      status: "ready",
+      mode: "nearby-incidents",
+      response: SYNTHETIC_PLOMARI_NEARBY,
+      transport: "live",
+    } as const;
+    const cell = SYNTHETIC_PLOMARI_NEARBY.scope.cell;
+
+    expect(thermalNearbyTarget(true, "nearby", cell, readyState)).toEqual({
+      cell,
+      asOf: SYNTHETIC_PLOMARI_NEARBY.time.asOf,
+      knownAt: SYNTHETIC_PLOMARI_NEARBY.time.knownAt,
+      timeZone: SYNTHETIC_PLOMARI_NEARBY.scope.timeZone,
+    });
+    expect(thermalNearbyTarget(false, "nearby", cell, readyState)).toBeNull();
+    expect(thermalNearbyTarget(true, "explore", cell, readyState)).toBeNull();
+    expect(
+      thermalNearbyTarget(true, "nearby", "wm/10/587/390", readyState),
+    ).toBeNull();
+    expect(
+      thermalNearbyTarget(true, "nearby", cell, {
+        status: "loading",
+        mode: "nearby-incidents",
+        lastGood: SYNTHETIC_PLOMARI_NEARBY,
+      }),
+    ).toBeNull();
+  });
+
   it("renders an accessible production controller with explicit privacy and coverage boundaries", () => {
     const markup = renderToStaticMarkup(
       <ExplorePageClient
         fixtureMode={false}
         initialSuggestedCell="wm/10/587/391"
+        thermalV3Enabled={false}
       />,
     );
 
@@ -88,6 +132,7 @@ describe("Explore route shell", () => {
       "Not-assessed, unconfigured, partial, stale, and unavailable",
     );
     expect(markup).not.toContain("Synthetic development data");
+    expect(markup).not.toContain("SATELLITE THERMAL // PERSISTED V3");
     expect(markup).not.toMatch(/latitude|longitude|accuracy/iu);
   });
 
@@ -110,6 +155,15 @@ describe("Explore route shell", () => {
     );
     expect(exploreGlobeSource).toContain("aggregate display-cell bounds");
     expect(exploreGlobeSource).toContain("failIfMajorPerformanceCaveat");
+  });
+
+  it("never mixes synthetic discovery with the persisted thermal reader", () => {
+    expect(exploreClientSource).toContain(
+      "const thermalUiActive = thermalV3Enabled && !fixtureMode;",
+    );
+    expect(exploreClientSource).toContain(
+      "thermalUiActive && mode === \"nearby\" && confirmedCell !== null",
+    );
   });
 
   it("contains a rejected globe chunk without replacing the candidate list", async () => {
@@ -225,7 +279,11 @@ describe("Explore route shell", () => {
 
   it("collapses controls before results on mobile without visually reordering the DOM", () => {
     const markup = renderToStaticMarkup(
-      <ExplorePageClient fixtureMode={false} initialSuggestedCell={null} />,
+      <ExplorePageClient
+        fixtureMode={false}
+        initialSuggestedCell={null}
+        thermalV3Enabled={false}
+      />,
     );
     const detailsIndex = markup.indexOf("<details");
     const summaryIndex = markup.indexOf("<summary");

@@ -184,6 +184,7 @@ X_BEARER_TOKEN=your_optional_server_side_x_bearer_token
 SUPABASE_URL=your_optional_supabase_project_url
 SUPABASE_PUBLISHABLE_KEY=your_optional_supabase_publishable_key
 SUPABASE_DISCOVERY_READER_KEY=your_scoped_server_only_supabase_secret_key
+FIREWATCH_THERMAL_V3_UI_ENABLED=false
 ```
 
 `FIRMS_MAP_KEY` enables live FIRMS point queries. Without it, the app keeps the
@@ -230,9 +231,13 @@ npm start
    shadow read routes should be active. Add the separately provisioned
    `SUPABASE_DISCOVERY_READER_KEY` for scoped Nearby and thermal reads; never
    substitute a service-role key.
-6. Reserve `X_BEARER_TOKEN`, if configured, for the future scheduled evidence
+6. Keep `FIREWATCH_THERMAL_V3_UI_ENABLED=false` until the database statement
+   timeout, admission/rate controls, observability, canary, and rollback gates
+   in issue #59 are complete. The exact lowercase value `true` is the only
+   value that activates the browser panel.
+7. Reserve `X_BEARER_TOKEN`, if configured, for the future scheduled evidence
    collector. Public browser-driven routes do not use it.
-7. Redeploy after adding or rotating an environment variable.
+8. Redeploy after adding or rotating an environment variable.
 
 The `/api/thermal`, `/api/updates`, and `/api/wind` routes keep upstream
 credentials and cross-origin requests on the server. Neither key is sent to the
@@ -328,7 +333,8 @@ labels CMR geometry as catalog-footprint coverage with
 database-proven continuous complete global scan lineage across the current
 36-hour window plus zero exact PostGIS intersections; an isolated incremental,
 stale scan, or partial scan can never produce that claim. The route is not yet
-wired into the v2 map.
+wired into global Explore fan-out. It is wired into the v2 incident map as a
+current-only persisted layer and is withheld while viewing historical time.
 
 The first global-discovery v3 routes are deliberately honest about the current
 read-model boundary:
@@ -372,6 +378,17 @@ read-model boundary:
   page; they are never presented as a total across pages.
   Empty results and exhausted pages remain `not_assessed` / `indeterminate`,
   never an all-clear.
+
+The `/explore` Nearby thermal panel is implemented behind the strict server-only
+`FIREWATCH_THERMAL_V3_UI_ENABLED=true` gate and defaults off. Once activated, it
+reuses only the exact canonical cell, event-time cutoff, and knowledge-time
+cutoff from a freshly validated Nearby response. It performs one bounded
+first-page persisted read per validated Nearby snapshot: there is no global
+fan-out, provider call, independent thermal polling, automatic retry, cursor
+traversal, service-worker cache, offline retention, or legacy-map cutover. A
+zero-row page remains coverage-not-assessed and never becomes “no fire” or an
+all-clear. Do not activate this gate before issue #59's database and edge
+admission controls are complete.
 
 These routes accept only canonical millisecond UTC cutoffs within the bounded
 31-day discovery horizon. Nearby remains a single bounded page and rejects

@@ -4,3 +4,4 @@ export * from "./global-discovery-controller";
 export * from "./global-discovery-fixture-client";
 export * from "./global-discovery-http-client";
 export * from "./thermal-anomaly-contract";
+export * from "./thermal-anomaly-http-client";
