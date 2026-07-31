@@ -2908,6 +2908,16 @@ button {
   font-size: 1.15rem;
 }
 
+/* A live action alert outranks the archived 112 reminder. On desktop, move
+   the archived banner below the bounded live toast instead of letting the two
+   independently positioned surfaces cover each other. Mobile already owns a
+   reserved alert stack through the layout variables below. */
+@media (min-width: 1181px) {
+  .command-shell.has-action-alert:not(.alert-collapsed) .evacuation-banner {
+    top: max(260px, calc(env(safe-area-inset-top) + 240px));
+  }
+}
+
 .wire-badge {
   position: absolute;
   top: 5px;

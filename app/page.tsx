@@ -33,6 +33,7 @@ import {
 import { DEMAND_INTERVALS_MS } from "@/lib/firewatch/demand-policy";
 import { coarseAreaCellForLocation } from "@/lib/firewatch/map-context";
 import { footprintLeafletPolygons } from "@/lib/firewatch/v3/satellite-pass-client";
+import { satellitePassPresentationState } from "@/lib/firewatch/v3/satellite-pass-presentation";
 import { useSatellitePassArea } from "@/hooks/use-satellite-pass-area";
 
 type LatLngTuple = [number, number];
@@ -1686,35 +1687,45 @@ export default function Home() {
   const satellitePassAreaLabel = userPosition
     ? localize(language, "your coarse area", "την ευρεία περιοχή σας")
     : localize(language, "the incident area", "την περιοχή του συμβάντος");
-  const satellitePassLayerDetail = !isLive
+  const satellitePassPresentation = satellitePassPresentationState({
+    isLive,
+    loading: satellitePassArea.loading,
+    unavailable: satellitePassUnavailable,
+    stale: satellitePassStale,
+    validEmpty: satellitePassData?.result.state === "valid-empty",
+    indeterminateEmpty: satellitePassIndeterminateEmpty,
+  });
+  const satellitePassLayerDetail = satellitePassPresentation ===
+    "current-only-withheld"
     ? localize(
         language,
         "Current-only CMR catalog coverage · hidden in history",
         "Τρέχουσα μόνο κάλυψη καταλόγου CMR · κρυφή στο ιστορικό",
       )
-    : satellitePassArea.loading
+    : satellitePassPresentation === "loading"
       ? localize(
           language,
           `Checking persisted CMR coverage for ${satellitePassAreaLabel}`,
           `Έλεγχος αποθηκευμένης κάλυψης CMR για ${satellitePassAreaLabel}`,
         )
-      : satellitePassUnavailable
+      : satellitePassPresentation === "unavailable"
         ? localize(
             language,
             "Persisted CMR coverage unavailable",
             "Η αποθηκευμένη κάλυψη CMR δεν είναι διαθέσιμη",
           )
-        : satellitePassData?.result.state === "valid-empty"
+        : satellitePassPresentation === "stale" ||
+            satellitePassPresentation === "stale-valid-empty"
           ? localize(
               language,
-              `No catalog footprints intersect ${satellitePassAreaLabel} · checked ${satellitePassCheckedTime}`,
-              `Δεν τέμνουν αποτυπώματα καταλόγου ${satellitePassAreaLabel} · έλεγχος ${satellitePassCheckedTime}`,
+              `Cached, stale, or incomplete catalog coverage · checked ${satellitePassCheckedTime}`,
+              `Προσωρινά αποθηκευμένη, παλιά ή ελλιπής κάλυψη καταλόγου · έλεγχος ${satellitePassCheckedTime}`,
             )
-          : satellitePassStale
+          : satellitePassPresentation === "valid-empty"
             ? localize(
                 language,
-                `Cached, stale, or incomplete catalog coverage · checked ${satellitePassCheckedTime}`,
-                `Προσωρινά αποθηκευμένη, παλιά ή ελλιπής κάλυψη καταλόγου · έλεγχος ${satellitePassCheckedTime}`,
+                `No catalog footprints intersect ${satellitePassAreaLabel} · checked ${satellitePassCheckedTime}`,
+                `Δεν τέμνουν αποτυπώματα καταλόγου ${satellitePassAreaLabel} · έλεγχος ${satellitePassCheckedTime}`,
               )
             : localize(
                 language,
@@ -1820,9 +1831,12 @@ export default function Home() {
     updatesData?.fireServiceIncident?.statusLabel,
     language,
   );
-  const cachedSnapshotSources = (
-    ["wind", "updates", "thermal"] as const
-  ).filter((source) => snapshotSources[source]);
+  const cachedSnapshotSources = [
+    ...(["wind", "updates", "thermal"] as const).filter(
+      (source) => snapshotSources[source],
+    ),
+    ...(satellitePassArea.cachedSnapshot ? (["satellite"] as const) : []),
+  ];
   const cachedSnapshotLabel = cachedSnapshotSources
     .map(
       (source) =>
@@ -1830,6 +1844,11 @@ export default function Home() {
           wind: localize(language, "wind", "άνεμος"),
           updates: localize(language, "updates", "ενημερώσεις"),
           thermal: localize(language, "thermal", "θερμικά"),
+          satellite: localize(
+            language,
+            "satellite catalog",
+            "κατάλογος δορυφόρου",
+          ),
         })[source],
     )
     .join(" · ");
@@ -4255,41 +4274,52 @@ export default function Home() {
                 )}
               </strong>
               <small>
-                {!isLive
+                {satellitePassPresentation === "current-only-withheld"
                   ? localize(
                       language,
                       "CURRENT-ONLY · WITHHELD AT THE SELECTED HISTORICAL TIME",
                       "ΜΟΝΟ ΤΡΕΧΟΥΣΑ · ΑΠΟΚΡΥΠΤΕΤΑΙ ΣΤΗΝ ΕΠΙΛΕΓΜΕΝΗ ΙΣΤΟΡΙΚΗ ΩΡΑ",
                     )
-                  : satellitePassArea.loading
+                  : satellitePassPresentation === "loading"
                     ? localize(
                         language,
                         "CHECKING PERSISTED COVERAGE",
                         "ΕΛΕΓΧΟΣ ΑΠΟΘΗΚΕΥΜΕΝΗΣ ΚΑΛΥΨΗΣ",
                       )
-                    : satellitePassUnavailable
+                    : satellitePassPresentation === "unavailable"
                       ? localize(
                           language,
                           "PERSISTED COVERAGE UNAVAILABLE",
                           "Η ΑΠΟΘΗΚΕΥΜΕΝΗ ΚΑΛΥΨΗ ΔΕΝ ΕΙΝΑΙ ΔΙΑΘΕΣΙΜΗ",
                         )
-                      : satellitePassData?.result.state === "valid-empty"
+                      : satellitePassPresentation === "stale" ||
+                          satellitePassPresentation === "stale-valid-empty"
                         ? localize(
                             language,
-                            "NO CATALOG FOOTPRINT INTERSECTIONS IN THE COMPLETED WINDOW",
-                            "ΚΑΜΙΑ ΤΟΜΗ ΑΠΟΤΥΠΩΜΑΤΟΣ ΚΑΤΑΛΟΓΟΥ ΣΤΟ ΟΛΟΚΛΗΡΩΜΕΝΟ ΠΑΡΑΘΥΡΟ",
+                            satellitePassPresentation === "stale-valid-empty"
+                              ? "CACHED OR STALE SNAPSHOT · ITS LAST COMPLETED WINDOW HAD NO CATALOG FOOTPRINT INTERSECTIONS"
+                              : "CACHED, STALE, OR INCOMPLETE CATALOG COVERAGE · DO NOT TREAT AS CURRENT",
+                            satellitePassPresentation === "stale-valid-empty"
+                              ? "ΑΠΟΘΗΚΕΥΜΕΝΟ Ή ΠΑΛΙΟ ΣΤΙΓΜΙΟΤΥΠΟ · ΣΤΟ ΤΕΛΕΥΤΑΙΟ ΟΛΟΚΛΗΡΩΜΕΝΟ ΠΑΡΑΘΥΡΟ ΤΟΥ ΔΕΝ ΥΠΗΡΧΑΝ ΤΟΜΕΣ ΑΠΟΤΥΠΩΜΑΤΩΝ ΚΑΤΑΛΟΓΟΥ"
+                              : "ΑΠΟΘΗΚΕΥΜΕΝΗ, ΠΑΛΙΑ Ή ΕΛΛΙΠΗΣ ΚΑΛΥΨΗ ΚΑΤΑΛΟΓΟΥ · ΜΗΝ ΤΗ ΘΕΩΡΕΙΤΕ ΤΡΕΧΟΥΣΑ",
                           )
-                        : satellitePassIndeterminateEmpty
+                        : satellitePassPresentation === "valid-empty"
                           ? localize(
                               language,
-                              "EMPTY RESULT INDETERMINATE · COVERAGE IS INCOMPLETE OR NOT ELIGIBLE",
-                              "ΑΠΡΟΣΔΙΟΡΙΣΤΟ ΚΕΝΟ ΑΠΟΤΕΛΕΣΜΑ · Η ΚΑΛΥΨΗ ΕΙΝΑΙ ΕΛΛΙΠΗΣ Ή ΜΗ ΕΠΙΛΕΞΙΜΗ",
+                              "NO CATALOG FOOTPRINT INTERSECTIONS IN THE COMPLETED WINDOW",
+                              "ΚΑΜΙΑ ΤΟΜΗ ΑΠΟΤΥΠΩΜΑΤΟΣ ΚΑΤΑΛΟΓΟΥ ΣΤΟ ΟΛΟΚΛΗΡΩΜΕΝΟ ΠΑΡΑΘΥΡΟ",
                             )
-                        : localize(
-                            language,
-                            `${satellitePassData?.page.truncated ? "AT LEAST " : ""}${satellitePasses.length} CATALOG FOOTPRINTS`,
-                            `${satellitePassData?.page.truncated ? "ΤΟΥΛΑΧΙΣΤΟΝ " : ""}${satellitePasses.length} ΑΠΟΤΥΠΩΜΑΤΑ ΚΑΤΑΛΟΓΟΥ`,
-                          )}
+                          : satellitePassPresentation === "indeterminate-empty"
+                            ? localize(
+                                language,
+                                "EMPTY RESULT INDETERMINATE · COVERAGE IS INCOMPLETE OR NOT ELIGIBLE",
+                                "ΑΠΡΟΣΔΙΟΡΙΣΤΟ ΚΕΝΟ ΑΠΟΤΕΛΕΣΜΑ · Η ΚΑΛΥΨΗ ΕΙΝΑΙ ΕΛΛΙΠΗΣ Ή ΜΗ ΕΠΙΛΕΞΙΜΗ",
+                              )
+                            : localize(
+                                language,
+                                `${satellitePassData?.page.truncated ? "AT LEAST " : ""}${satellitePasses.length} CATALOG FOOTPRINTS`,
+                                `${satellitePassData?.page.truncated ? "ΤΟΥΛΑΧΙΣΤΟΝ " : ""}${satellitePasses.length} ΑΠΟΤΥΠΩΜΑΤΑ ΚΑΤΑΛΟΓΟΥ`,
+                              )}
               </small>
               {isLive && satellitePassData && (
                 <small>

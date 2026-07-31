@@ -7,7 +7,7 @@ import {
   parseSatellitePassPayload,
   satellitePassErrorSchema,
   type SatellitePassPayload,
-} from "@/lib/firewatch/v3/satellite-pass-client";
+} from "../lib/firewatch/v3/satellite-pass-client";
 
 const SNAPSHOT_HEADER = "X-Firewatch-Snapshot";
 export const SATELLITE_PASS_POLL_MS = 5 * 60_000;
@@ -17,7 +17,7 @@ export type SatellitePassClientError =
   | "invalid-response"
   | "unavailable";
 
-type SatellitePassAreaState = {
+export type SatellitePassAreaState = {
   cellKey: string;
   data: SatellitePassPayload | null;
   error: SatellitePassClientError | null;
@@ -25,7 +25,10 @@ type SatellitePassAreaState = {
   loading: boolean;
 };
 
-function initialState(cellKey: string, loading: boolean): SatellitePassAreaState {
+export function initialSatellitePassAreaState(
+  cellKey: string,
+  loading: boolean,
+): SatellitePassAreaState {
   return {
     cellKey,
     data: null,
@@ -35,11 +38,31 @@ function initialState(cellKey: string, loading: boolean): SatellitePassAreaState
   };
 }
 
-function pollingAvailable(allowCachedSnapshot: boolean) {
-  return (
-    document.visibilityState === "visible" &&
-    (navigator.onLine || allowCachedSnapshot)
-  );
+export function satellitePassPollingAvailable(
+  visibilityState: DocumentVisibilityState,
+  online: boolean,
+  allowCachedSnapshot: boolean,
+) {
+  return visibilityState === "visible" && (online || allowCachedSnapshot);
+}
+
+export function failedSatellitePassAreaState(
+  current: SatellitePassAreaState,
+  cellKey: string,
+  error: SatellitePassClientError,
+): SatellitePassAreaState {
+  if (current.cellKey !== cellKey) {
+    return {
+      ...initialSatellitePassAreaState(cellKey, false),
+      error,
+    };
+  }
+  return {
+    ...current,
+    error,
+    cachedSnapshot: current.cachedSnapshot || Boolean(current.data),
+    loading: false,
+  };
 }
 
 /**
@@ -48,7 +71,7 @@ function pollingAvailable(allowCachedSnapshot: boolean) {
  */
 export function useSatellitePassArea(cellKey: string, isLive: boolean) {
   const [state, setState] = useState<SatellitePassAreaState>(() =>
-    initialState(cellKey, isLive),
+    initialSatellitePassAreaState(cellKey, isLive),
   );
 
   useEffect(() => {
@@ -63,7 +86,11 @@ export function useSatellitePassArea(cellKey: string, isLive: boolean) {
         cancelled ||
         inFlight ||
         invalidRequest ||
-        !pollingAvailable(allowCachedSnapshot)
+        !satellitePassPollingAvailable(
+          document.visibilityState,
+          navigator.onLine,
+          allowCachedSnapshot,
+        )
       ) {
         return;
       }
@@ -112,14 +139,7 @@ export function useSatellitePassArea(cellKey: string, isLive: boolean) {
               : "unavailable";
         if (clientError === "invalid-request") invalidRequest = true;
         setState((current) =>
-          current.cellKey === cellKey
-            ? {
-                ...current,
-                error: clientError,
-                cachedSnapshot: current.cachedSnapshot || Boolean(current.data),
-                loading: false,
-              }
-            : initialState(cellKey, false),
+          failedSatellitePassAreaState(current, cellKey, clientError),
         );
       } finally {
         inFlight = false;
@@ -131,7 +151,10 @@ export function useSatellitePassArea(cellKey: string, isLive: boolean) {
       () => void refresh(),
       SATELLITE_PASS_POLL_MS,
     );
-    const resume = () => void refresh();
+    // A service-worker snapshot may be the only available response when a
+    // visible tab resumes offline. The response header keeps it explicitly
+    // marked as cached; online resumes still attempt the network normally.
+    const resume = () => void refresh(true);
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("online", resume);
     return () => {
@@ -146,11 +169,13 @@ export function useSatellitePassArea(cellKey: string, isLive: boolean) {
 
   if (!isLive) {
     return {
-      ...initialState(cellKey, false),
+      ...initialSatellitePassAreaState(cellKey, false),
       currentOnlyWithheld: true,
     } as const;
   }
   const currentState =
-    state.cellKey === cellKey ? state : initialState(cellKey, true);
+    state.cellKey === cellKey
+      ? state
+      : initialSatellitePassAreaState(cellKey, true);
   return { ...currentState, currentOnlyWithheld: false } as const;
 }
