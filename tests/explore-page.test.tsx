@@ -10,6 +10,14 @@ const exploreClientSource = readFileSync(
   new URL("../app/explore/ExplorePageClient.tsx", import.meta.url),
   "utf8",
 );
+const exploreGlobeSource = readFileSync(
+  new URL("../app/explore/ExploreGlobe.tsx", import.meta.url),
+  "utf8",
+);
+const exploreGlobeStyles = readFileSync(
+  new URL("../app/explore/ExploreGlobe.module.css", import.meta.url),
+  "utf8",
+);
 
 describe("Explore route options", () => {
   it("allows synthetic data only through an explicit development query", () => {
@@ -82,5 +90,34 @@ describe("Explore route shell", () => {
     expect(exploreClientSource).not.toMatch(
       /localStorage|sessionStorage|indexedDB|document\.cookie/iu,
     );
+  });
+
+  it("loads the MapLibre renderer only for Explore and keeps provider calls out of the browser", () => {
+    expect(exploreClientSource).toContain("dynamic(");
+    expect(exploreClientSource).toContain('mode === "explore" ? (');
+    expect(exploreGlobeSource).toContain('await import("maplibre-gl")');
+    expect(exploreGlobeSource).not.toMatch(/leaflet|FIRMS_MAP_KEY/iu);
+    expect(exploreGlobeSource).not.toMatch(
+      /fetch\(|axios|XMLHttpRequest|supabase\.from/iu,
+    );
+    expect(exploreGlobeSource).toContain("aggregate display-cell bounds");
+    expect(exploreGlobeSource).toContain("failIfMajorPerformanceCaveat");
+  });
+
+  it("preserves a useful mobile viewport, touch targets, resize handling, and visible credit", () => {
+    expect(exploreGlobeStyles).toContain("@media (max-width: 30rem)");
+    expect(exploreGlobeStyles).toMatch(
+      /\.viewport\s*\{[^}]*height:\s*min\(54vh, 23rem\);[^}]*min-height:\s*18\.5rem;/u,
+    );
+    expect(exploreGlobeStyles).toMatch(
+      /\.marker\s*\{[^}]*width:\s*2\.75rem;[^}]*height:\s*2\.75rem;/u,
+    );
+    expect(exploreGlobeSource).toContain("new ResizeObserver");
+    expect(exploreGlobeSource).toContain("map.resize()");
+    expect(exploreGlobeSource).toContain(
+      "Tiles © Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    );
+    expect(exploreGlobeStyles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(exploreGlobeStyles).not.toMatch(/@keyframes|animation:/u);
   });
 });

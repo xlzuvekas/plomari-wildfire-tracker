@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   useCallback,
@@ -30,6 +31,23 @@ import {
 } from "../../lib/firewatch/v3";
 
 import styles from "./ExplorePage.module.css";
+
+const DynamicExploreGlobe = dynamic(
+  () => import("./ExploreGlobe").then(({ ExploreGlobe }) => ExploreGlobe),
+  {
+    ssr: false,
+    loading: () => (
+      <section className={styles.globeLoader} aria-label="Global candidate map">
+        <p className={styles.eyebrow}>EXPLORE // AGGREGATE GLOBE</p>
+        <h2>Loading globe renderer</h2>
+        <p role="status">
+          The keyboard-accessible candidate list remains available while the
+          map code loads.
+        </p>
+      </section>
+    ),
+  },
+);
 
 type ExplorePageClientProps = Readonly<{
   fixtureMode: boolean;
@@ -367,6 +385,16 @@ export function ExplorePageClient({
       : confirmedCell
         ? nearbyPanelState(snapshot, confirmedCell)
         : null;
+  const globeRequestStatus =
+    panelState?.mode === "explore-candidates"
+      ? panelState.status
+      : "loading";
+  const globeResponse =
+    panelState?.mode === "explore-candidates"
+      ? panelState.status === "ready"
+        ? panelState.response
+        : panelState.lastGood ?? null
+      : null;
   const refreshCurrentTarget = () => {
     if (mode === "explore") {
       void controller.activate({ mode: "explore-candidates" });
@@ -572,6 +600,14 @@ export function ExplorePageClient({
           id="discovery-results"
           aria-label="Discovery results"
         >
+          {mode === "explore" ? (
+            <DynamicExploreGlobe
+              requestStatus={globeRequestStatus}
+              response={globeResponse}
+              selected={selected}
+              onSelectionChange={setSelected}
+            />
+          ) : null}
           {panelState ? (
             <DiscoveryPanel
               className={styles.discoveryPanel}
