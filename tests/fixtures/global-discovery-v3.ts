@@ -46,6 +46,7 @@ export const SYNTHETIC_MARSEILLE_EXPLORE: ExploreDiscoveryResponse = {
     timeZone: {
       id: "UTC",
       basis: "utc-fallback",
+      utcOffsetMinutesAtAsOf: 0,
     },
     normalizedTimeZone: "UTC",
     semantics: {
@@ -58,8 +59,16 @@ export const SYNTHETIC_MARSEILLE_EXPLORE: ExploreDiscoveryResponse = {
   coverage: {
     state: "complete",
     policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+    scope: {
+      kind: "global",
+      gridVersion: AREA_GRID_VERSION,
+    },
     checkedAt: "2026-07-31T17:04:00.000Z",
     freshnessDeadline: "2026-07-31T17:20:00.000Z",
+    coveredEventWindow: {
+      from: "2026-07-30T17:00:00.000Z",
+      through: "2026-07-31T17:00:00.000Z",
+    },
     requiredPartitionCount: 3,
     completedPartitionCount: 3,
   },
@@ -112,6 +121,7 @@ export const SYNTHETIC_PLOMARI_NEARBY: NearbyDiscoveryResponse = {
     timeZone: {
       id: "Europe/Athens",
       basis: "scope",
+      utcOffsetMinutesAtAsOf: 180,
     },
     normalizedTimeZone: "UTC",
     semantics: {
@@ -124,8 +134,17 @@ export const SYNTHETIC_PLOMARI_NEARBY: NearbyDiscoveryResponse = {
   coverage: {
     state: "complete",
     policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+    scope: {
+      kind: "coarse-area",
+      gridVersion: AREA_GRID_VERSION,
+      cell: "wm/10/587/391",
+    },
     checkedAt: "2026-07-31T18:04:00.000Z",
     freshnessDeadline: "2026-07-31T18:20:00.000Z",
+    coveredEventWindow: {
+      from: "2026-07-30T18:00:00.000Z",
+      through: "2026-07-31T18:00:00.000Z",
+    },
     requiredPartitionCount: 4,
     completedPartitionCount: 4,
   },
@@ -183,6 +202,7 @@ export const SYNTHETIC_PARIS_VALID_EMPTY: NearbyDiscoveryResponse = {
     timeZone: {
       id: "Europe/Paris",
       basis: "scope",
+      utcOffsetMinutesAtAsOf: 120,
     },
     normalizedTimeZone: "UTC",
     semantics: {
@@ -195,8 +215,17 @@ export const SYNTHETIC_PARIS_VALID_EMPTY: NearbyDiscoveryResponse = {
   coverage: {
     state: "complete",
     policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+    scope: {
+      kind: "coarse-area",
+      gridVersion: AREA_GRID_VERSION,
+      cell: "wm/10/518/352",
+    },
     checkedAt: "2026-07-31T15:04:00.000Z",
     freshnessDeadline: "2026-07-31T15:20:00.000Z",
+    coveredEventWindow: {
+      from: "2026-07-30T15:00:00.000Z",
+      through: "2026-07-31T15:00:00.000Z",
+    },
     requiredPartitionCount: 3,
     completedPartitionCount: 3,
   },
@@ -216,8 +245,45 @@ export const SYNTHETIC_PARIS_VALID_EMPTY: NearbyDiscoveryResponse = {
   },
 };
 
+/** Synthetic Paris winter snapshot for DST offset contract coverage. */
+export const SYNTHETIC_PARIS_WINTER_VALID_EMPTY: NearbyDiscoveryResponse = {
+  ...SYNTHETIC_PARIS_VALID_EMPTY,
+  time: {
+    ...SYNTHETIC_PARIS_VALID_EMPTY.time,
+    asOf: "2026-01-31T15:00:00.000Z",
+    knownAt: "2026-01-31T15:05:00.000Z",
+    observedWindow: {
+      from: "2026-01-30T15:00:00.000Z",
+      to: "2026-01-31T15:00:00.000Z",
+    },
+    timeZone: {
+      id: "Europe/Paris",
+      basis: "scope",
+      utcOffsetMinutesAtAsOf: 60,
+    },
+  },
+  coverage: {
+    state: "complete",
+    policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+    scope: {
+      kind: "coarse-area",
+      gridVersion: AREA_GRID_VERSION,
+      cell: "wm/10/518/352",
+    },
+    checkedAt: "2026-01-31T15:04:00.000Z",
+    freshnessDeadline: "2026-01-31T15:20:00.000Z",
+    coveredEventWindow: {
+      from: "2026-01-30T15:00:00.000Z",
+      through: "2026-01-31T15:00:00.000Z",
+    },
+    requiredPartitionCount: 3,
+    completedPartitionCount: 3,
+  },
+};
+
 export const SYNTHETIC_GLOBAL_DISCOVERY_FIXTURES = [
   SYNTHETIC_MARSEILLE_EXPLORE,
   SYNTHETIC_PLOMARI_NEARBY,
   SYNTHETIC_PARIS_VALID_EMPTY,
+  SYNTHETIC_PARIS_WINTER_VALID_EMPTY,
 ];

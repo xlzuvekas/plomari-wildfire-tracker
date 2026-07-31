@@ -24,6 +24,7 @@ import {
   SYNTHETIC_GLOBAL_DISCOVERY_FIXTURES,
   SYNTHETIC_MARSEILLE_EXPLORE,
   SYNTHETIC_PARIS_VALID_EMPTY,
+  SYNTHETIC_PARIS_WINTER_VALID_EMPTY,
   SYNTHETIC_PLOMARI_NEARBY,
 } from "./fixtures/global-discovery-v3";
 
@@ -49,6 +50,11 @@ describe("v3 global discovery contracts", () => {
     expect(
       nearbyDiscoveryResponseSchema.parse(SYNTHETIC_PARIS_VALID_EMPTY),
     ).toEqual(SYNTHETIC_PARIS_VALID_EMPTY);
+    expect(
+      nearbyDiscoveryResponseSchema.parse(
+        SYNTHETIC_PARIS_WINTER_VALID_EMPTY,
+      ),
+    ).toEqual(SYNTHETIC_PARIS_WINTER_VALID_EMPTY);
   });
 
   it("keeps candidates structurally distinct from canonical incidents", () => {
@@ -88,8 +94,13 @@ describe("v3 global discovery contracts", () => {
     stale.coverage = {
       state: "stale",
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
       checkedAt: "2026-07-31T17:04:00.000Z",
       freshnessDeadline: "2026-07-31T16:45:00.000Z",
+      coveredEventWindow: {
+        from: "2026-07-30T17:00:00.000Z",
+        through: "2026-07-31T17:00:00.000Z",
+      },
       lastCompleteAt: "2026-07-31T16:30:00.000Z",
       requiredPartitionCount: 3,
       completedPartitionCount: 3,
@@ -99,6 +110,7 @@ describe("v3 global discovery contracts", () => {
     partial.coverage = {
       state: "partial",
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
       checkedAt: "2026-07-31T17:04:00.000Z",
       requiredPartitionCount: 3,
       completedPartitionCount: 2,
@@ -108,6 +120,7 @@ describe("v3 global discovery contracts", () => {
     unavailable.coverage = {
       state: "unavailable",
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
       checkedAt: "2026-07-31T17:04:00.000Z",
       retryAfterSeconds: 300,
     };
@@ -118,12 +131,14 @@ describe("v3 global discovery contracts", () => {
     disabled.coverage = {
       state: "disabled",
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
     };
 
     const unconfigured = copy(unavailable);
     unconfigured.coverage = {
       state: "unconfigured",
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
     };
 
     const fixtures = [
@@ -162,6 +177,7 @@ describe("v3 global discovery contracts", () => {
     emptyPartial.coverage = {
       state: "partial",
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_PARIS_VALID_EMPTY.coverage.scope),
       checkedAt: "2026-07-31T15:04:00.000Z",
       requiredPartitionCount: 3,
       completedPartitionCount: 2,
@@ -359,6 +375,10 @@ describe("v3 global discovery contracts", () => {
     const wrongScope = copy(SYNTHETIC_PARIS_VALID_EMPTY);
     wrongScope.scope = copy(SYNTHETIC_PLOMARI_NEARBY.scope);
     wrongScope.time.timeZone.id = wrongScope.scope.timeZone;
+    wrongScope.time.timeZone.utcOffsetMinutesAtAsOf = 180;
+    wrongScope.coverage.scope = copy(
+      SYNTHETIC_PLOMARI_NEARBY.coverage.scope,
+    );
     expect(nearbyDiscoveryResponseSchema.safeParse(wrongScope).success).toBe(
       true,
     );
@@ -576,6 +596,7 @@ describe("v3 global discovery contracts", () => {
     unboundGlobalPreference.time.timeZone = {
       id: "Europe/Paris",
       basis: "display-preference",
+      utcOffsetMinutesAtAsOf: 120,
     };
     expect(
       exploreDiscoveryResponseSchema.safeParse(unboundGlobalPreference)
@@ -594,6 +615,103 @@ describe("v3 global discovery contracts", () => {
     expect(
       nearbyDiscoveryResponseSchema.safeParse(invalidWindow).success,
     ).toBe(false);
+  });
+
+  it("binds complete coverage to scope and the full event window", () => {
+    const shortStart = copy(SYNTHETIC_PARIS_VALID_EMPTY);
+    if (shortStart.coverage.state !== "complete") {
+      throw new Error("Synthetic Paris coverage is not complete");
+    }
+    shortStart.coverage.coveredEventWindow.from =
+      "2026-07-30T15:00:00.001Z";
+    expect(nearbyDiscoveryResponseSchema.safeParse(shortStart).success).toBe(
+      false,
+    );
+
+    const shortEnd = copy(SYNTHETIC_PARIS_VALID_EMPTY);
+    if (shortEnd.coverage.state !== "complete") {
+      throw new Error("Synthetic Paris coverage is not complete");
+    }
+    shortEnd.coverage.coveredEventWindow.through =
+      "2026-07-31T14:59:59.999Z";
+    expect(nearbyDiscoveryResponseSchema.safeParse(shortEnd).success).toBe(
+      false,
+    );
+
+    const uncheckedFuture = copy(SYNTHETIC_PARIS_VALID_EMPTY);
+    if (uncheckedFuture.coverage.state !== "complete") {
+      throw new Error("Synthetic Paris coverage is not complete");
+    }
+    uncheckedFuture.coverage.checkedAt = "2026-07-31T14:59:59.999Z";
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(uncheckedFuture).success,
+    ).toBe(false);
+
+    const wrongScope = copy(SYNTHETIC_PARIS_VALID_EMPTY);
+    wrongScope.coverage.scope = {
+      kind: "coarse-area",
+      gridVersion: wrongScope.scope.gridVersion,
+      cell: SYNTHETIC_PLOMARI_NEARBY.scope.cell,
+    };
+    expect(nearbyDiscoveryResponseSchema.safeParse(wrongScope).success).toBe(
+      false,
+    );
+  });
+
+  it("validates cutoff offsets for summer and winter DST", () => {
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(SYNTHETIC_PARIS_VALID_EMPTY)
+        .success,
+    ).toBe(true);
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(
+        SYNTHETIC_PARIS_WINTER_VALID_EMPTY,
+      ).success,
+    ).toBe(true);
+
+    const wrongWinterOffset = copy(SYNTHETIC_PARIS_WINTER_VALID_EMPTY);
+    wrongWinterOffset.time.timeZone.utcOffsetMinutesAtAsOf = 120;
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(wrongWinterOffset).success,
+    ).toBe(false);
+  });
+
+  it("rejects date-only observations after item knowledge time", () => {
+    const candidate = copy(SYNTHETIC_MARSEILLE_EXPLORE.candidates[0]);
+    if (!candidate) throw new Error("Missing Marseille candidate");
+    candidate.times.firstObservedAt = { precision: "unknown" };
+    candidate.times.latestObservedAt = {
+      precision: "date_only",
+      date: "2026-08-01",
+    };
+    expect(wildfireCandidateSchema.safeParse(candidate).success).toBe(false);
+
+    const response = copy(SYNTHETIC_PLOMARI_NEARBY);
+    const incident = response.incidents[0];
+    if (!incident || response.coverage.state !== "complete") {
+      throw new Error("Missing complete synthetic Plomari incident");
+    }
+    response.time.asOf = "2026-08-02T18:00:00.000Z";
+    response.time.knownAt = "2026-08-02T18:05:00.000Z";
+    response.time.observedWindow = {
+      from: "2026-08-01T18:00:00.000Z",
+      to: "2026-08-02T18:00:00.000Z",
+    };
+    response.coverage.checkedAt = "2026-08-02T18:04:00.000Z";
+    response.coverage.freshnessDeadline = "2026-08-02T18:20:00.000Z";
+    response.coverage.coveredEventWindow = {
+      from: "2026-08-01T18:00:00.000Z",
+      through: "2026-08-02T18:00:00.000Z",
+    };
+    incident.times.startedAt = { precision: "unknown" };
+    incident.times.latestObservedAt = {
+      precision: "date_only",
+      date: "2026-08-02",
+    };
+    incident.times.knownAt = "2026-08-01T18:01:00.000Z";
+    expect(nearbyDiscoveryResponseSchema.safeParse(response).success).toBe(
+      false,
+    );
   });
 
   it("keeps France fixtures free of Plomari-specific localization", () => {

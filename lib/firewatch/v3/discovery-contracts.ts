@@ -58,10 +58,46 @@ const discoveryCutoffSchema = utcInstantSchema.refine(
   "Expected a canonical millisecond UTC discovery cutoff",
 );
 
+function utcOffsetMinutesAt(instant: string, timeZone: string): number | null {
+  let offset: string | undefined;
+  try {
+    offset = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      timeZoneName: "longOffset",
+    })
+      .formatToParts(Date.parse(instant))
+      .find((part) => part.type === "timeZoneName")?.value;
+  } catch {
+    return null;
+  }
+  if (offset === "GMT") return 0;
+  const match = /^GMT([+-])(\d{2}):(\d{2})$/u.exec(offset ?? "");
+  if (!match) return null;
+  const [, sign, hours, minutes] = match;
+  if (sign === undefined || hours === undefined || minutes === undefined) {
+    return null;
+  }
+  const absolute = Number(hours) * 60 + Number(minutes);
+  return sign === "-" ? -absolute : absolute;
+}
+
+function localDateAt(instant: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(Date.parse(instant));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 /**
- * An opaque keyset cursor. Clients may store and return this value, but must
- * not decode it or derive behavior from its contents. Implementations bind it
- * to the endpoint, schema, scope, cutoffs, and immutable ordering snapshot.
+ * An opaque keyset-cursor shape. Clients may store and return this value, but
+ * must not decode it or derive behavior from its contents. Shape validation
+ * does not prove authenticity or binding; signed binding to endpoint, schema,
+ * scope, cutoffs, and ordering remains a server implementation requirement.
  */
 export const globalDiscoveryCursorSchema = z
   .string()
@@ -140,6 +176,7 @@ export const discoveryTimeContextSchema = timeQuerySchema.extend({
   timeZone: z.strictObject({
     id: ianaTimeZoneSchema,
     basis: z.enum(["scope", "display-preference", "utc-fallback"]),
+    utcOffsetMinutesAtAsOf: z.number().int().min(-14 * 60).max(14 * 60),
   }),
   normalizedTimeZone: z.literal("UTC"),
   semantics: z.strictObject({
@@ -161,6 +198,16 @@ export const discoveryTimeContextSchema = timeQuerySchema.extend({
       code: "custom",
       message: "Observed window must end at the event-time cutoff",
       path: ["observedWindow", "to"],
+    });
+  }
+  if (
+    time.timeZone.utcOffsetMinutesAtAsOf !==
+    utcOffsetMinutesAt(time.asOf, time.timeZone.id)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "UTC offset must match the response cutoff in its IANA time zone",
+      path: ["timeZone", "utcOffsetMinutesAtAsOf"],
     });
   }
 });
@@ -238,12 +285,27 @@ export const nearbyDiscoveryRequestSchema = z.strictObject({
 
 const coverageBaseShape = {
   policyVersion: z.literal(GLOBAL_DISCOVERY_POLICY_VERSION),
+  scope: z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("global"),
+      gridVersion: z.literal(AREA_GRID_VERSION),
+    }),
+    z.strictObject({
+      kind: z.literal("coarse-area"),
+      gridVersion: z.literal(AREA_GRID_VERSION),
+      cell: areaCellKeySchema,
+    }),
+  ]),
 } as const;
 
 const completedCoverageShape = {
   ...coverageBaseShape,
   checkedAt: utcInstantSchema,
   freshnessDeadline: utcInstantSchema,
+  coveredEventWindow: z.strictObject({
+    from: utcInstantSchema,
+    through: utcInstantSchema,
+  }),
   requiredPartitionCount: z.number().int().positive().max(1_000),
   completedPartitionCount: z.number().int().positive().max(1_000),
 } as const;
@@ -321,6 +383,17 @@ export const discoveryCoverageSchema = z
         code: "custom",
         message: "Last complete time must not follow the coverage check",
         path: ["lastCompleteAt"],
+      });
+    }
+    if (
+      (coverage.state === "complete" || coverage.state === "stale") &&
+      Date.parse(coverage.coveredEventWindow.from) >
+        Date.parse(coverage.coveredEventWindow.through)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Covered event window start must not follow its end",
+        path: ["coveredEventWindow", "from"],
       });
     }
   });
@@ -436,6 +509,22 @@ export const wildfireCandidateSchema = z
         path: ["times", "knownAt"],
       });
     }
+    for (const [field, value] of Object.entries({
+      firstObservedAt: candidate.times.firstObservedAt,
+      latestObservedAt: candidate.times.latestObservedAt,
+    })) {
+      if (
+        value.precision === "date_only" &&
+        value.date >
+          localDateAt(candidate.times.knownAt, candidate.displayArea.timeZone)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "A candidate observation date cannot follow its knowledge time",
+          path: ["times", field],
+        });
+      }
+    }
   });
 
 const displayNamesSchema = z
@@ -515,18 +604,6 @@ type ResponseItemTime = Readonly<{
   timeZone: string;
 }>;
 
-function localDateAt(instant: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(Date.parse(instant));
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((entry) => entry.type === type)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
 type ResponseEnvelope = Readonly<{
   time: z.output<typeof discoveryTimeContextSchema>;
   coverage: z.output<typeof discoveryCoverageSchema>;
@@ -589,6 +666,28 @@ function addResponseEnvelopeIssues(
         code: "custom",
         message: "Complete coverage must be current at the knowledge cutoff",
         path: ["coverage", "freshnessDeadline"],
+      });
+    }
+    if (
+      Date.parse(coverage.coveredEventWindow.through) >
+      Date.parse(coverage.checkedAt)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Complete coverage cannot extend beyond its check time",
+        path: ["coverage", "coveredEventWindow", "through"],
+      });
+    }
+    if (
+      Date.parse(coverage.coveredEventWindow.from) >
+        Date.parse(time.observedWindow.from) ||
+      Date.parse(coverage.coveredEventWindow.through) <
+        Date.parse(time.observedWindow.to)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Complete coverage must span the full response observation window",
+        path: ["coverage", "coveredEventWindow"],
       });
     }
   } else if (coverage.state === "stale") {
@@ -669,6 +768,7 @@ function addResponseEnvelopeIssues(
 
   for (const [index, item] of itemTimes.entries()) {
     const asOfLocalDate = localDateAt(time.asOf, item.timeZone);
+    const knownAtLocalDate = localDateAt(item.knownAt, item.timeZone);
     const observedFromLocalDate = localDateAt(
       time.observedWindow.from,
       item.timeZone,
@@ -698,6 +798,16 @@ function addResponseEnvelopeIssues(
         context.addIssue({
           code: "custom",
           message: "Item event date exceeds the response cutoff",
+          path: [itemPath, index, "times"],
+        });
+      }
+      if (
+        eventTime.precision === "date_only" &&
+        eventTime.date > knownAtLocalDate
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Item event date exceeds its knowledge time",
           path: [itemPath, index, "times"],
         });
       }
@@ -769,6 +879,13 @@ export const exploreDiscoveryResponseSchema = z
         path: ["time", "timeZone"],
       });
     }
+    if (response.coverage.scope.kind !== "global") {
+      context.addIssue({
+        code: "custom",
+        message: "Explore coverage must be bound to the global discovery scope",
+        path: ["coverage", "scope"],
+      });
+    }
     const candidateIds = new Set<string>();
     response.candidates.forEach((candidate, index) => {
       if (candidateIds.has(candidate.candidateId)) {
@@ -824,6 +941,16 @@ export const nearbyDiscoveryResponseSchema = z
         code: "custom",
         message: "Nearby display time zone must match the resolved area scope",
         path: ["time", "timeZone", "id"],
+      });
+    }
+    if (
+      response.coverage.scope.kind !== "coarse-area" ||
+      response.coverage.scope.cell !== response.scope.cell
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Nearby coverage must be bound to the response coarse cell",
+        path: ["coverage", "scope"],
       });
     }
     const incidentIds = new Set<string>();
@@ -901,7 +1028,7 @@ function addRequestBindingIssues(
 
 /**
  * Binds a structurally valid Explore response to one parsed request. The
- * server additionally authenticates the opaque cursor's signed snapshot.
+ * server must additionally authenticate and bind the opaque cursor snapshot.
  */
 export function exploreDiscoveryResponseForRequestSchema(
   request: z.output<typeof exploreDiscoveryRequestSchema>,
@@ -913,7 +1040,7 @@ export function exploreDiscoveryResponseForRequestSchema(
 
 /**
  * Binds a structurally valid Nearby response to one parsed request. The
- * server additionally authenticates the opaque cursor's signed snapshot.
+ * server must additionally authenticate and bind the opaque cursor snapshot.
  */
 export function nearbyDiscoveryResponseForRequestSchema(
   request: z.output<typeof nearbyDiscoveryRequestSchema>,
