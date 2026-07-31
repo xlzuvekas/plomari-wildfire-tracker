@@ -118,6 +118,46 @@ function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+// Weather providers are third-party input; a broken or hijacked upstream must
+// not be able to exhaust function memory with an unbounded body.
+const MAX_UPSTREAM_RESPONSE_BYTES = 2_000_000;
+
+async function readBoundedText(response: Response, maxBytes: number) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error("upstream response exceeded the size limit");
+  }
+
+  if (response.body === null) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let body = "";
+  let receivedBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Keep the size-limit classification even if the stream has
+          // already failed while being cancelled.
+        }
+        throw new Error("upstream response exceeded the size limit");
+      }
+      body += decoder.decode(value, { stream: true });
+    }
+    body += decoder.decode();
+    return body;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function fetchJson(url: string): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9_000);
@@ -133,7 +173,8 @@ async function fetchJson(url: string): Promise<unknown> {
       throw new UpstreamHttpError(response.status);
     }
 
-    return await response.json();
+    const body = await readBoundedText(response, MAX_UPSTREAM_RESPONSE_BYTES);
+    return JSON.parse(body) as unknown;
   } finally {
     clearTimeout(timeout);
   }

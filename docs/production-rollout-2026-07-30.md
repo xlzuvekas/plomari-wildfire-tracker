@@ -1,5 +1,12 @@
 # Production foundation rollout — 30 July 2026
 
+> **Point-in-time record.** This documents the state at the 30 July 2026
+> rollout. Later work (the HTTP evidence ledger, the persisted CMR catalog
+> projection and collector, and production CMR activation) has since added
+> migrations, `api` views, and catalog sources beyond the counts below; the
+> repository's `supabase/migrations` directory and seed are authoritative for
+> the current state.
+
 Supabase project `cggrrimijkmmzpwhodqt` received the reviewed, inert truth-layer
 foundation. This record contains no credentials or application row data.
 

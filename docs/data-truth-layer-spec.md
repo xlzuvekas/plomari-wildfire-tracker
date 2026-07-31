@@ -52,7 +52,8 @@ corroboration, sensor quality, freshness, and uncertainty remain separate.
 The production application currently provides:
 
 - a Next.js map deployed on Vercel;
-- NASA FIRMS VIIRS detections from NOAA-20, NOAA-21, and Suomi-NPP;
+- NASA FIRMS VIIRS detections from NOAA-20, NOAA-21, and Suomi-NPP, plus
+  Terra/Aqua MODIS;
 - grouped satellite passes and an 8 km incident scope;
 - Open-Meteo wind and AviationWeather LGMT METAR data;
 - the Hellenic Fire Service incident board;
