@@ -4841,8 +4841,8 @@ export default function Home() {
                   )
                 : localize(
                     language,
-                    "POLLING 60 SECONDS",
-                    "ΕΛΕΓΧΟΣ ΚΑΘΕ 60 ΔΕΥΤΕΡΟΛΕΠΤΑ",
+                    "POLLING 5 MINUTES",
+                    "ΕΛΕΓΧΟΣ ΚΑΘΕ 5 ΛΕΠΤΑ",
                   )}
           </strong>
           <small>
