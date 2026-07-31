@@ -62,6 +62,7 @@ describe("Explore route shell", () => {
 
     expect(markup).toContain("Wildfire discovery");
     expect(markup).toContain("Persisted HTTP reads");
+    expect(markup).toContain("Local incident map");
     expect(markup).toContain('role="group"');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain("Find my coarse area");

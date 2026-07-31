@@ -129,6 +129,7 @@
 }
 
 .mapLink {
+  min-height: 2.75rem;
   color: var(--cyan);
   text-decoration: none;
   background: rgba(12, 48, 58, 0.5);

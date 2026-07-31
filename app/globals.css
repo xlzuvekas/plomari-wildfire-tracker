@@ -634,6 +634,71 @@ button {
   background: var(--cyan);
 }
 
+.global-discovery-link {
+  color: var(--cyan);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.15;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.global-discovery-link:active {
+  transform: scale(0.97);
+}
+
+.global-discovery-link b,
+.global-discovery-link small {
+  display: block;
+}
+
+.global-discovery-link b {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+}
+
+.global-discovery-link small {
+  color: var(--amber);
+  font-size: 0.5rem;
+  letter-spacing: 0.035em;
+}
+
+.global-discovery-link--desktop {
+  position: absolute;
+  z-index: 1100;
+  top: 88px;
+  left: calc(max(20px, env(safe-area-inset-left)) + 120px);
+  width: 166px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 8px;
+  backdrop-filter: blur(12px);
+}
+
+.global-discovery-link--mobile {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .global-discovery-link:hover {
+    color: var(--ink);
+    border-color: rgba(85, 221, 255, 0.5);
+    background: rgba(20, 68, 80, 0.88);
+  }
+}
+
 .panel-toggle {
   position: absolute;
   z-index: 1140;
@@ -2324,6 +2389,10 @@ button {
     font-size: 0.62rem;
   }
 
+  .global-discovery-link--desktop {
+    display: none;
+  }
+
   .panel-toggle {
     display: none;
   }
@@ -2499,7 +2568,7 @@ button {
     left: 0;
     display: grid;
     min-height: var(--mobile-dock);
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     padding:
       4px
       max(8px, env(safe-area-inset-right))
@@ -2510,8 +2579,10 @@ button {
     backdrop-filter: blur(18px);
   }
 
-  .mobile-dock button {
+  .mobile-dock button,
+  .mobile-dock .global-discovery-link--mobile {
     display: flex;
+    min-width: 0;
     min-height: 52px;
     flex-direction: column;
     align-items: center;
@@ -2524,7 +2595,7 @@ button {
     cursor: pointer;
   }
 
-  .mobile-dock button + button {
+  .mobile-dock > * + * {
     border-left: 1px solid var(--line-soft);
   }
 
@@ -2539,10 +2610,46 @@ button {
   }
 
   .mobile-dock button b {
+    max-width: 100%;
+    overflow: hidden;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.62rem;
     font-weight: 500;
     letter-spacing: 0.08em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-dock .global-discovery-link--mobile {
+    min-width: 0;
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 0;
+    background: transparent;
+    color: var(--cyan);
+    text-align: center;
+  }
+
+  .global-discovery-link--mobile .global-discovery-link__icon {
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+
+  .global-discovery-link--mobile b {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.56rem;
+    letter-spacing: 0.045em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .global-discovery-link--mobile small {
+    max-width: 100%;
+    color: var(--amber);
+    font-size: 0.46rem;
+    letter-spacing: 0.015em;
+    line-height: 1.08;
   }
 
   .scenario-hud {
@@ -2705,7 +2812,16 @@ button {
   }
 
   .mobile-dock button b {
-    font-size: 0.62rem;
+    font-size: 0.52rem;
+    letter-spacing: 0.035em;
+  }
+
+  .global-discovery-link--mobile b {
+    font-size: 0.52rem;
+  }
+
+  .global-discovery-link--mobile small {
+    font-size: 0.43rem;
   }
 
   .thermal-filter {
@@ -3181,5 +3297,9 @@ button {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .global-discovery-link {
+    transform: none !important;
   }
 }

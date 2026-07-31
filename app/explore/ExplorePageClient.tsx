@@ -398,7 +398,7 @@ export function ExplorePageClient({
             <span className={styles.liveFlag}>Persisted HTTP reads</span>
           )}
           <Link className={styles.mapLink} href="/">
-            Incident map
+            Local incident map
           </Link>
         </div>
       </header>
