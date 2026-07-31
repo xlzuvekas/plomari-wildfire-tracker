@@ -61,7 +61,8 @@ not the authority boundary.
 
 ## OpenRouter boundary
 
-The adapter uses native server-side `fetch` and:
+The adapter requires an injected evidence-recording `fetchImpl` (it deliberately
+has no global-fetch fallback) and:
 
 - the exact `openrouter/free` route, never `openrouter/auto` or a paid model;
 - rejection of any response whose resolved model is not a `:free` variant or
