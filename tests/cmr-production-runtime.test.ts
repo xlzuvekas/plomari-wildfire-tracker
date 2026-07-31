@@ -640,6 +640,39 @@ describe("CMR Edge invocation contract", () => {
     expect(closed).toBe(true);
   });
 
+  it("reports only a safe persistence stage and code", async () => {
+    const base = currentDatabase(() => undefined);
+    const failing: CollectorDatabase = {
+      ...base,
+      async transaction<Result>(): Promise<Result> {
+        throw new TypeError("postgresql://collector:must-not-be-logged@example.test");
+      },
+    };
+    const diagnostics: unknown[] = [];
+    const handler = createCmrEdgeHandler({
+      clockMs: () => Date.parse("2026-07-30T12:34:56.000Z"),
+      openDatabase: async () => failing,
+      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+    const response = await handler(new Request("https://example.test/collect-cmr", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"mode":"bootstrap"}',
+    }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "error",
+      error: "collector_unavailable",
+    });
+    expect(diagnostics).toEqual([{
+      category: "database",
+      stage: "reserve_harvest",
+      code: "TYPE_ERROR",
+    }]);
+    expect(JSON.stringify(diagnostics)).not.toContain("must-not-be-logged");
+  });
+
   it("rejects methods, query input, unknown JSON, media types, and oversized bodies", async () => {
     let opens = 0;
     const handler = createCmrEdgeHandler({

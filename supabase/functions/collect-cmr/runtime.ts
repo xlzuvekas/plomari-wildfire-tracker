@@ -37,6 +37,20 @@ type RuntimeStage =
   | "resolve_plan"
   | "harvest";
 
+const CMR_PERSISTENCE_STAGES = new Set([
+  "reserve_harvest",
+  "heartbeat_harvest",
+  "persist_page",
+  "complete_harvest",
+  "fail_harvest",
+]);
+const EVIDENCE_PERSISTENCE_STAGES = new Set([
+  "issue",
+  "capture_response",
+  "finish_response",
+  "finish_transport_error",
+]);
+
 export type CmrEdgeRuntimeDependencies = Readonly<{
   openDatabase: () => Promise<CollectorDatabase>;
   fetchImpl?: typeof fetch;
@@ -182,6 +196,61 @@ function publicSummary(summary: CmrHarvestSummary) {
   });
 }
 
+function errorChain(error: unknown) {
+  const chain: unknown[] = [];
+  let current = error;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (current === null || typeof current !== "object") break;
+    chain.push(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return chain;
+}
+
+function fixedStage(
+  error: unknown,
+  errorName: string,
+  allowed: ReadonlySet<string>,
+) {
+  for (const current of errorChain(error)) {
+    const candidate = current as { name?: unknown; stage?: unknown };
+    if (
+      candidate.name === errorName &&
+      typeof candidate.stage === "string" &&
+      allowed.has(candidate.stage)
+    ) {
+      return candidate.stage;
+    }
+  }
+  return null;
+}
+
+function safeFailureCode(error: unknown) {
+  for (const current of errorChain(error)) {
+    const candidate = current as { code?: unknown; name?: unknown };
+    if (
+      typeof candidate.code === "string" &&
+      /^(?:[0-9A-Z]{5}|[A-Z][A-Z0-9_]{1,31})$/u.test(candidate.code)
+    ) {
+      return candidate.code;
+    }
+    if (candidate.name === "TypeError") return "TYPE_ERROR";
+  }
+  return undefined;
+}
+
+function databaseDiagnostic(
+  error: unknown,
+  stage?: string,
+): Diagnostic {
+  const code = safeFailureCode(error);
+  return Object.freeze({
+    category: "database" as const,
+    ...(stage === undefined ? {} : { stage }),
+    ...(code === undefined ? {} : { code }),
+  });
+}
+
 function diagnosticFor(error: unknown): Diagnostic {
   if (error instanceof CmrHarvestError) {
     return Object.freeze({
@@ -189,11 +258,22 @@ function diagnosticFor(error: unknown): Diagnostic {
       code: error.code,
     });
   }
-  if (error instanceof CmrHarvestPersistenceError) {
-    return Object.freeze({ category: "database", stage: error.stage });
+  const cmrPersistenceStage = error instanceof CmrHarvestPersistenceError
+    ? error.stage
+    : fixedStage(error, "CmrHarvestPersistenceError", CMR_PERSISTENCE_STAGES);
+  if (cmrPersistenceStage !== null) {
+    return databaseDiagnostic(error, cmrPersistenceStage);
+  }
+  const evidencePersistenceStage = fixedStage(
+    error,
+    "EvidencePersistenceError",
+    EVIDENCE_PERSISTENCE_STAGES,
+  );
+  if (evidencePersistenceStage !== null) {
+    return databaseDiagnostic(error, `evidence_${evidencePersistenceStage}`);
   }
   if (error instanceof CmrCollectorDatabaseError) {
-    return Object.freeze({ category: "database" });
+    return databaseDiagnostic(error);
   }
   return Object.freeze({ category: "runtime" });
 }
