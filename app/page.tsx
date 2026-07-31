@@ -14,13 +14,15 @@ import type {
 } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { GlobalDiscoveryLink } from "@/components/firewatch/GlobalDiscoveryLink";
+import { MobileLocationSummary } from "@/components/firewatch/MobileLocationSummary";
 import {
   LIVE_AS_OF,
-  clampAsOfEpoch,
+  asOfEpochFromRangeValue,
   effectiveAsOfEpoch,
   filterAtOrBefore,
   isTimestampVisibleAt,
   latestAtOrBefore,
+  liveAsOfRangeMaximum,
   timestampEpoch,
   type AsOfSelection,
 } from "@/lib/as-of";
@@ -29,9 +31,15 @@ import {
   formatAreaDateTime,
   formatElapsedMinutes,
   normalizeAthensWallTime,
+  presentAreaDateTime,
   zonedDateTimeAttribute,
 } from "@/lib/area-time";
 import { DEMAND_INTERVALS_MS } from "@/lib/firewatch/demand-policy";
+import {
+  initialArchivedAlertCollapsed,
+  readBrowserPreference,
+  writeBrowserPreference,
+} from "@/lib/firewatch/incident-ui";
 import { coarseAreaCellForLocation } from "@/lib/firewatch/map-context";
 import { footprintLeafletPolygons } from "@/lib/firewatch/v3/satellite-pass-client";
 import { satellitePassPresentationState } from "@/lib/firewatch/v3/satellite-pass-presentation";
@@ -62,6 +70,7 @@ type LayerKey =
 type BaseMode = "dark" | "satellite" | "terrain";
 type ThermalWindow = "latest" | "6h" | "24h";
 type LayerTab = "layers" | "thermal" | "wind" | "updates";
+type PanelView = LayerTab | "location";
 type SnapshotSource = "wind" | "updates" | "thermal";
 type SourceErrorCode =
   | "timeout"
@@ -81,6 +90,7 @@ const SNAPSHOT_HEADER = "X-Firewatch-Snapshot";
 const DESKTOP_PANEL_TOP = 170;
 const DESKTOP_PANEL_BOTTOM = 130;
 const DESKTOP_PANEL_GAP = 12;
+const AS_OF_STEP_MS = 15 * 60_000;
 
 type WindVector = {
   speedKmh: number;
@@ -372,7 +382,8 @@ const CURRENT_ONLY_LAYER_KEYS = new Set<LayerKey>([
   "smoke",
 ]);
 
-// Road alignment for the archived 29 Jul 2026 16:58 EEST 112 instruction (Plomari beach ->
+// Road alignment for the archived 29 Jul 2026 16:58 Europe/Athens (UTC+03:00)
+// 112 instruction (Plomari beach ->
 // Agios Isidoros), traced once via OSRM. The alert named the endpoints,
 // not the streets; the map labels this caveat wherever the route shows.
 const EVACUATION_ROUTE: LatLngTuple[] = [[38.97519,26.3714],[38.97511,26.37183],[38.97492,26.37179],[38.97505,26.37152],[38.97512,26.37136],[38.97522,26.37117],[38.97531,26.37097],[38.9754,26.37069],[38.97556,26.37019],[38.97565,26.36987],[38.97556,26.36977],[38.97545,26.36967],[38.97527,26.36985],[38.97515,26.37007],[38.97503,26.37014],[38.975,26.37024],[38.97499,26.37043],[38.97499,26.37053],[38.97497,26.37068],[38.97488,26.37096],[38.97478,26.37116],[38.97468,26.37132],[38.97458,26.37157],[38.97441,26.3722],[38.97433,26.37257],[38.97427,26.37286],[38.97424,26.37306],[38.97413,26.3734],[38.97412,26.37362],[38.97411,26.37375],[38.97413,26.37423],[38.97416,26.37456],[38.97418,26.37478],[38.97418,26.37499],[38.97407,26.3753],[38.97402,26.37561],[38.97404,26.37588],[38.97403,26.37597],[38.9739,26.37621],[38.97383,26.37633],[38.97382,26.37638],[38.97382,26.37643],[38.97385,26.37652],[38.97422,26.377],[38.97431,26.37713],[38.97429,26.37722],[38.97416,26.3774],[38.97396,26.3777],[38.97386,26.37785],[38.97379,26.37795],[38.97348,26.37844],[38.97301,26.37922],[38.97291,26.37948],[38.97294,26.37977],[38.97292,26.37987],[38.97258,26.38018],[38.97227,26.38054],[38.97215,26.38068],[38.97212,26.38079],[38.97209,26.38093],[38.97209,26.38103],[38.97211,26.38109],[38.97219,26.38121],[38.9723,26.38129],[38.97254,26.38142],[38.9726,26.38146],[38.97263,26.38149],[38.97266,26.38152],[38.97266,26.38162],[38.97265,26.38169],[38.97261,26.38175],[38.97256,26.38179],[38.97186,26.38197],[38.97158,26.382],[38.97154,26.38202],[38.97151,26.38206],[38.97147,26.38211],[38.97145,26.38218],[38.97147,26.38321],[38.97146,26.38351],[38.97152,26.38383],[38.97152,26.38397],[38.97145,26.38433],[38.97144,26.38443],[38.97144,26.3847],[38.97149,26.3855],[38.97149,26.38566],[38.97147,26.38584],[38.97143,26.38602],[38.97136,26.38614],[38.97108,26.38631],[38.97092,26.38647],[38.97084,26.38664],[38.97078,26.38681],[38.97055,26.38761],[38.97041,26.38788],[38.97027,26.38807],[38.97012,26.38824],[38.97001,26.38838],[38.96966,26.38898],[38.96952,26.38913],[38.96942,26.38921],[38.96933,26.38925],[38.96912,26.3893],[38.96894,26.38937],[38.96885,26.38945],[38.96867,26.3898],[38.96847,26.39031],[38.96841,26.39059],[38.96839,26.39087],[38.9684,26.39107],[38.96843,26.3914],[38.96892,26.39187],[38.96893,26.39197],[38.96895,26.39199],[38.969,26.39198],[38.96915,26.39188],[38.96951,26.39179],[38.97006,26.39165],[38.97037,26.39158],[38.97048,26.39155],[38.9705,26.3916],[38.9705,26.39165],[38.97048,26.3917],[38.97015,26.39197],[38.96995,26.39216],[38.96986,26.39227]];
@@ -392,7 +403,7 @@ const LANDFILL_FOOTPRINT: LatLngTuple[] = [
 const intelEn: IntelItem[] = [
   {
     id: "overnight-hotspots",
-    time: "29 Jul 2026 · 20:50 EEST",
+    time: "29 Jul 2026 · 20:50 · Europe/Athens · UTC+03:00",
     label: "Aerial drops ended; scattered hotspots remain",
     detail:
       "Local field reporting says aerial operations ended for the night, with scattered active hotspots around Agios Antonios and toward Megalochori. Strong winds are hampering ground crews. This is not an official containment statement.",
@@ -400,7 +411,7 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "no-active-front",
-    time: "29 Jul 2026 · 19:55 EEST",
+    time: "29 Jul 2026 · 19:55 · Europe/Athens · UTC+03:00",
     label: "No continuous front reported; rekindling risk",
     detail:
       "The deputy regional governor reported no active continuous front, but numerous scattered hotspots remained in difficult terrain. Crews stayed alert for rekindling. This was a local official statement, not a Fire Service all-clear.",
@@ -408,7 +419,7 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "homes",
-    time: "29 Jul 2026 · 19:25 EEST",
+    time: "29 Jul 2026 · 19:25 · Europe/Athens · UTC+03:00",
     label: "Hotspots reported near holiday homes",
     detail:
       "Local reporting said hotspots remained above Plomari near holiday homes. Residents and volunteers reportedly prevented flames from reaching houses.",
@@ -416,7 +427,7 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "smoke",
-    time: "29 Jul 2026 · 17:50 EEST",
+    time: "29 Jul 2026 · 17:50 · Europe/Athens · UTC+03:00",
     label: "Regional satellite smoke observed",
     detail:
       "Satellite imagery showed smoke from the Plomari incident and a major Turkish fire transported across Lesvos. This is a regional smoke snapshot, not a ground-level PM2.5 measurement.",
@@ -424,15 +435,16 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "evacuation",
-    time: "29 Jul 2026 · 16:58 EEST",
-    label: "Official 112 alert issued 29 Jul 2026 at 16:58 EEST",
+    time: "29 Jul 2026 · 16:58 · Europe/Athens · UTC+03:00",
+    label:
+      "Official 112 alert issued 29 Jul 2026 at 16:58 · Europe/Athens · UTC+03:00",
     detail:
-      "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued 29 Jul 2026 at 16:58 EEST; check the local feed reader and authorities for any newer instruction.",
+      "People in the Plomari area were instructed to move toward Plomari beach in the direction of Agios Isidoros. This reproduces the alert issued 29 Jul 2026 at 16:58 · Europe/Athens · UTC+03:00; check the local feed reader and authorities for any newer instruction.",
     confidence: "official",
   },
   {
     id: "reinforced",
-    time: "29 Jul 2026 · 16:34 EEST",
+    time: "29 Jul 2026 · 16:34 · Europe/Athens · UTC+03:00",
     label: "Fire Service response reinforced",
     detail:
       "Fire Service reported 50 firefighters, two 12th EMODE teams, volunteers, 13 vehicles, three aircraft and three helicopters.",
@@ -440,7 +452,7 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "modis",
-    time: "29 Jul 2026 · 16:06 EEST",
+    time: "29 Jul 2026 · 16:06 · Europe/Athens · UTC+03:00",
     label: "Latest satellite heat",
     detail:
       "Aqua MODIS detected active heat near Chalkelia. A satellite point is an observed hot pixel, not a fire perimeter.",
@@ -448,7 +460,7 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "viirs",
-    time: "29 Jul 2026 · 15:17 EEST",
+    time: "29 Jul 2026 · 15:17 · Europe/Athens · UTC+03:00",
     label: "NOAA-20 pass",
     detail:
       "Six VIIRS hot pixels were detected near the incident, including three high-confidence detections.",
@@ -456,7 +468,7 @@ const intelEn: IntelItem[] = [
   },
   {
     id: "ignition",
-    time: "29 Jul 2026 · 14:00 EEST",
+    time: "29 Jul 2026 · 14:00 · Europe/Athens · UTC+03:00",
     label: "Fire reported",
     detail:
       "The incident was reported around the restored Chalkelia landfill, north-east of Plomari.",
@@ -467,7 +479,7 @@ const intelEn: IntelItem[] = [
 const intelEl: IntelItem[] = [
   {
     id: "overnight-hotspots",
-    time: "29 Ιουλ 2026 · 20:50 EEST",
+    time: "29 Ιουλ 2026 · 20:50 · Europe/Athens · UTC+03:00",
     label: "Σταμάτησαν οι εναέριες ρίψεις· παραμένουν διάσπαρτες εστίες",
     detail:
       "Σύμφωνα με τοπική επιτόπια ενημέρωση, οι εναέριες επιχειρήσεις σταμάτησαν για τη νύχτα και παρέμειναν διάσπαρτες ενεργές εστίες γύρω από τον Άγιο Αντώνιο και προς το Μεγαλοχώρι. Οι ισχυροί άνεμοι δυσχεραίνουν τα πεζοπόρα τμήματα. Δεν πρόκειται για επίσημη ανακοίνωση οριοθέτησης.",
@@ -475,7 +487,7 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "no-active-front",
-    time: "29 Ιουλ 2026 · 19:55 EEST",
+    time: "29 Ιουλ 2026 · 19:55 · Europe/Athens · UTC+03:00",
     label: "Δεν αναφέρθηκε ενιαίο μέτωπο· κίνδυνος αναζωπύρωσης",
     detail:
       "Ο αντιπεριφερειάρχης ανέφερε ότι δεν υπήρχε ενεργό ενιαίο μέτωπο, όμως παρέμεναν πολλές διάσπαρτες εστίες σε δύσβατο έδαφος. Οι δυνάμεις παρέμειναν σε επιφυλακή για αναζωπυρώσεις. Ήταν τοπική επίσημη δήλωση, όχι μήνυμα λήξης συναγερμού από την Πυροσβεστική.",
@@ -483,7 +495,7 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "homes",
-    time: "29 Ιουλ 2026 · 19:25 EEST",
+    time: "29 Ιουλ 2026 · 19:25 · Europe/Athens · UTC+03:00",
     label: "Αναφέρθηκαν εστίες κοντά σε εξοχικές κατοικίες",
     detail:
       "Τοπικό ρεπορτάζ ανέφερε ότι παρέμεναν εστίες πάνω από το Πλωμάρι, κοντά σε εξοχικές κατοικίες. Κάτοικοι και εθελοντές φέρονται να εμπόδισαν τις φλόγες να φτάσουν σε σπίτια.",
@@ -491,7 +503,7 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "smoke",
-    time: "29 Ιουλ 2026 · 17:50 EEST",
+    time: "29 Ιουλ 2026 · 17:50 · Europe/Athens · UTC+03:00",
     label: "Δορυφορική παρατήρηση καπνού στην περιοχή",
     detail:
       "Δορυφορική εικόνα έδειξε καπνό από το συμβάν στο Πλωμάρι και από μεγάλη πυρκαγιά στην Τουρκία να μεταφέρεται πάνω από τη Λέσβο. Πρόκειται για περιφερειακή απεικόνιση καπνού, όχι για μέτρηση PM2.5 στο έδαφος.",
@@ -499,15 +511,16 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "evacuation",
-    time: "29 Ιουλ 2026 · 16:58 EEST",
-    label: "Επίσημη ειδοποίηση 112 που εκδόθηκε στις 29 Ιουλ 2026, 16:58 EEST",
+    time: "29 Ιουλ 2026 · 16:58 · Europe/Athens · UTC+03:00",
+    label:
+      "Επίσημη ειδοποίηση 112 που εκδόθηκε στις 29 Ιουλ 2026, 16:58 · Europe/Athens · UTC+03:00",
     detail:
-      "Όσοι βρίσκονταν στην περιοχή Πλωμαρίου κλήθηκαν να απομακρυνθούν προς την παραλία Πλωμαρίου με κατεύθυνση τον Άγιο Ισίδωρο. Η καταχώριση αναπαράγει την ειδοποίηση της 29 Ιουλ 2026, 16:58 EEST· ελέγξτε τον τοπικό αναγνώστη ροών και τις Αρχές για κάθε νεότερη οδηγία.",
+      "Όσοι βρίσκονταν στην περιοχή Πλωμαρίου κλήθηκαν να απομακρυνθούν προς την παραλία Πλωμαρίου με κατεύθυνση τον Άγιο Ισίδωρο. Η καταχώριση αναπαράγει την ειδοποίηση της 29 Ιουλ 2026, 16:58 · Europe/Athens · UTC+03:00· ελέγξτε τον τοπικό αναγνώστη ροών και τις Αρχές για κάθε νεότερη οδηγία.",
     confidence: "official",
   },
   {
     id: "reinforced",
-    time: "29 Ιουλ 2026 · 16:34 EEST",
+    time: "29 Ιουλ 2026 · 16:34 · Europe/Athens · UTC+03:00",
     label: "Ενισχύθηκαν οι δυνάμεις της Πυροσβεστικής",
     detail:
       "Η Πυροσβεστική ανέφερε 50 πυροσβέστες, δύο ομάδες της 12ης ΕΜΟΔΕ, εθελοντές, 13 οχήματα, τρία αεροσκάφη και τρία ελικόπτερα.",
@@ -515,7 +528,7 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "modis",
-    time: "29 Ιουλ 2026 · 16:06 EEST",
+    time: "29 Ιουλ 2026 · 16:06 · Europe/Athens · UTC+03:00",
     label: "Νεότερη δορυφορική θερμική ανίχνευση",
     detail:
       "Ο Aqua MODIS ανίχνευσε ενεργή θερμότητα κοντά στα Χαλκέλια. Ένα δορυφορικό σημείο είναι θερμό εικονοστοιχείο και όχι περίμετρος πυρκαγιάς.",
@@ -523,7 +536,7 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "viirs",
-    time: "29 Ιουλ 2026 · 15:17 EEST",
+    time: "29 Ιουλ 2026 · 15:17 · Europe/Athens · UTC+03:00",
     label: "Διέλευση NOAA-20",
     detail:
       "Ανιχνεύθηκαν έξι θερμά εικονοστοιχεία VIIRS κοντά στο συμβάν, τρία από αυτά υψηλής αξιοπιστίας.",
@@ -531,7 +544,7 @@ const intelEl: IntelItem[] = [
   },
   {
     id: "ignition",
-    time: "29 Ιουλ 2026 · 14:00 EEST",
+    time: "29 Ιουλ 2026 · 14:00 · Europe/Athens · UTC+03:00",
     label: "Αναφέρθηκε πυρκαγιά",
     detail:
       "Το συμβάν αναφέρθηκε γύρω από τον αποκατεστημένο ΧΑΔΑ στα Χαλκέλια, βορειοανατολικά του Πλωμαρίου.",
@@ -548,7 +561,8 @@ const sourcesEn = [
   {
     label: "112 Greece",
     href: "https://x.com/112Greece/status/2082468150189167080",
-    kind: "Original official alert · issued 29 Jul 2026 · 16:58 EEST",
+    kind:
+      "Original official alert · issued 29 Jul 2026 · 16:58 · Europe/Athens · UTC+03:00",
   },
   {
     label: "Protective guidance",
@@ -558,7 +572,8 @@ const sourcesEn = [
   {
     label: "Fire Service",
     href: "https://x.com/pyrosvestiki/status/2082459852350066823",
-    kind: "Official response · published 29 Jul 2026 · 16:34 EEST",
+    kind:
+      "Official response · published 29 Jul 2026 · 16:34 · Europe/Athens · UTC+03:00",
   },
   {
     label: "Civil Protection X",
@@ -568,7 +583,8 @@ const sourcesEn = [
   {
     label: "StoNisi overnight",
     href: "https://www.stonisi.gr/post/114624/stamathsan-oi-ripseis-apo-aeros-sthn-fwtia-toy-plwmarioy",
-    kind: "Local field report · published 29 Jul 2026 · 20:50 EEST",
+    kind:
+      "Local field report · published 29 Jul 2026 · 20:50 · Europe/Athens · UTC+03:00",
   },
   {
     label: "Aeolos",
@@ -578,7 +594,8 @@ const sourcesEn = [
   {
     label: "Satellite smoke",
     href: "https://www.stonisi.gr/post/115334/kapnos-apo-thn-toyrkia-skepazei-lesvo-kai-xio",
-    kind: "Regional smoke report · published 29 Jul 2026 · 17:50 EEST",
+    kind:
+      "Regional smoke report · published 29 Jul 2026 · 17:50 · Europe/Athens · UTC+03:00",
   },
   {
     label: "NASA FIRMS",
@@ -611,7 +628,8 @@ const sourcesEl = [
   {
     label: "112 Ελλάδας",
     href: "https://x.com/112Greece/status/2082468150189167080",
-    kind: "Αρχική επίσημη ειδοποίηση · έκδοση 29 Ιουλ 2026 · 16:58 EEST",
+    kind:
+      "Αρχική επίσημη ειδοποίηση · έκδοση 29 Ιουλ 2026 · 16:58 · Europe/Athens · UTC+03:00",
   },
   {
     label: "Οδηγίες προστασίας",
@@ -621,7 +639,8 @@ const sourcesEl = [
   {
     label: "Πυροσβεστικό Σώμα",
     href: "https://x.com/pyrosvestiki/status/2082459852350066823",
-    kind: "Επίσημη κινητοποίηση · δημοσίευση 29 Ιουλ 2026 · 16:34 EEST",
+    kind:
+      "Επίσημη κινητοποίηση · δημοσίευση 29 Ιουλ 2026 · 16:34 · Europe/Athens · UTC+03:00",
   },
   {
     label: "Πολιτική Προστασία X",
@@ -631,7 +650,8 @@ const sourcesEl = [
   {
     label: "StoNisi · νυχτερινή ενημέρωση",
     href: "https://www.stonisi.gr/post/114624/stamathsan-oi-ripseis-apo-aeros-sthn-fwtia-toy-plwmarioy",
-    kind: "Τοπική επιτόπια ενημέρωση · δημοσίευση 29 Ιουλ 2026 · 20:50 EEST",
+    kind:
+      "Τοπική επιτόπια ενημέρωση · δημοσίευση 29 Ιουλ 2026 · 20:50 · Europe/Athens · UTC+03:00",
   },
   {
     label: "Aeolos",
@@ -641,7 +661,8 @@ const sourcesEl = [
   {
     label: "Δορυφορική εικόνα καπνού",
     href: "https://www.stonisi.gr/post/115334/kapnos-apo-thn-toyrkia-skepazei-lesvo-kai-xio",
-    kind: "Περιφερειακή αναφορά καπνού · δημοσίευση 29 Ιουλ 2026 · 17:50 EEST",
+    kind:
+      "Περιφερειακή αναφορά καπνού · δημοσίευση 29 Ιουλ 2026 · 17:50 · Europe/Athens · UTC+03:00",
   },
   {
     label: "NASA FIRMS",
@@ -715,10 +736,11 @@ const BASEMAPS: Record<
 };
 
 function markerHtml(
-  kind: "fire" | "settlement" | "arrow" | "wind" | "you",
+  kind: "fire" | "settlement" | "arrow" | "report" | "wind" | "you",
   label: string,
+  context?: string,
 ) {
-  return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}</b></div>`;
+  return `<div class="map-marker map-marker--${kind}"><span></span><b>${label}${context ? `<small>${context}</small>` : ""}</b></div>`;
 }
 
 function localize(language: Language, english: string, greek: string) {
@@ -750,9 +772,8 @@ function ageMinutesFromTimestamp(
   value: string | null | undefined,
   nowEpoch: number,
 ) {
-  if (!value) return null;
-  const observedEpoch = new Date(value).getTime();
-  if (Number.isNaN(observedEpoch)) return null;
+  const observedEpoch = timestampEpoch(value);
+  if (observedEpoch === null) return null;
   const deltaMinutes = (nowEpoch - observedEpoch) / 60_000;
   return deltaMinutes >= 0
     ? Math.floor(deltaMinutes)
@@ -850,8 +871,11 @@ function mergeHistoricalThermalPayloads(
   const detectionsById = new Map<string, LiveThermalDetection>();
   payloads.forEach((payload) => {
     payload.detections.forEach((detection) => {
-      const observedEpoch = Date.parse(detection.observedAt);
-      if (observedEpoch >= INCIDENT_STARTED_EPOCH) {
+      const observedEpoch = timestampEpoch(detection.observedAt);
+      if (
+        observedEpoch !== null &&
+        observedEpoch >= INCIDENT_STARTED_EPOCH
+      ) {
         detectionsById.set(detection.id, detection);
       }
     });
@@ -867,11 +891,15 @@ function mergeHistoricalThermalPayloads(
         return left.product.localeCompare(right.product);
       }
       const timeDelta =
-        Date.parse(left.observedAt) - Date.parse(right.observedAt);
+        (timestampEpoch(left.observedAt) ?? 0) -
+        (timestampEpoch(right.observedAt) ?? 0);
       return timeDelta || left.id.localeCompare(right.id);
     })
     .map((detection) => {
-      const observedEpoch = Date.parse(detection.observedAt);
+      const observedEpoch = timestampEpoch(detection.observedAt);
+      if (observedEpoch === null) {
+        throw new Error("Invalid thermal observation time after filtering");
+      }
       const previous = previousByProduct.get(detection.product);
       const passId =
         previous &&
@@ -883,7 +911,9 @@ function mergeHistoricalThermalPayloads(
     });
 
   const detections = clustered.sort((left, right) => {
-    const timeDelta = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+    const timeDelta =
+      (timestampEpoch(right.observedAt) ?? 0) -
+      (timestampEpoch(left.observedAt) ?? 0);
     return timeDelta || left.id.localeCompare(right.id);
   });
   const incidentDetections = detections.filter(
@@ -921,7 +951,9 @@ function mergeHistoricalThermalPayloads(
       };
     })
     .sort((left, right) => {
-      const timeDelta = Date.parse(right.observedAt) - Date.parse(left.observedAt);
+      const timeDelta =
+        (timestampEpoch(right.observedAt) ?? 0) -
+        (timestampEpoch(left.observedAt) ?? 0);
       return timeDelta || left.id.localeCompare(right.id);
     });
 
@@ -942,11 +974,19 @@ function mergeHistoricalThermalPayloads(
   const retrievedAt =
     payloads.map((payload) => payload.retrievedAt).sort().at(-1) ??
     base.retrievedAt;
+  const queryBounds = payloads.map((payload) => {
+    const from = timestampEpoch(payload.query.from);
+    const to = timestampEpoch(payload.query.to);
+    if (from === null || to === null || from > to) {
+      throw new Error("Invalid historical thermal query window");
+    }
+    return { from, to };
+  });
   const earliestQueryFrom = Math.min(
-    ...payloads.map((payload) => Date.parse(payload.query.from)),
+    ...queryBounds.map((bounds) => bounds.from),
   );
   const latestQueryTo = Math.max(
-    ...payloads.map((payload) => Date.parse(payload.query.to)),
+    ...queryBounds.map((bounds) => bounds.to),
   );
   const datasetIds = [
     ...new Set(
@@ -996,6 +1036,17 @@ function mergeHistoricalThermalPayloads(
   });
   const latestObservedAt = detections[0]?.observedAt ?? null;
   const latestIncidentObservedAt = incidentDetections[0]?.observedAt ?? null;
+  const retrievedEpoch = timestampEpoch(retrievedAt);
+  const latestIncidentObservedEpoch = timestampEpoch(
+    latestIncidentObservedAt,
+  );
+  const observationAgeMinutes =
+    retrievedEpoch !== null && latestIncidentObservedEpoch !== null
+      ? Math.max(
+          0,
+          Math.round((retrievedEpoch - latestIncidentObservedEpoch) / 60_000),
+        )
+      : null;
 
   return {
     ...base,
@@ -1016,15 +1067,7 @@ function mergeHistoricalThermalPayloads(
     },
     latestObservedAt,
     latestIncidentObservedAt,
-    observationAgeMinutes: latestIncidentObservedAt
-      ? Math.max(
-          0,
-          Math.round(
-            (Date.parse(retrievedAt) - Date.parse(latestIncidentObservedAt)) /
-              60_000,
-          ),
-        )
-      : null,
+    observationAgeMinutes,
     complete: status === "ok" && payloads.every((payload) => payload.complete),
     datasets,
     summary: {
@@ -1101,6 +1144,9 @@ export default function Home() {
   const baseLayerRef = useRef<TileLayer | null>(null);
   const lastAutoSelectedLive = useRef<string | null>(null);
   const geoWatchId = useRef<number | null>(null);
+  const locateControlElement = useRef<HTMLButtonElement | null>(null);
+  const locationSummaryElement = useRef<HTMLButtonElement | null>(null);
+  const pendingThermalAsOfEpoch = useRef<number | null>(null);
   const seenActionIds = useRef<Set<string> | null>(null);
   const panelElement = useRef<HTMLElement | null>(null);
 
@@ -1159,8 +1205,9 @@ export default function Home() {
   const [actionAlerts, setActionAlerts] = useState<LiveUpdateItem[]>([]);
   const actionAlert = actionAlerts[0] ?? null;
   const [wireBadge, setWireBadge] = useState(false);
-  const [layerTab, setLayerTab] = useState<LayerTab>("layers");
+  const [layerTab, setLayerTab] = useState<PanelView>("layers");
   const [alertCollapsed, setAlertCollapsed] = useState(false);
+  const [alertPreferenceReady, setAlertPreferenceReady] = useState(false);
   const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -1199,6 +1246,11 @@ export default function Home() {
     isLive,
   );
   const effectiveEpoch = effectiveAsOfEpoch(asOfSelection, ageEpoch);
+  const asOfRangeMaximum = liveAsOfRangeMaximum(
+    INCIDENT_STARTED_EPOCH,
+    ageEpoch,
+    AS_OF_STEP_MS,
+  );
   const clockIso =
     clockEpoch === null ? null : new Date(clockEpoch).toISOString();
   const clock = formatAreaDateTime(clockIso, language, {
@@ -1222,10 +1274,13 @@ export default function Home() {
     OFFICIAL_ALERT_ISSUED_AT,
     language,
   );
-  const fieldReportLabel = formatAreaDateTime(
+  const fieldReportPresentation = presentAreaDateTime(
     FIELD_REPORT_OCCURRED_AT,
     language,
   );
+  const fieldReportLabel = fieldReportPresentation.label;
+  const fieldReportPrimary = fieldReportPresentation.primary;
+  const fieldReportContext = fieldReportPresentation.context;
   const requestedImageDate = formatUtcDate(satelliteEpoch, language);
   const showArchivedOfficialAlert = isTimestampVisibleAt(
     OFFICIAL_ALERT_ISSUED_AT,
@@ -1449,7 +1504,8 @@ export default function Home() {
         thermalData?.detections.filter(
           (detection) =>
             detection.scope === "incident" &&
-            Date.parse(detection.observedAt) >= INCIDENT_STARTED_EPOCH,
+            (timestampEpoch(detection.observedAt) ?? 0) >=
+              INCIDENT_STARTED_EPOCH,
         ) ?? [],
         (detection) => detection.observedAt,
         asOfSelection,
@@ -1852,11 +1908,82 @@ export default function Home() {
   const changeLanguage = (nextLanguage: Language) => {
     setLanguage(nextLanguage);
     document.documentElement.lang = nextLanguage;
-    window.localStorage.setItem("firewatch-language", nextLanguage);
+    writeBrowserPreference(() =>
+      window.localStorage.setItem("firewatch-language", nextLanguage),
+    );
   };
 
   const closePanels = () => {
+    const restoreLocationSummary = compact && layerTab === "location";
     setPanelOpen(false);
+    if (restoreLocationSummary) {
+      window.requestAnimationFrame(() =>
+        locationSummaryElement.current?.focus(),
+      );
+    }
+  };
+
+  const updateAsOfFromRange = (value: number) => {
+    const next = asOfEpochFromRangeValue(
+      value,
+      INCIDENT_STARTED_EPOCH,
+      ageEpoch,
+      AS_OF_STEP_MS,
+    );
+    pendingThermalAsOfEpoch.current = next;
+    setAsOfEpoch(next);
+  };
+
+  const commitAsOfScrub = () => {
+    setIsScrubbing(false);
+    setCommittedThermalAsOfEpoch(pendingThermalAsOfEpoch.current);
+  };
+
+  const beginAsOfPointerScrub = (
+    event: ReactPointerEvent<HTMLInputElement>,
+  ) => {
+    setIsScrubbing(true);
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Some embedded browsers do not expose pointer capture on range inputs.
+    }
+  };
+
+  const finishAsOfPointerScrub = (
+    event: ReactPointerEvent<HTMLInputElement>,
+  ) => {
+    try {
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+      }
+    } catch {
+      // The pointer may already have been released by the browser on cancel.
+    }
+    commitAsOfScrub();
+  };
+
+  const isAsOfRangeKey = (key: string) =>
+    key === "ArrowLeft" ||
+    key === "ArrowRight" ||
+    key === "ArrowUp" ||
+    key === "ArrowDown" ||
+    key === "PageUp" ||
+    key === "PageDown" ||
+    key === "Home" ||
+    key === "End";
+
+  const onAsOfKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (!isAsOfRangeKey(event.key)) return;
+    setIsScrubbing(true);
+    if (event.key === "End") {
+      event.preventDefault();
+      updateAsOfFromRange(asOfRangeMaximum);
+    }
+  };
+
+  const onAsOfKeyUp = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (isAsOfRangeKey(event.key)) commitAsOfScrub();
   };
 
   const clampPanelPosition = useCallback(
@@ -2000,9 +2127,11 @@ export default function Home() {
 
   const setAlertCollapsedPersistent = (collapsed: boolean) => {
     setAlertCollapsed(collapsed);
-    window.localStorage.setItem(
-      "firewatch-alert-collapsed",
-      collapsed ? "1" : "0",
+    writeBrowserPreference(() =>
+      window.localStorage.setItem(
+        "firewatch-alert-collapsed",
+        collapsed ? "1" : "0",
+      ),
     );
   };
 
@@ -2039,12 +2168,20 @@ export default function Home() {
   }, []);
 
   const stopLocate = () => {
+    const restoreLocateControl = compact && layerTab === "location";
     if (geoWatchId.current !== null) {
       navigator.geolocation.clearWatch(geoWatchId.current);
     }
     geoWatchId.current = null;
     setUserPosition(null);
     setGeoStatus("off");
+    if (layerTab === "location") {
+      setLayerTab("layers");
+      setPanelOpen(false);
+    }
+    if (restoreLocateControl) {
+      window.requestAnimationFrame(() => locateControlElement.current?.focus());
+    }
   };
 
   const toggleLocate = () => {
@@ -2079,7 +2216,9 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const stored = window.localStorage.getItem("firewatch-language");
+      const stored = readBrowserPreference(() =>
+        window.localStorage.getItem("firewatch-language"),
+      );
       const nextLanguage =
         stored === "en" || stored === "el"
           ? stored
@@ -2088,9 +2227,15 @@ export default function Home() {
             : "en";
       setLanguage(nextLanguage);
       document.documentElement.lang = nextLanguage;
-      if (window.localStorage.getItem("firewatch-alert-collapsed") === "1") {
-        setAlertCollapsed(true);
-      }
+      setAlertCollapsed(
+        initialArchivedAlertCollapsed(
+          readBrowserPreference(() =>
+            window.localStorage.getItem("firewatch-alert-collapsed"),
+          ),
+          window.matchMedia("(max-width: 1180px)").matches,
+        ),
+      );
+      setAlertPreferenceReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -2809,10 +2954,10 @@ export default function Home() {
               )}</strong><br>${localize(
                 language,
                 index === 0
-                  ? "One local report referenced scattered activity near Agios Antonios on 29 Jul 2026 at 20:50 EEST."
+                  ? `One local report referenced scattered activity near Agios Antonios on ${fieldReportLabel}.`
                   : "The same report described activity in the direction of Megalochori; this second area is a broad reference zone.",
                 index === 0
-                  ? "Μία τοπική αναφορά περιέγραψε διάσπαρτη δραστηριότητα κοντά στον Άγιο Αντώνιο στις 29 Ιουλ 2026, 20:50 EEST."
+                  ? `Μία τοπική αναφορά περιέγραψε διάσπαρτη δραστηριότητα κοντά στον Άγιο Αντώνιο στις ${fieldReportLabel}.`
                   : "Η ίδια αναφορά περιέγραψε δραστηριότητα προς το Μεγαλοχώρι· αυτή η δεύτερη περιοχή είναι ευρεία ζώνη αναφοράς.",
               )}<br><span>${localize(
                 language,
@@ -2828,15 +2973,16 @@ export default function Home() {
         icon: L.divIcon({
           className: "marker-shell",
           html: markerHtml(
-            "arrow",
+            "report",
             localize(
               language,
-              "FIELD REPORT · 29 JUL 2026 · 20:50 EEST · ARCHIVED",
-              "ΑΝΑΦΟΡΑ ΠΕΔΙΟΥ · 29 ΙΟΥΛ 2026 · 20:50 EEST · ΑΡΧΕΙΟ",
+              `FIELD REPORT · ${fieldReportPrimary.toLocaleUpperCase("en-GB")} · ARCHIVED`,
+              `ΑΝΑΦΟΡΑ ΠΕΔΙΟΥ · ${fieldReportPrimary.toLocaleUpperCase("el-GR")} · ΑΡΧΕΙΟ`,
             ),
+            fieldReportContext,
           ),
-          iconSize: [170, 30],
-          iconAnchor: [16, 15],
+          iconSize: [260, 56],
+          iconAnchor: [254, 28],
         }),
       }).addTo(group);
     }
@@ -3058,6 +3204,9 @@ export default function Home() {
     effectiveEpoch,
     isLive,
     officialAlertIssuedLabel,
+    fieldReportLabel,
+    fieldReportPrimary,
+    fieldReportContext,
     showArchivedOfficialAlert,
     showFieldReport,
     language,
@@ -3086,11 +3235,199 @@ export default function Home() {
     );
   };
 
+  const hasLocationFeedback =
+    userReadout !== null ||
+    geoStatus === "locating" ||
+    geoStatus === "denied" ||
+    geoStatus === "error";
+  const locationSheetOpen =
+    compact && panelOpen && layerTab === "location";
+  const openLocationSheet = () => {
+    setLayerTab("location");
+    setPanelOpen(true);
+    window.requestAnimationFrame(() =>
+      panelElement.current
+        ?.querySelector<HTMLButtonElement>(".sheet-close")
+        ?.focus(),
+    );
+  };
+  const centerMapOnUser = () => {
+    if (!userPosition) return;
+    focusPoint([userPosition.lat, userPosition.lon], 14);
+    if (compact) closePanels();
+  };
+  const locationUnavailableMessage =
+    geoStatus === "locating"
+      ? localize(
+          language,
+          "Acquiring location on this device…",
+          "Εντοπισμός θέσης σε αυτή τη συσκευή…",
+        )
+      : geoStatus === "denied"
+        ? localize(
+            language,
+            "Location permission denied — allow it in browser settings to see distances.",
+            "Η άδεια τοποθεσίας απορρίφθηκε — ενεργοποιήστε την στις ρυθμίσεις του προγράμματος περιήγησης για αποστάσεις.",
+          )
+        : localize(
+            language,
+            "Location unavailable on this device.",
+            "Η τοποθεσία δεν είναι διαθέσιμη σε αυτή τη συσκευή.",
+          );
+  const locationThermalCoverageLimited =
+    thermalStaleSnapshot ||
+    thermalData?.status === "partial" ||
+    (thermalData !== null && !thermalData.complete);
+  const locationEmptyThermalDetail = thermalLoading
+    ? localize(
+        language,
+        "Checking FIRMS thermal observations",
+        "Έλεγχος θερμικών παρατηρήσεων FIRMS",
+      )
+    : thermalUnavailable
+      ? localize(
+          language,
+          "Thermal observations unavailable · no assessment",
+          "Οι θερμικές παρατηρήσεις δεν είναι διαθέσιμες · χωρίς αξιολόγηση",
+        )
+      : locationThermalCoverageLimited
+        ? localize(
+            language,
+            "Thermal coverage stale or incomplete · no assessment",
+            "Η θερμική κάλυψη είναι παλιά ή ελλιπής · χωρίς αξιολόγηση",
+          )
+        : localize(
+            language,
+            "No FIRMS detections returned · not an all-clear",
+            "Δεν επιστράφηκαν ανιχνεύσεις FIRMS · όχι λήξη συναγερμού",
+          );
+  const locationSummaryDetail = userReadout?.nearest
+    ? `${userReadout.nearestKm.toFixed(1)} km ${
+        userReadout.nearestDir ? `${userReadout.nearestDir} · ` : ""
+      }${localize(
+        language,
+        locationThermalCoverageLimited
+          ? "nearest known thermal detection · coverage limited"
+          : "nearest thermal detection",
+        locationThermalCoverageLimited
+          ? "πλησιέστερη γνωστή θερμική ανίχνευση · περιορισμένη κάλυψη"
+          : "πλησιέστερη θερμική ανίχνευση",
+      )}`
+    : userReadout
+      ? locationEmptyThermalDetail
+      : locationUnavailableMessage;
+  const locationDetailContent =
+    userReadout && userPosition ? (
+      <>
+        <strong>
+          GPS ±{Math.round(userPosition.accuracyM)} m ·{" "}
+          {localize(
+            language,
+            `exact fix stays on this device; Firewatch receives only a versioned ${Math.round(satelliteAreaCell.minimumSpanM / 1_000)}+ km coarse-area cell for local coverage, while centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA`,
+            `η ακριβής θέση παραμένει στη συσκευή· το Firewatch λαμβάνει μόνο ένα έκδοση-ελεγχόμενο κελί ευρείας περιοχής ${Math.round(satelliteAreaCell.minimumSpanM / 1_000)}+ km για τοπική κάλυψη, ενώ το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA`,
+          )}
+        </strong>
+        {userReadout.nearest ? (
+          <span>
+            {userReadout.nearestKm.toFixed(1)} km{" "}
+            {userReadout.nearestDir ? `${userReadout.nearestDir} → ` : ""}
+            {localize(
+              language,
+              "nearest satellite hotspot",
+              "πλησιέστερη δορυφορική εστία",
+            )}{" "}
+            (
+            {ageLabel(
+              ageMinutesFromTimestamp(
+                userReadout.nearest.observedAt,
+                effectiveEpoch,
+              ) ?? userReadout.nearest.ageMinutes,
+              language,
+              isLive ? "now" : "selected",
+            )}
+            )
+          </span>
+        ) : (
+          <span>{locationEmptyThermalDetail}</span>
+        )}
+        <span>
+          {userReadout.routeKm.toFixed(1)} km{" "}
+          {userReadout.routeDir ? `${userReadout.routeDir} → ` : ""}
+          {localize(
+            language,
+            `app-drawn archived road reference (${officialAlertIssuedLabel})`,
+            `αρχειοθετημένη οδική αναφορά εφαρμογής (${officialAlertIssuedLabel})`,
+          )}
+        </span>
+        <span>
+          {userReadout.incidentKm.toFixed(1)} km{" "}
+          {userReadout.incidentDir ? `${userReadout.incidentDir} → ` : ""}
+          {localize(
+            language,
+            "incident reference point",
+            "σημείο αναφοράς συμβάντος",
+          )}
+        </span>
+        <small>
+          {localize(
+            language,
+            "Distances are straight-line, not road distance.",
+            "Οι αποστάσεις είναι σε ευθεία γραμμή, όχι οδικές.",
+          )}
+        </small>
+        <div className="locate-readout__actions">
+          <button
+            type="button"
+            className="locate-readout__center"
+            onClick={centerMapOnUser}
+          >
+            {localize(
+              language,
+              "CENTER MAP ON ME",
+              "ΚΕΝΤΡΑΡΙΣΜΑ ΣΤΗ ΘΕΣΗ ΜΟΥ",
+            )}
+          </button>
+          <button
+            type="button"
+            className="locate-readout__center"
+            onClick={stopLocate}
+          >
+            {localize(
+              language,
+              "STOP USING POSITION",
+              "ΔΙΑΚΟΠΗ ΧΡΗΣΗΣ ΘΕΣΗΣ",
+            )}
+          </button>
+        </div>
+      </>
+    ) : (
+      <>
+        <span>{locationUnavailableMessage}</span>
+        <button
+          type="button"
+          className="locate-readout__center"
+          onClick={geoStatus === "locating" ? stopLocate : toggleLocate}
+        >
+          {geoStatus === "locating"
+            ? localize(
+                language,
+                "STOP USING POSITION",
+                "ΔΙΑΚΟΠΗ ΧΡΗΣΗΣ ΘΕΣΗΣ",
+              )
+            : localize(
+                language,
+                "TRY POSITION AGAIN",
+                "ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ ΘΕΣΗΣ",
+              )}
+        </button>
+      </>
+    );
+
   const mobileSheetOpen = compact && panelOpen;
 
   return (
     <main
-      className={`command-shell${mobileSheetOpen ? " has-mobile-sheet" : ""}${layers.simulation ? " has-scenario" : ""}${isLive ? " is-live" : " is-historical"}${isScrubbing ? " is-scrubbing" : ""}${showArchivedOfficialAlert ? "" : " without-archived-alert"}${showArchivedOfficialAlert && alertCollapsed ? " alert-collapsed" : ""}${userReadout || geoStatus === "denied" || geoStatus === "error" ? " has-locate-readout" : ""}${actionAlert ? " has-action-alert" : ""}`}
+      className={`command-shell${alertPreferenceReady ? " alert-preference-ready" : ""}${mobileSheetOpen ? " has-mobile-sheet" : ""}${layers.simulation ? " has-scenario" : ""}${isLive ? " is-live" : " is-historical"}${isScrubbing ? " is-scrubbing" : ""}${showArchivedOfficialAlert ? "" : " without-archived-alert"}${showArchivedOfficialAlert && alertCollapsed ? " alert-collapsed" : ""}${hasLocationFeedback ? " has-locate-readout" : ""}${actionAlert ? " has-action-alert" : ""}`}
     >
       <div className="map-stage">
         <div
@@ -3293,9 +3630,9 @@ export default function Home() {
           <input
             type="range"
             min={INCIDENT_STARTED_EPOCH}
-            max={ageEpoch}
-            step={15 * 60_000}
-            value={asOfEpoch ?? ageEpoch}
+            max={asOfRangeMaximum}
+            step={AS_OF_STEP_MS}
+            value={asOfEpoch ?? asOfRangeMaximum}
             suppressHydrationWarning
             aria-valuetext={
               isLive
@@ -3303,20 +3640,14 @@ export default function Home() {
                 : `${localize(language, "As of", "Έως")} ${asOfLabel}`
             }
             onChange={(event) =>
-              setAsOfEpoch(
-                clampAsOfEpoch(
-                  Number(event.currentTarget.value),
-                  INCIDENT_STARTED_EPOCH,
-                  ageEpoch,
-                ),
-              )
+              updateAsOfFromRange(Number(event.currentTarget.value))
             }
-            onPointerDown={() => setIsScrubbing(true)}
-            onPointerUp={() => setIsScrubbing(false)}
-            onPointerCancel={() => setIsScrubbing(false)}
-            onKeyDown={() => setIsScrubbing(true)}
-            onKeyUp={() => setIsScrubbing(false)}
-            onBlur={() => setIsScrubbing(false)}
+            onPointerDown={beginAsOfPointerScrub}
+            onPointerUp={finishAsOfPointerScrub}
+            onPointerCancel={finishAsOfPointerScrub}
+            onKeyDown={onAsOfKeyDown}
+            onKeyUp={onAsOfKeyUp}
+            onBlur={commitAsOfScrub}
           />
           <span className="time-scrubber__bounds">
             <small>
@@ -3338,6 +3669,7 @@ export default function Home() {
           type="button"
           className={isLive ? "is-active" : ""}
           onClick={() => {
+            pendingThermalAsOfEpoch.current = null;
             setAsOfEpoch(null);
             setCommittedThermalAsOfEpoch(null);
           }}
@@ -3476,6 +3808,7 @@ export default function Home() {
 
       <button
         type="button"
+        ref={locateControlElement}
         className={`locate-control${
           geoStatus === "on" || geoStatus === "locating" ? " is-active" : ""
         }`}
@@ -3487,144 +3820,39 @@ export default function Home() {
           : localize(language, "MY POSITION", "Η ΘΕΣΗ ΜΟΥ")}
       </button>
 
-      {(userReadout || geoStatus === "denied" || geoStatus === "error") && (
+      {hasLocationFeedback && !compact && (
         <div
           className={`locate-readout${userReadout ? "" : " locate-readout--error"}`}
           role="status"
         >
-          {userReadout && userPosition ? (
-            <>
-              <strong>
-                GPS ±{Math.round(userPosition.accuracyM)} m ·{" "}
-                <span className="locate-readout__privacy-long">
-                  {localize(
-                    language,
-                    `exact fix stays on this device; Firewatch receives only a versioned ${Math.round(satelliteAreaCell.minimumSpanM / 1_000)}+ km coarse-area cell for local coverage, while centering can request nearby tiles from Carto, Esri, OpenTopoMap, or NASA`,
-                    `η ακριβής θέση παραμένει στη συσκευή· το Firewatch λαμβάνει μόνο ένα έκδοση-ελεγχόμενο κελί ευρείας περιοχής ${Math.round(satelliteAreaCell.minimumSpanM / 1_000)}+ km για τοπική κάλυψη, ενώ το κεντράρισμα μπορεί να ζητήσει κοντινά πλακίδια από Carto, Esri, OpenTopoMap ή NASA`,
-                  )}
-                </span>
-                <span className="locate-readout__privacy-short">
-                  {localize(
-                    language,
-                    "EXACT GPS ON DEVICE · COARSE CELL SHARED",
-                    "ΑΚΡΙΒΕΣ GPS ΣΤΗ ΣΥΣΚΕΥΗ · ΚΟΙΝΟΠΟΙΕΙΤΑΙ ΕΥΡΥ ΚΕΛΙ",
-                  )}
-                </span>
-              </strong>
-              {userReadout.nearest ? (
-                <span>
-                  {userReadout.nearestKm.toFixed(1)} km{" "}
-                  {userReadout.nearestDir
-                    ? `${userReadout.nearestDir} → `
-                    : ""}
-                  {localize(
-                    language,
-                    "nearest satellite hotspot",
-                    "πλησιέστερη δορυφορική εστία",
-                  )}{" "}
-                  (
-                  {ageLabel(
-                    ageMinutesFromTimestamp(
-                      userReadout.nearest.observedAt,
-                      effectiveEpoch,
-                    ) ?? userReadout.nearest.ageMinutes,
-                    language,
-                    isLive ? "now" : "selected",
-                  )}
-                  )
-                </span>
-              ) : (
-                <span>
-                  {localize(
-                    language,
-                    "No satellite hotspots in the current window",
-                    "Καμία δορυφορική εστία στο τρέχον παράθυρο",
-                  )}
-                </span>
-              )}
-              <span className="locate-readout__route">
-                {userReadout.routeKm.toFixed(1)} km{" "}
-                {userReadout.routeDir ? `${userReadout.routeDir} → ` : ""}
-                {localize(
-                  language,
-                  `app-drawn archived road reference (${officialAlertIssuedLabel})`,
-                  `αρχειοθετημένη οδική αναφορά εφαρμογής (${officialAlertIssuedLabel})`,
-                )}
-              </span>
-              <span>
-                {userReadout.incidentKm.toFixed(1)} km{" "}
-                {userReadout.incidentDir
-                  ? `${userReadout.incidentDir} → `
-                  : ""}
-                {localize(
-                  language,
-                  "incident reference point",
-                  "σημείο αναφοράς συμβάντος",
-                )}
-              </span>
-              <small className="locate-readout__distance-note">
-                {localize(
-                  language,
-                  "Distances are straight-line, not road distance.",
-                  "Οι αποστάσεις είναι σε ευθεία γραμμή, όχι οδικές.",
-                )}
-              </small>
-              <div className="locate-readout__actions">
-                <button
-                  type="button"
-                  className="locate-readout__center"
-                  onClick={() =>
-                    focusPoint([userPosition.lat, userPosition.lon], 14)
-                  }
-                >
-                  {localize(
-                    language,
-                    "CENTER MAP ON ME",
-                    "ΚΕΝΤΡΑΡΙΣΜΑ ΣΤΗ ΘΕΣΗ ΜΟΥ",
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="locate-readout__center"
-                  onClick={stopLocate}
-                >
-                  {localize(
-                    language,
-                    "STOP USING POSITION",
-                    "ΔΙΑΚΟΠΗ ΧΡΗΣΗΣ ΘΕΣΗΣ",
-                  )}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <span>
-                {geoStatus === "denied"
-                  ? localize(
-                      language,
-                      "Location permission denied — allow it in browser settings to see distances.",
-                      "Η άδεια τοποθεσίας απορρίφθηκε — ενεργοποιήστε την στις ρυθμίσεις του προγράμματος περιήγησης για αποστάσεις.",
-                    )
-                  : localize(
-                      language,
-                      "Location unavailable on this device.",
-                      "Η τοποθεσία δεν είναι διαθέσιμη σε αυτή τη συσκευή.",
-                    )}
-              </span>
-              <button
-                type="button"
-                className="locate-readout__center"
-                onClick={toggleLocate}
-              >
-                {localize(
-                  language,
-                  "TRY POSITION AGAIN",
-                  "ΝΕΑ ΠΡΟΣΠΑΘΕΙΑ ΘΕΣΗΣ",
-                )}
-              </button>
-            </>
-          )}
+          {locationDetailContent}
         </div>
+      )}
+
+      {hasLocationFeedback && compact && (
+        <MobileLocationSummary
+          title={
+            userPosition
+              ? `GPS ±${Math.round(userPosition.accuracyM)} m`
+              : geoStatus === "locating"
+                ? localize(language, "LOCATING", "ΕΝΤΟΠΙΣΜΟΣ")
+                : localize(
+                    language,
+                    "LOCATION UNAVAILABLE",
+                    "Η ΘΕΣΗ ΔΕΝ ΕΙΝΑΙ ΔΙΑΘΕΣΙΜΗ",
+                  )
+          }
+          detail={locationSummaryDetail}
+          actionLabel={localize(language, "DETAILS", "ΛΕΠΤΟΜΕΡΕΙΕΣ")}
+          accessibleLabel={localize(
+            language,
+            `Open location details. ${locationSummaryDetail}`,
+            `Άνοιγμα λεπτομερειών θέσης. ${locationSummaryDetail}`,
+          )}
+          expanded={locationSheetOpen}
+          onOpen={openLocationSheet}
+          buttonRef={locationSummaryElement}
+        />
       )}
 
       {mobileSheetOpen && (
@@ -3665,7 +3893,11 @@ export default function Home() {
         className="layer-hud"
         id="layers-sheet"
         hidden={!panelOpen}
-        aria-label={localize(language, "Data layers", "Επίπεδα δεδομένων")}
+        aria-label={
+          layerTab === "location"
+            ? localize(language, "Location details", "Λεπτομέρειες θέσης")
+            : localize(language, "Data layers", "Επίπεδα δεδομένων")
+        }
         style={
           panelPos && !compact
             ? {
@@ -3703,11 +3935,22 @@ export default function Home() {
                       "LOCAL FEED READER",
                       "ΤΟΠΙΚΟΣ ΑΝΑΓΝΩΣΤΗΣ ΡΟΩΝ",
                     ),
+                    location: localize(
+                      language,
+                      "MY LOCATION",
+                      "Η ΘΕΣΗ ΜΟΥ",
+                    ),
                   }[layerTab]
                 }
               </span>
               <small>
-                {layerTab === "updates"
+                {layerTab === "location"
+                  ? localize(
+                      language,
+                      "EXACT FIX ON DEVICE · COARSE AREA ONLY TO FIREWATCH",
+                      "ΑΚΡΙΒΕΣ ΣΗΜΕΙΟ ΣΤΗ ΣΥΣΚΕΥΗ · ΜΟΝΟ ΕΥΡΕΙΑ ΠΕΡΙΟΧΗ ΣΤΟ FIREWATCH",
+                    )
+                  : layerTab === "updates"
                   ? !isLive
                     ? localize(
                         language,
@@ -3742,39 +3985,47 @@ export default function Home() {
                     : localize(language, "AS OF", "ΕΩΣ")}
                 </span>
               )}
-              <button
-                type="button"
-                className="panel-move"
-                onPointerDown={onPanelDragStart}
-                onPointerMove={onPanelDragMove}
-                onPointerUp={onPanelDragEnd}
-                onPointerCancel={onPanelDragEnd}
-                onKeyDown={onPanelMoveKeyDown}
-                onDoubleClick={() => setPanelPos(null)}
-                aria-label={localize(
-                  language,
-                  "Move panel with arrow keys; Home or double-click resets position",
-                  "Μετακίνηση πίνακα με τα βέλη· Home ή διπλό κλικ για επαναφορά",
-                )}
-                title={localize(
-                  language,
-                  "Drag or use arrow keys · Home/double-click resets",
-                  "Σύρετε ή χρησιμοποιήστε τα βέλη · Home/διπλό κλικ για επαναφορά",
-                )}
-              >
-                ✥
-              </button>
-              <button type="button" onClick={showOperationalView}>
-                {localize(language, "FRAME", "ΠΡΟΒΟΛΗ")}
-              </button>
+              {layerTab !== "location" && (
+                <>
+                  <button
+                    type="button"
+                    className="panel-move"
+                    onPointerDown={onPanelDragStart}
+                    onPointerMove={onPanelDragMove}
+                    onPointerUp={onPanelDragEnd}
+                    onPointerCancel={onPanelDragEnd}
+                    onKeyDown={onPanelMoveKeyDown}
+                    onDoubleClick={() => setPanelPos(null)}
+                    aria-label={localize(
+                      language,
+                      "Move panel with arrow keys; Home or double-click resets position",
+                      "Μετακίνηση πίνακα με τα βέλη· Home ή διπλό κλικ για επαναφορά",
+                    )}
+                    title={localize(
+                      language,
+                      "Drag or use arrow keys · Home/double-click resets",
+                      "Σύρετε ή χρησιμοποιήστε τα βέλη · Home/διπλό κλικ για επαναφορά",
+                    )}
+                  >
+                    ✥
+                  </button>
+                  <button type="button" onClick={showOperationalView}>
+                    {localize(language, "FRAME", "ΠΡΟΒΟΛΗ")}
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="sheet-close"
                 onClick={closePanels}
                 aria-label={localize(
                   language,
-                  "Close layers",
-                  "Κλείσιμο επιπέδων",
+                  layerTab === "location"
+                    ? "Close location details"
+                    : "Close layers",
+                  layerTab === "location"
+                    ? "Κλείσιμο λεπτομερειών θέσης"
+                    : "Κλείσιμο επιπέδων",
                 )}
               >
                 ×
@@ -3782,16 +4033,17 @@ export default function Home() {
             </div>
           </div>
 
-          <div
-            className="hud-tabs"
-            role="tablist"
-            aria-orientation="horizontal"
-            aria-label={localize(
-              language,
-              "Layer panel sections",
-              "Ενότητες πίνακα επιπέδων",
-            )}
-          >
+          {layerTab !== "location" && (
+            <div
+              className="hud-tabs"
+              role="tablist"
+              aria-orientation="horizontal"
+              aria-label={localize(
+                language,
+                "Layer panel sections",
+                "Ενότητες πίνακα επιπέδων",
+              )}
+            >
             {(
               [
                 ["layers", localize(language, "LAYERS", "ΕΠΙΠΕΔΑ")],
@@ -3827,7 +4079,20 @@ export default function Home() {
                 )}
               </button>
             ))}
-          </div>
+            </div>
+          )}
+
+          <section
+            className="location-context"
+            aria-label={localize(
+              language,
+              "Device location context",
+              "Πληροφορίες θέσης συσκευής",
+            )}
+            hidden={layerTab !== "location"}
+          >
+            {locationDetailContent}
+          </section>
 
           <div
             id="layers-panel-layers"
@@ -4770,16 +5035,26 @@ export default function Home() {
         </button>
         <button
           type="button"
-          className={panelOpen && layerTab !== "updates" ? "is-active" : ""}
+          className={
+            panelOpen && layerTab !== "updates" && layerTab !== "location"
+              ? "is-active"
+              : ""
+          }
           onClick={() => {
-            if (panelOpen && layerTab !== "updates") {
+            if (
+              panelOpen &&
+              layerTab !== "updates" &&
+              layerTab !== "location"
+            ) {
               setPanelOpen(false);
               return;
             }
-            if (layerTab === "updates") setLayerTab("layers");
+            setLayerTab("layers");
             setPanelOpen(true);
           }}
-          aria-expanded={panelOpen && layerTab !== "updates"}
+          aria-expanded={
+            panelOpen && layerTab !== "updates" && layerTab !== "location"
+          }
           aria-controls="layers-sheet"
         >
           <span aria-hidden="true">☷</span>

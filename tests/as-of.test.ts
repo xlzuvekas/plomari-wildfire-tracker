@@ -2,11 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import {
   LIVE_AS_OF,
+  asOfEpochFromRangeValue,
   clampAsOfEpoch,
   effectiveAsOfEpoch,
   filterAtOrBefore,
   isTimestampVisibleAt,
   latestAtOrBefore,
+  liveAsOfRangeMaximum,
   timestampEpoch,
   type AsOfSelection,
 } from "../lib/as-of";
@@ -33,6 +35,36 @@ describe("as-of bounds", () => {
   test("resolves Live to current time and preserves a historical selection", () => {
     expect(effectiveAsOfEpoch(LIVE_AS_OF, NOW)).toBe(NOW);
     expect(effectiveAsOfEpoch(AS_OF, NOW)).toBe(AS_OF.epochMs);
+  });
+
+  test("reserves the range right edge for the explicit Live sentinel", () => {
+    const step = 15 * 60_000;
+    for (const remainder of [0, 1, 7, 8, 14]) {
+      const currentTime = NOW + remainder * 60_000;
+      const maximum = liveAsOfRangeMaximum(START, currentTime, step);
+      expect((maximum - START) % step).toBe(0);
+      expect(maximum).toBeGreaterThanOrEqual(currentTime);
+      expect(maximum - currentTime).toBeLessThan(step);
+      expect(
+        asOfEpochFromRangeValue(maximum, START, currentTime, step),
+      ).toBeNull();
+      if (maximum > START) {
+        expect(
+          asOfEpochFromRangeValue(
+            maximum - step,
+            START,
+            currentTime,
+            step,
+          ),
+        ).toBe(maximum - step);
+      }
+    }
+  });
+
+  test("rejects an invalid range step", () => {
+    expect(() => asOfEpochFromRangeValue(NOW, START, NOW, 0)).toThrow(
+      RangeError,
+    );
   });
 });
 
@@ -73,5 +105,8 @@ describe("source-time visibility", () => {
   test("normalizes unknown timestamps to null", () => {
     expect(timestampEpoch(undefined)).toBeNull();
     expect(timestampEpoch("not-a-date")).toBeNull();
+    expect(timestampEpoch("2026-02-29T10:00:00Z")).toBeNull();
+    expect(timestampEpoch("2026-07-30T24:00:00Z")).toBeNull();
+    expect(timestampEpoch("2026-07-30T10:00:00")).toBeNull();
   });
 });

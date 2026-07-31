@@ -2041,6 +2041,15 @@ button {
   font-weight: 500;
 }
 
+.map-marker b small {
+  display: block;
+  margin-top: 2px;
+  color: #b6cbd0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.035em;
+}
+
 .map-marker--fire {
   color: var(--red);
 }
@@ -2062,17 +2071,31 @@ button {
   font-size: 9px;
 }
 
-.map-marker--arrow {
+.map-marker--arrow,
+.map-marker--report {
   color: var(--amber);
 }
 
 .map-marker--arrow span,
+.map-marker--report span,
 .map-marker--wind span {
   width: 14px;
   height: 8px;
   border: 0;
   border-radius: 0;
   clip-path: polygon(0 34%, 66% 34%, 66% 0, 100% 50%, 66% 100%, 66% 66%, 0 66%);
+}
+
+.map-marker--report {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  white-space: normal;
+}
+
+.map-marker--report b {
+  max-width: 228px;
+  line-height: 1.25;
+  text-align: left;
 }
 
 .route-arrow-shell .map-marker--arrow {
@@ -2201,6 +2224,33 @@ button {
 
   .command-shell.without-archived-alert {
     --mobile-alert: 0px;
+  }
+
+  /* Server render cannot read the viewer's saved preference. Reserve only the
+     compact archived-alert row until hydration restores the explicit choice. */
+  .command-shell:not(.alert-preference-ready):not(.without-archived-alert) {
+    --mobile-alert: 48px;
+  }
+
+  .command-shell:not(.alert-preference-ready) .evacuation-banner {
+    height: var(--mobile-alert);
+    min-height: var(--mobile-alert);
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 8px;
+    overflow: hidden;
+  }
+
+  .command-shell:not(.alert-preference-ready) .evacuation-code,
+  .command-shell:not(.alert-preference-ready) .evacuation-copy > :not(.evacuation-archive-tag),
+  .command-shell:not(.alert-preference-ready) .evacuation-banner > a,
+  .command-shell:not(.alert-preference-ready) .evacuation-hide {
+    display: none;
+  }
+
+  .command-shell:not(.alert-preference-ready) .evacuation-archive-tag {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .top-hud {
@@ -2706,7 +2756,8 @@ button {
   .has-mobile-sheet .view-controls,
   .has-mobile-sheet .scenario-hud,
   .has-scenario .mission-hud,
-  .has-locate-readout .mission-hud {
+  .has-locate-readout .mission-hud,
+  .has-locate-readout .scenario-hud {
     display: none;
   }
 
@@ -2910,6 +2961,10 @@ button {
   background: var(--green);
 }
 
+.locate-summary {
+  display: none;
+}
+
 .locate-readout {
   position: absolute;
   z-index: 1095;
@@ -2964,6 +3019,36 @@ button {
 
 .locate-readout--error span {
   color: #ffd699;
+}
+
+.location-context {
+  display: grid;
+  min-height: 0;
+  gap: 9px;
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.location-context[hidden] {
+  display: none;
+}
+
+.location-context strong {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.location-context span {
+  color: var(--ink);
+}
+
+.location-context small {
+  color: var(--muted);
+  font-size: 0.6875rem;
 }
 
 .alert-toast {
@@ -3207,42 +3292,104 @@ button {
   }
 
   .locate-readout {
-    z-index: 1200;
-    top: auto;
-    left: 8px;
-    bottom: calc(var(--mobile-dock) + 12px);
-    max-width: min(264px, calc(100vw - 112px));
-    max-height: min(190px, 32dvh);
-    gap: 2px;
-    padding: 6px 7px;
-    overflow: auto;
-    font-size: 0.625rem;
-    overscroll-behavior: contain;
-  }
-
-  .locate-readout__privacy-long,
-  .locate-readout__route,
-  .locate-readout__distance-note {
     display: none;
   }
 
-  .locate-readout .locate-readout__privacy-short {
-    display: inline;
-    color: var(--green);
+  .locate-summary {
+    position: absolute;
+    z-index: 1200;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: calc(var(--mobile-dock) + 12px);
+    left: max(8px, env(safe-area-inset-left));
+    display: grid;
+    height: 56px;
+    max-height: 56px;
+    min-height: 44px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 1fr 1fr;
+    align-items: center;
+    column-gap: 10px;
+    padding: 6px 8px 6px 10px;
+    overflow: hidden;
+    color: var(--ink);
+    border: 1px solid rgba(57, 242, 197, 0.42);
+    border-left: 3px solid var(--green);
+    background: rgba(3, 12, 17, 0.96);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+    cursor: pointer;
+    text-align: left;
+    backdrop-filter: blur(12px);
+    transition:
+      transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+      border-color 140ms ease,
+      background-color 140ms ease;
   }
 
-  .locate-readout small {
-    font-size: 0.625rem;
+  .locate-summary strong,
+  .locate-summary span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .locate-summary strong {
+    align-self: end;
+    color: var(--green);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .locate-summary span {
+    align-self: start;
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.2;
+  }
+
+  .locate-summary b {
+    min-width: 64px;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    color: var(--cyan);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-align: right;
+  }
+
+  .locate-summary:active {
+    transform: scale(0.985);
   }
 
   .has-mobile-sheet .locate-control,
-  .has-mobile-sheet .locate-readout {
+  .has-mobile-sheet .locate-readout,
+  .has-mobile-sheet .locate-summary {
     display: none;
   }
 
   .has-locate-readout .locate-control,
   .has-locate-readout .view-controls {
     display: none;
+  }
+
+  .has-locate-readout:not(.has-mobile-sheet) .leaflet-control-attribution {
+    max-width: calc(
+      100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 16px
+    );
+    margin-right: max(0px, env(safe-area-inset-right)) !important;
+    margin-bottom: calc(var(--mobile-dock) + 76px) !important;
+  }
+
+  .location-context {
+    font-size: 0.8125rem;
+  }
+
+  .location-context small {
+    font-size: 0.75rem;
   }
 
   .hud-tabs button {
@@ -3286,6 +3433,37 @@ button {
 @media (max-width: 1180px) and (max-height: 700px) {
   .leaflet-control-zoom {
     display: none;
+  }
+}
+
+@media (max-width: 1180px) and (max-height: 520px) and (orientation: landscape) {
+  .layer-hud,
+  .intel-hud {
+    max-height: min(
+      70dvh,
+      calc(100dvh - var(--mobile-head) - var(--mobile-dock) - 8px)
+    );
+  }
+
+  .has-mobile-sheet .time-scrubber {
+    visibility: hidden;
+  }
+
+  .has-mobile-sheet .evacuation-banner,
+  .has-mobile-sheet .evacuation-collapsed {
+    visibility: hidden;
+  }
+
+  .locate-summary {
+    bottom: calc(var(--mobile-dock) + 4px);
+    height: 44px;
+    max-height: 44px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+
+  .has-locate-readout:not(.has-mobile-sheet) .leaflet-control-attribution {
+    margin-bottom: calc(var(--mobile-dock) + 56px) !important;
   }
 }
 
