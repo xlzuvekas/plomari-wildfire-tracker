@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CMR_FIREMASK_PRODUCTS, type SatellitePass } from "../lib/satellite/cmr";
 import type { CmrHarvestPlan } from "../lib/satellite/cmr-collector.server";
 import type {
@@ -29,6 +29,8 @@ const validDsn =
   "@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require";
 const validSupabaseUrl = `https://${projectRef}.supabase.co`;
 
+afterEach(() => vi.unstubAllGlobals());
+
 function identityRow() {
   return {
     runtime_role: CMR_RUNTIME_ROLE,
@@ -52,6 +54,10 @@ function identityRow() {
   };
 }
 
+function jsonArgument(value: unknown) {
+  return typeof value === "string" ? JSON.parse(value) as unknown : value;
+}
+
 function currentDatabase(
   onClose: () => void,
   completion: Readonly<Record<string, unknown>> = {
@@ -62,7 +68,13 @@ function currentDatabase(
   },
   reapedRunId: string | null = null,
 ): CollectorDatabase {
-  const query = async <Row extends DatabaseRow = DatabaseRow>(statement: string) => {
+  const query = async <Row extends DatabaseRow = DatabaseRow>(
+    statement: string,
+    parameters: readonly unknown[] = [],
+  ) => {
+    const placeholders = [...statement.matchAll(/\$(\d+)/gu)]
+      .map((match) => Number(match[1]));
+    expect(parameters).toHaveLength(Math.max(0, ...placeholders));
     if (
       statement.includes("current_user as runtime_role") &&
       statement.includes("target_state.cursor_state")
@@ -295,7 +307,7 @@ describe("CMR collector replay occurrences", () => {
           statement.includes("from ingest.cmr_granule_details as detail") &&
           statement.includes("jsonb_to_recordset")
         ) {
-          const input = JSON.parse(String(parameters[0])) as Array<{
+          const input = jsonArgument(parameters[0]) as Array<{
             content_sha256: string;
           }>;
           return [{
@@ -383,11 +395,19 @@ describe("CMR collector replay occurrences", () => {
       null,
     ]);
     expect(contentBlobs[0]?.parameters[1]).toBe(contentBlobs[1]?.parameters[1]);
+    const job = statements.find(({ statement }) =>
+      statement.includes("insert into ingest.jobs")
+    );
+    expect(job?.parameters[8]).toMatchObject({
+      collector: "cmr_firemask_catalog",
+      plan: { scanKind: "bootstrap" },
+    });
+    expect(typeof job?.parameters[8]).toBe("object");
     const finishedExchanges = statements.filter(({ statement }) =>
       statement.includes("ingest.finish_http_exchange")
     );
     expect(finishedExchanges.map(({ parameters }) =>
-      JSON.parse(String(parameters[6]))["content-encoding"]
+      (jsonArgument(parameters[6]) as Record<string, unknown>)["content-encoding"]
     )).toEqual(["gzip", "br"]);
     const product = CMR_FIREMASK_PRODUCTS[0];
     if (product === undefined) throw new Error("CMR product fixture is missing.");
@@ -459,7 +479,7 @@ describe("CMR collector replay occurrences", () => {
       statement.includes("insert into ingest.cmr_granule_occurrences")
     );
     expect(occurrence).toBeDefined();
-    expect(JSON.parse(String(occurrence?.parameters[4]))).toEqual([{
+    expect(jsonArgument(occurrence?.parameters[4])).toEqual([{
       item_index: 0,
       observation_cursor: "99",
       product: "VNP14IMG_NRT",
@@ -490,7 +510,7 @@ describe("CMR collector replay occurrences", () => {
       1,
       0,
     ]);
-    expect(JSON.parse(String(failedHealth?.parameters[8]))).toEqual({
+    expect(jsonArgument(failedHealth?.parameters[8])).toEqual({
       anomalyAssessment: "not_assessed",
       catalogMetadataOnly: true,
       failure: { class: "rate_limit", reason: "rate_limit" },
@@ -627,8 +647,45 @@ describe("CMR Edge invocation contract", () => {
       status: "error",
       error: "collector_unavailable",
     });
-    expect(diagnostics).toEqual([{ category: "database" }]);
+    expect(diagnostics).toEqual([{
+      category: "database",
+      stage: "resolve_plan",
+    }]);
     expect(closed).toBe(true);
+  });
+
+  it("reports only a safe persistence stage and code", async () => {
+    vi.stubGlobal("window", globalThis);
+    const base = currentDatabase(() => undefined);
+    const failing: CollectorDatabase = {
+      ...base,
+      async transaction<Result>(): Promise<Result> {
+        throw new TypeError("sensitive-database-detail-must-not-be-logged");
+      },
+    };
+    const diagnostics: unknown[] = [];
+    const handler = createCmrEdgeHandler({
+      clockMs: () => Date.parse("2026-07-30T12:34:56.000Z"),
+      openDatabase: async () => failing,
+      reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+    const response = await handler(new Request("https://example.test/collect-cmr", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"mode":"bootstrap"}',
+    }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      status: "error",
+      error: "collector_unavailable",
+    });
+    expect(diagnostics).toEqual([{
+      category: "database",
+      stage: "reserve_harvest",
+      code: "TYPE_ERROR",
+    }]);
+    expect(JSON.stringify(diagnostics)).not.toContain("must-not-be-logged");
   });
 
   it("rejects methods, query input, unknown JSON, media types, and oversized bodies", async () => {
@@ -690,7 +747,10 @@ describe("CMR Edge invocation contract", () => {
     expect(response.status).toBe(503);
     expect(text).toBe('{"status":"error","error":"collector_unavailable"}');
     expect(text).not.toContain("top-secret");
-    expect(diagnostics).toEqual([{ category: "runtime" }]);
+    expect(diagnostics).toEqual([{
+      category: "runtime",
+      stage: "open_database",
+    }]);
   });
 });
 
@@ -722,7 +782,7 @@ describe("CMR production wiring", () => {
         readFile(resolve(root, "package.json"), "utf8"),
       ]);
 
-    expect(indexSource).toContain('auth: "secret:cmr-cron"');
+    expect(indexSource).toContain('auth: "secret:cmr_cron"');
     expect(indexSource).toMatch(/max:\s*1/u);
     expect(indexSource).toMatch(/prepare:\s*false/u);
     expect(indexSource).not.toContain("service_role");
@@ -742,14 +802,16 @@ describe("CMR production wiring", () => {
     );
     expect(runtimeSource).toContain("await adapter.reapExpiredExecution()");
     expect(adapterSource).toContain(
-      "and adapter.schema_version = $4",
+      "and adapter.schema_version = 'cmr-umm-g-1.6.7-pass-v1'",
     );
     expect(adapterSource).toContain(
-      "and revision.request_params = $7::jsonb",
+      '"reconciliationIntervalHours":24',
     );
+    expect(adapterSource).not.toContain("revision.request_params = $7::jsonb");
     expect(adapterSource).toContain(
       "and revision.geometry_precision_source = 'not_applicable'",
     );
+    expect(adapterSource.match(/to_jsonb\(array\(/gu)).toHaveLength(6);
     expect(JSON.parse(denoConfig).imports).toEqual({
       "@supabase/server": "npm:@supabase/server@1.4.1",
       "polygon-clipping": "npm:polygon-clipping@0.15.7",

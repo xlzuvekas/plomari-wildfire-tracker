@@ -70,7 +70,7 @@ const collectCmr = createCmrEdgeHandler({ openDatabase });
 
 const handler = {
   fetch: withSupabase(
-    { auth: "secret:cmr-cron" },
+    { auth: "secret:cmr_cron" },
     async (request) => collectCmr(request),
   ),
 };

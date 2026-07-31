@@ -3,7 +3,7 @@
 The collector code is deployable, but the catalog is intentionally **disabled**.
 Do not activate it until all four release identities exist: a reviewed adapter
 artifact SHA-256, its Git commit, a dedicated database login, and the named
-`cmr-cron` Supabase secret API key. The checked-in bootstrap does not invent
+`cmr_cron` Supabase secret API key. The checked-in bootstrap does not invent
 those production values.
 
 The runtime performs one global, three-product CMR catalog scan every five
@@ -31,6 +31,11 @@ Build the exact Edge Function module graph and calculate the release artifact
 SHA-256 in the release workflow. Record the immutable Git commit and digest;
 do not use a placeholder or a dirty-worktree hash. Apply the migrations before
 activating any catalog switch.
+
+For a Supabase-managed deployment, record the deployed function's exact
+`ezbr_sha256` value as `core.adapter_releases.artifact_digest`. Platform
+deployment version numbers may also advance when secrets change, so they are
+operational metadata rather than the immutable artifact identity.
 
 The disabled bootstrap contains no real `core.adapter_releases` row. As a
 `firewatch_catalog_admin`, register release 1 for source
@@ -154,18 +159,28 @@ platform-provided `SUPABASE_URL`, preventing a valid credential for another
 project from being accepted by misconfiguration. The driver is fixed at one
 connection with `prepare: false`, short connect/idle timeouts, and TLS required,
 as recommended for serverless transaction pooling.
+Because driver-side array type discovery is disabled on this connection, the
+identity queries cast all role-membership arrays to JSON before enforcing the
+exact least-privilege sets; PostgreSQL array text is never accepted as an
+identity assertion.
 
 Set this value as the Edge Function secret without putting it in the repository
 or shell history (for example, use a protected temporary env file with
 `supabase secrets set --env-file ...`). Never reuse the application service key
 as the database password.
 
+Rotate this login only while its scheduler is stopped. Update the Edge secret
+before allowing any new invocation. Repeated stale-password attempts can trip
+Supavisor's circuit breaker for up to two minutes; if that occurs, stop all
+clients and allow the full lockout interval to expire before one verification
+attempt. Retrying during the interval extends the lockout.
+
 ## 3. Configure named caller authentication
 
 In the Supabase API Keys dashboard, create a **secret** API key whose exact name
-is `cmr-cron`. Supabase Edge must expose it in the platform-provided
+is `cmr_cron`. Supabase Edge must expose it in the platform-provided
 `SUPABASE_SECRET_KEYS` JSON under that name. The function uses
-`auth: 'secret:cmr-cron'`; it does not accept the default secret key, a
+`auth: 'secret:cmr_cron'`; it does not accept the default secret key, a
 publishable key, or a user JWT. The handler never uses the middleware's admin
 client.
 
@@ -300,7 +315,7 @@ authorize the previously normalized identity without mutating either run.
 
 First unschedule the cron job. Then, in one catalog-admin transaction, set the
 endpoint state, source, and target `enabled` flags false and disable/retire the
-adapter release state. Revoke the named `cmr-cron` API key and set the runtime
+adapter release state. Revoke the named `cmr_cron` API key and set the runtime
 login `NOLOGIN` after in-flight work has drained. Do not delete or rewrite jobs,
 runs, HTTP exchanges, raw objects, source revisions, observations, rejections,
 health samples, or completion rows; they are the audit trail.
@@ -310,5 +325,6 @@ Implementation references:
 - [Supabase Edge Function authentication](https://supabase.com/docs/guides/functions/auth)
 - [Connecting Edge Functions to Postgres](https://supabase.com/docs/guides/functions/connect-to-postgres)
 - [Supabase database connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres)
+- [Supavisor password-rotation circuit breaker](https://supabase.com/docs/guides/troubleshooting/supavisor-error-circuit-breaker-open-after-password-rotation-0fdb72)
 - [Scheduling Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions)
 - [Edge Function dependency management](https://supabase.com/docs/guides/functions/dependencies)

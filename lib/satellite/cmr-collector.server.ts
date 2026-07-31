@@ -221,7 +221,10 @@ export class CmrHarvestPersistenceError extends Error {
 }
 
 function assertServerRuntime() {
-  if (typeof window !== "undefined") {
+  // Deno-based Edge runtimes may expose `window` as a global alias even
+  // though they have no browser DOM. A real document is the boundary that
+  // matters here; rejecting the alias alone prevents server-side collection.
+  if (typeof document !== "undefined") {
     throw new Error("The NASA CMR collector is server-only.");
   }
 }
