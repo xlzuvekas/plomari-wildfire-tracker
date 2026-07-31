@@ -390,6 +390,43 @@ describe("same-origin HTTP global discovery client", () => {
     );
   });
 
+  it("accepts not-assessed items without caching them as complete coverage", async () => {
+    const notAssessed: ExploreDiscoveryResponse = copy(
+      SYNTHETIC_MARSEILLE_EXPLORE,
+    );
+    notAssessed.coverage = {
+      state: "not_assessed",
+      policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
+    };
+    let first = true;
+    const client = createHttpGlobalDiscoveryClient({
+      fetch: async () => {
+        if (first) {
+          first = false;
+          return jsonResponse(notAssessed, {
+            status: 200,
+            headers: {
+              ETag: '"not-assessed"',
+              "Cache-Control": "public, max-age=300",
+            },
+          });
+        }
+        throw new TypeError("offline");
+      },
+    });
+
+    const live = await client.exploreCandidates(exploreRequest());
+    expect(live.kind).toBe("snapshot");
+    if (live.kind === "snapshot") {
+      expect(live.data.coverage.state).toBe("not_assessed");
+      expect(live.data.candidates).toHaveLength(1);
+    }
+    expect((await client.exploreCandidates(exploreRequest())).kind).toBe(
+      "unavailable",
+    );
+  });
+
   it("does not fetch or fall back after caller cancellation", async () => {
     const fetch = vi.fn<GlobalDiscoveryFetch>();
     const client = createHttpGlobalDiscoveryClient({ fetch });

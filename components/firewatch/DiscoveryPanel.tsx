@@ -39,6 +39,7 @@ export const defaultDiscoveryPanelMessages = {
   coverageUnavailable: "Discovery unavailable",
   coverageDisabled: "Discovery disabled",
   coverageUnconfigured: "Discovery unconfigured",
+  coverageNotAssessed: "Coverage not assessed",
   coveragePartitions: "policy partitions checked",
   checkedAt: "Checked",
   freshThrough: "Fresh through",
@@ -50,6 +51,8 @@ export const defaultDiscoveryPanelMessages = {
   disabledDetail: "Discovery is intentionally disabled for this policy.",
   unconfiguredDetail:
     "No discovery source pack is configured for this policy.",
+  notAssessedDetail:
+    "Persisted public records may be shown, but this response does not prove the area was fully checked.",
   noCandidates: "No known candidates in this observation window.",
   noIncidents: "No known incidents in this coarse area and observation window.",
   notAllClear: "This is not an all-clear or proof that no wildfire exists.",
@@ -193,6 +196,12 @@ function coveragePresentation(
         label: messages.coverageUnconfigured,
         detail: messages.unconfiguredDetail,
         tone: "neutral",
+      };
+    case "not_assessed":
+      return {
+        label: messages.coverageNotAssessed,
+        detail: messages.notAssessedDetail,
+        tone: "warning",
       };
   }
 }
