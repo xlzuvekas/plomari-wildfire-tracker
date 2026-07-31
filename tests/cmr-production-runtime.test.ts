@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CMR_FIREMASK_PRODUCTS, type SatellitePass } from "../lib/satellite/cmr";
 import type { CmrHarvestPlan } from "../lib/satellite/cmr-collector.server";
 import type {
@@ -28,6 +28,8 @@ const validDsn =
   `postgresql://${CMR_RUNTIME_ROLE}.${projectRef}:one-time-password` +
   "@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require";
 const validSupabaseUrl = `https://${projectRef}.supabase.co`;
+
+afterEach(() => vi.unstubAllGlobals());
 
 function identityRow() {
   return {
@@ -641,6 +643,7 @@ describe("CMR Edge invocation contract", () => {
   });
 
   it("reports only a safe persistence stage and code", async () => {
+    vi.stubGlobal("window", globalThis);
     const base = currentDatabase(() => undefined);
     const failing: CollectorDatabase = {
       ...base,
