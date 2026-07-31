@@ -16,6 +16,7 @@
 const VERSION = "firewatch-v4";
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
+const MAPLIBRE_CACHE = `${VERSION}-maplibre`;
 const DATA_CACHE = `${VERSION}-data`;
 const TILE_CACHE = `${VERSION}-tiles`;
 const SHELL_LIMIT = 8;
@@ -46,7 +47,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     Promise.all([
       caches.open(SHELL_CACHE).then((cache) => cache.addAll(["/"])),
-      caches.open(ASSET_CACHE).then((cache) => cache.addAll(MAPLIBRE_ASSETS)),
+      caches.open(MAPLIBRE_CACHE).then((cache) => cache.addAll(MAPLIBRE_ASSETS)),
     ])
       .then(() => self.skipWaiting()),
   );
@@ -194,7 +195,10 @@ self.addEventListener("fetch", (event) => {
       return;
     }
     if (url.pathname.startsWith(MAPLIBRE_ASSET_PREFIX)) {
-      respondCacheFirst(event, request, ASSET_CACHE, ASSET_LIMIT);
+      // Keep the two renderer modules out of the bounded, mutable Next.js
+      // chunk cache so ordinary deploy traffic cannot evict the offline globe
+      // runtime that was pinned during installation.
+      respondCacheFirst(event, request, MAPLIBRE_CACHE, 0);
       return;
     }
     if (request.mode === "navigate") {
