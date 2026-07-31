@@ -21,6 +21,7 @@ const ENVIRONMENT = {
 const DISCOVERY_KEY = `sb_secret_${"a".repeat(48)}`;
 const AS_OF = "2026-07-31T12:00:00.000Z";
 const KNOWN_AT = "2026-07-31T12:05:00.000Z";
+const GATE_SNAPSHOT = "b".repeat(64);
 
 const DETECTION_LIMITATIONS = [
   "thermal_pixel_not_flame_location",
@@ -49,6 +50,8 @@ function row(
 ): ThermalAnomalyReadRow {
   return {
     detection_id: detectionId,
+    basis_detection_id: detectionId,
+    basis_version_no: 1,
     assessment_id: "019a0000-0000-7000-8000-000000000201",
     source_id: "018f0000-0000-7000-8000-000000000101",
     source_key: "nasa-firms",
@@ -91,6 +94,7 @@ function row(
     protective_action_eligible: false,
     incident_resolution_eligible: false,
     item_known_at: "2026-07-31T11:50:00.000Z",
+    gate_snapshot: GATE_SNAPSHOT,
   };
 }
 
@@ -153,6 +157,41 @@ describe("Supabase v3 thermal anomaly read model", () => {
       ).rejects.toMatchObject({ code: "invalid_response" });
     }
   });
+
+  it("validates continuation boundaries and a uniform gate snapshot", async () => {
+    const after = {
+      acquiredAt: "2026-07-31T11:45:00.000Z",
+      detectionId: "019a0000-0000-7000-8000-000000000102",
+      gateSnapshot: GATE_SNAPSHOT,
+    } as const;
+    const atBoundary = row(after.detectionId, after.acquiredAt);
+    const staleGate = {
+      ...row(
+        "019a0000-0000-7000-8000-000000000101",
+        "2026-07-31T11:44:00.000Z",
+      ),
+      gate_snapshot: "c".repeat(64),
+    };
+
+    for (const rows of [[atBoundary], [staleGate]]) {
+      await expect(
+        readThermalAnomalyRows(
+          {
+            cell: CELL,
+            asOf: AS_OF,
+            knownAt: KNOWN_AT,
+            limit: 51,
+            after,
+          },
+          {
+            environment: ENVIRONMENT,
+            apiKey: DISCOVERY_KEY,
+            fetchImpl: async () => Response.json(rows),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
 });
 
 describe("GET /api/v3/thermal-anomalies", () => {
@@ -201,6 +240,12 @@ describe("GET /api/v3/thermal-anomalies", () => {
         state: "items",
         allClearAssessment: "not_assessed",
       },
+      page: {
+        ordering: "acquired-at-desc-detection-id-desc",
+        isFirstPage: true,
+        hasMore: false,
+        nextCursor: null,
+      },
       safety: {
         flameLocation: false,
         incidentConfirmation: false,
@@ -224,14 +269,124 @@ describe("GET /api/v3/thermal-anomalies", () => {
             itemKnownAt: "2026-07-31T11:50:00.000Z",
           },
           assessment: {
+            basisDetailRevisionId:
+              "019a0000-0000-7000-8000-000000000101",
             state: "detected",
             reason: "firms_detection_observed",
             operationalEffect: "none",
             incidentResolutionEligible: false,
           },
+          detailRevision: {
+            id: "019a0000-0000-7000-8000-000000000101",
+            version: 1,
+            role: "assessment-basis",
+          },
         },
       ],
     });
+  });
+
+  it("issues and consumes an authenticated keyset cursor without skipping a tied acquisition minute", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
+    vi.stubEnv("SUPABASE_URL", ENVIRONMENT.url);
+    vi.stubEnv("SUPABASE_PUBLISHABLE_KEY", ENVIRONMENT.publishableKey);
+    vi.stubEnv("SUPABASE_DISCOVERY_READER_KEY", DISCOVERY_KEY);
+    const ids = Array.from({ length: 51 }, (_, index) =>
+      `019a0000-0000-7000-8000-${(51 - index).toString(16).padStart(12, "0")}`,
+    );
+    let call = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const endpoint = new URL(String(input));
+      call += 1;
+      if (call === 1) {
+        expect(endpoint.searchParams.has("p_after_detection_id")).toBe(false);
+        return Response.json(ids.map((id) => row(id)));
+      }
+      expect(Object.fromEntries(endpoint.searchParams)).toMatchObject({
+        p_after_acquired_at: "2026-07-31T11:45:00.000Z",
+        p_after_detection_id: ids[49],
+        p_gate_snapshot: GATE_SNAPSHOT,
+      });
+      return Response.json([row(ids[50])]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstResponse = await GET(request());
+    const first = parseThermalAnomalyPayload(await firstResponse.json());
+    expect(first.anomalies).toHaveLength(50);
+    expect(first.page).toMatchObject({
+      isFirstPage: true,
+      hasMore: true,
+    });
+    expect(first.page.nextCursor).toBeTypeOf("string");
+
+    const secondResponse = await GET(
+      request(`&after=${encodeURIComponent(first.page.nextCursor ?? "")}`),
+    );
+    const second = parseThermalAnomalyPayload(await secondResponse.json());
+    expect(second.anomalies.map((item) => item.detectionId)).toEqual([
+      ids[50],
+    ]);
+    expect(second.page).toEqual({
+      limit: 50,
+      ordering: "acquired-at-desc-detection-id-desc",
+      isFirstPage: false,
+      hasMore: false,
+      nextCursor: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a tampered cursor before querying Supabase", async () => {
+    const fetchMock = configure([]);
+    const response = await GET(request("&after=not-a-signed-cursor"));
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects incoherent public clocks and assessment-basis provenance", async () => {
+    configure([row()]);
+    const response = await GET(request());
+    const original = await response.json();
+    const cases = [
+      {
+        path: ["publishedAt"],
+        mutate: (value: typeof original) => {
+          value.anomalies[0].times.publishedAt =
+            "2026-07-31T11:47:00.001Z";
+        },
+      },
+      {
+        path: ["assessment", "asOf"],
+        mutate: (value: typeof original) => {
+          value.anomalies[0].assessment.asOf =
+            "2026-07-31T11:44:59.999Z";
+        },
+      },
+      {
+        path: ["assessment", "knownAt"],
+        mutate: (value: typeof original) => {
+          value.anomalies[0].assessment.asOf =
+            "2026-07-31T11:49:00.001Z";
+        },
+      },
+      {
+        path: ["basisDetailRevisionId"],
+        mutate: (value: typeof original) => {
+          value.anomalies[0].assessment.basisDetailRevisionId =
+            "019a0000-0000-7000-8000-000000000112";
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const candidate = structuredClone(original);
+      testCase.mutate(candidate);
+      expect(
+        thermalAnomalyPayloadSchema.safeParse(candidate).success,
+        testCase.path.join("."),
+      ).toBe(false);
+    }
   });
 
   it("keeps absence indeterminate and never converts disabled data to empty coverage", async () => {

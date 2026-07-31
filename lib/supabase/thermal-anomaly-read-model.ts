@@ -6,7 +6,7 @@ import {
   thermalAnomalyAssessmentReasonSchema,
   thermalAnomalyAssessmentStateSchema,
 } from "../firewatch/v3/thermal-anomaly-contract";
-import { uuidV7Schema } from "../truth/v1";
+import { uuidV7Schema } from "../truth/v1/schemas";
 
 import {
   readPostgrestRpcRows,
@@ -34,10 +34,13 @@ const productSchema = z.enum([
   "VIIRS_NOAA21_NRT",
   "MODIS_NRT",
 ]);
+const gateSnapshotSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 
 export const thermalAnomalyReadRowSchema = z
   .strictObject({
     detection_id: uuidV7Schema,
+    basis_detection_id: uuidV7Schema,
+    basis_version_no: z.number().int().positive().safe(),
     assessment_id: uuidV7Schema,
     source_id: uuidV7Schema,
     source_key: z.literal("nasa-firms"),
@@ -88,6 +91,7 @@ export const thermalAnomalyReadRowSchema = z
     protective_action_eligible: z.literal(false),
     incident_resolution_eligible: z.literal(false),
     item_known_at: postgresInstantSchema,
+    gate_snapshot: gateSnapshotSchema,
   })
   .superRefine((row, context) => {
     const platformForProduct = {
@@ -112,6 +116,17 @@ export const thermalAnomalyReadRowSchema = z
         code: "custom",
         message: "FIRMS product, platform, and measurement fields disagree",
         path: ["product_key"],
+      });
+    }
+
+    if (
+      (row.basis_version_no === 1) !==
+      (row.basis_detection_id === row.detection_id)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Assessment basis revision does not match stable identity",
+        path: ["basis_detection_id"],
       });
     }
 
@@ -175,6 +190,13 @@ const readInputSchema = z
     asOf: postgresInstantSchema,
     knownAt: postgresInstantSchema,
     limit: z.number().int().min(1).max(MAX_THERMAL_ANOMALY_ROWS),
+    after: z
+      .strictObject({
+        acquiredAt: postgresInstantSchema,
+        detectionId: uuidV7Schema,
+        gateSnapshot: gateSnapshotSchema,
+      })
+      .nullable(),
   })
   .superRefine((input, context) => {
     if (Date.parse(input.asOf) > Date.parse(input.knownAt)) {
@@ -191,6 +213,11 @@ export type ThermalAnomalyReadInput = Readonly<{
   asOf: string;
   knownAt: string;
   limit: number;
+  after?: Readonly<{
+    acquiredAt: string;
+    detectionId: string;
+    gateSnapshot: string;
+  }>;
 }>;
 
 function invalidResponse(): never {
@@ -203,15 +230,26 @@ function validateRows(
 ) {
   const ids = new Set<string>();
   const observedFrom = Date.parse(input.asOf) - THERMAL_ANOMALY_WINDOW_MS;
+  const expectedGateSnapshot =
+    input.after?.gateSnapshot ?? rows[0]?.gate_snapshot;
   for (const [index, row] of rows.entries()) {
     if (
       ids.has(row.detection_id) ||
+      row.gate_snapshot !== expectedGateSnapshot ||
       Date.parse(row.acquired_at) <= observedFrom ||
       Date.parse(row.acquired_at) > Date.parse(input.asOf) ||
       Date.parse(row.assessment_as_of) > Date.parse(input.asOf) ||
       Date.parse(row.item_known_at) > Date.parse(input.knownAt) ||
       Date.parse(row.assessment_known_at) > Date.parse(input.knownAt) ||
       Date.parse(row.assessment_recorded_at) > Date.parse(input.knownAt)
+    ) {
+      invalidResponse();
+    }
+    if (
+      input.after !== null &&
+      (Date.parse(row.acquired_at) > Date.parse(input.after.acquiredAt) ||
+        (row.acquired_at === input.after.acquiredAt &&
+          row.detection_id >= input.after.detectionId))
     ) {
       invalidResponse();
     }
@@ -241,19 +279,26 @@ export async function readThermalAnomalyRows(
     asOf: input.asOf,
     knownAt: input.knownAt,
     limit: input.limit,
+    after: input.after ?? null,
   });
+  const query: Record<string, string> = {
+    p_z: String(input.cell.zoom),
+    p_x: String(input.cell.x),
+    p_y: String(input.cell.y),
+    p_as_of: parsed.asOf,
+    p_known_at: parsed.knownAt,
+    p_limit: String(parsed.limit),
+  };
+  if (parsed.after !== null) {
+    query.p_after_acquired_at = parsed.after.acquiredAt;
+    query.p_after_detection_id = parsed.after.detectionId;
+    query.p_gate_snapshot = parsed.after.gateSnapshot;
+  }
   const rows = await readPostgrestRpcRows({
     ...options,
     apiKey: options.apiKey ?? readSupabaseDiscoveryReaderApiKey(),
     rpc: "thermal_anomalies_v3",
-    query: {
-      p_z: String(input.cell.zoom),
-      p_x: String(input.cell.x),
-      p_y: String(input.cell.y),
-      p_as_of: parsed.asOf,
-      p_known_at: parsed.knownAt,
-      p_limit: String(parsed.limit),
-    },
+    query,
     rowSchema: thermalAnomalyReadRowSchema,
     maxResponseBytes:
       options.maxResponseBytes ?? THERMAL_ANOMALY_RESPONSE_BYTES,

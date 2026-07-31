@@ -1,11 +1,14 @@
 import { z } from "zod";
 
 import { parseAreaCellKey } from "../map-context";
-import { utcInstantSchema, uuidV7Schema } from "../../truth/v1";
+import { utcInstantSchema, uuidV7Schema } from "../../truth/v1/schemas";
 
 export const THERMAL_ANOMALY_SCHEMA_VERSION = 3 as const;
 export const THERMAL_ANOMALY_WINDOW_MS = 7 * 24 * 60 * 60_000;
 export const THERMAL_ANOMALY_MAX_PAGE_SIZE = 100;
+export const THERMAL_ANOMALY_MAX_CURSOR_LENGTH = 1_024;
+export const THERMAL_ANOMALY_ORDERING =
+  "acquired-at-desc-detection-id-desc" as const;
 
 const canonicalInstantSchema = utcInstantSchema.refine(
   (value) => new Date(value).toISOString() === value,
@@ -75,6 +78,7 @@ const confidenceSchema = z.discriminatedUnion("encoding", [
 const assessmentSchema = z
   .strictObject({
     assessmentId: uuidV7Schema,
+    basisDetailRevisionId: uuidV7Schema,
     state: thermalAnomalyAssessmentStateSchema,
     reason: thermalAnomalyAssessmentReasonSchema,
     rule: z.strictObject({
@@ -130,6 +134,11 @@ const assessmentSchema = z
 const thermalAnomalyItemSchema = z
   .strictObject({
     detectionId: uuidV7Schema,
+    detailRevision: z.strictObject({
+      id: uuidV7Schema,
+      version: z.number().int().positive().safe(),
+      role: z.literal("assessment-basis"),
+    }),
     contractVersion: z.literal("1.1.0"),
     identityVersion: z.literal("firms-detection-v1"),
     source: z.strictObject({
@@ -192,7 +201,13 @@ const thermalAnomalyItemSchema = z
       });
     }
     if (
+      item.assessment.basisDetailRevisionId !== item.detailRevision.id ||
+      (item.detailRevision.version === 1) !==
+        (item.detailRevision.id === item.detectionId) ||
       Date.parse(item.times.acquiredAt) > Date.parse(item.times.retrievedAt) ||
+      (item.times.publishedAt !== null &&
+        Date.parse(item.times.publishedAt) >
+          Date.parse(item.times.retrievedAt)) ||
       Date.parse(item.times.retrievedAt) >
         Date.parse(item.times.detectionRecordedAt) ||
       Date.parse(item.times.detectionRecordedAt) >
@@ -200,7 +215,9 @@ const thermalAnomalyItemSchema = z
       Date.parse(item.assessment.knownAt) >
         Date.parse(item.times.itemKnownAt) ||
       Date.parse(item.assessment.recordedAt) >
-        Date.parse(item.times.itemKnownAt)
+        Date.parse(item.times.itemKnownAt) ||
+      Date.parse(item.assessment.asOf) < Date.parse(item.times.acquiredAt) ||
+      Date.parse(item.assessment.asOf) > Date.parse(item.assessment.knownAt)
     ) {
       context.addIssue({
         code: "custom",
@@ -269,7 +286,14 @@ export const thermalAnomalyPayloadSchema = z
     ),
     page: z.strictObject({
       limit: z.number().int().min(1).max(THERMAL_ANOMALY_MAX_PAGE_SIZE),
-      truncated: z.boolean(),
+      ordering: z.literal(THERMAL_ANOMALY_ORDERING),
+      isFirstPage: z.boolean(),
+      hasMore: z.boolean(),
+      nextCursor: z
+        .string()
+        .min(1)
+        .max(THERMAL_ANOMALY_MAX_CURSOR_LENGTH)
+        .nullable(),
     }),
   })
   .superRefine((payload, context) => {
@@ -319,12 +343,29 @@ export const thermalAnomalyPayloadSchema = z
         });
       }
       ids.add(anomaly.detectionId);
+      const prior = payload.anomalies[index - 1];
+      if (
+        prior &&
+        (Date.parse(prior.times.acquiredAt) <
+          Date.parse(anomaly.times.acquiredAt) ||
+          (prior.times.acquiredAt === anomaly.times.acquiredAt &&
+            prior.detectionId < anomaly.detectionId))
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Thermal anomalies are not in canonical page order",
+          path: ["anomalies", index],
+        });
+      }
     }
     if (
       payload.anomalies.length > payload.page.limit ||
       payload.result.count.value !== payload.anomalies.length ||
       payload.result.count.relation !==
-        (payload.page.truncated ? "at-least" : "exact") ||
+        (payload.page.hasMore ? "at-least" : "exact") ||
+      (payload.page.hasMore &&
+        payload.anomalies.length !== payload.page.limit) ||
+      (payload.page.nextCursor !== null) !== payload.page.hasMore ||
       (payload.anomalies.length > 0) !== (payload.result.state === "items")
     ) {
       context.addIssue({

@@ -7,7 +7,7 @@ select no_plan();
 
 select ok(
   to_regprocedure(
-    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)'
+    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)'
   ) is not null,
   'bounded v3 thermal anomaly RPC exists'
 );
@@ -17,7 +17,7 @@ select ok(
     select procedure.prosecdef and procedure.provolatile = 's'
     from pg_proc as procedure
     where procedure.oid =
-      'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)'::regprocedure
+      'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)'::regprocedure
   ),
   'thermal anomaly projection is a stable SECURITY DEFINER boundary'
 );
@@ -30,35 +30,50 @@ select ok(
     ]::text[]
     from pg_proc as procedure
     where procedure.oid =
-      'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)'::regprocedure
+      'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)'::regprocedure
   ),
   'thermal anomaly projection fixes an empty search path and five-second timeout'
 );
 
 select ok(
+  (
+    select pg_get_functiondef(procedure.oid) like
+      '%limit candidate_scan_limit + 1%'
+      and pg_get_functiondef(procedure.oid) like
+        '%Thermal anomaly candidate scan bound exceeded%'
+      and pg_get_functiondef(procedure.oid) like
+        '%pg_catalog.unnest(selected_assessment_cursors)%'
+    from pg_proc as procedure
+    where procedure.oid =
+      'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)'::regprocedure
+  ),
+  'candidate work is capped and only the bounded page reaches wide projection'
+);
+
+select ok(
   has_function_privilege(
     'firewatch_discovery_reader',
-    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)',
     'EXECUTE'
   )
   and not has_function_privilege(
     'anon',
-    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)',
     'EXECUTE'
   )
   and not has_function_privilege(
     'authenticated',
-    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)',
     'EXECUTE'
   )
   and not has_function_privilege(
     'service_role',
-    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)',
     'EXECUTE'
   )
   and not has_function_privilege(
     'firewatch_collector',
-    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)',
     'EXECUTE'
   ),
   'only the scoped server discovery role can execute the RPC'
@@ -81,8 +96,45 @@ select ok(
 select has_index(
   'truth',
   'thermal_anomaly_assessments',
-  'thermal_anomaly_assessments_projection_cutoff_idx',
-  'assessment cutoff lookup has a dedicated covered index'
+  'thermal_anomaly_assessments_projection_chain_idx',
+  'assessment chain lookup has a dedicated covered index'
+);
+
+select has_index(
+  'ingest',
+  'firms_detection_details',
+  'firms_detection_details_projection_original_idx',
+  'stable original detection ordering has a partial index'
+);
+
+select ok(
+  to_regprocedure(
+    'truth.thermal_anomalies_v3_legacy(integer,integer,integer,timestamptz,timestamptz,integer)'
+  ) is not null
+  and not has_function_privilege(
+    'firewatch_discovery_reader',
+    'truth.thermal_anomalies_v3_legacy(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'truth.thermal_anomalies_v3_legacy(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'truth.thermal_anomalies_v3_legacy(integer,integer,integer,timestamptz,timestamptz,integer)',
+    'EXECUTE'
+  ),
+  'the exact rollback copy of the superseded projection is not executable'
+);
+
+select is(
+  truth.ceil_millisecond_utc(
+    timestamptz '2026-07-31 12:00:00.000001+00'
+  ),
+  timestamptz '2026-07-31 12:00:00.001+00',
+  'sub-millisecond evidence clocks are conservatively rounded upward'
 );
 
 -- The production reader deliberately has no access to pgTAP helpers. Grant
@@ -226,6 +278,76 @@ join core.firms_products as product on product.source_id = source.id
 where source.slug = 'nasa-firms'
   and product.product_key = 'VIIRS_NOAA20_NRT';
 
+insert into ingest.firms_detection_details (
+  id, public_id, contract_version, identity_version,
+  normalized_content_sha256, observation_cursor, source_revision_id,
+  source_id, product_id, product_key, satellite, source_satellite_raw,
+  instrument, acquired_at, acquired_date, acquired_time_utc,
+  source_time_precision, latitude, longitude, scan_km, track_km,
+  spatial_support_method, footprint_orientation_deg, confidence_class,
+  confidence_percent, brightness_primary_k, brightness_secondary_k,
+  brightness_contract, frp_mw, day_night, source_dataset_version,
+  source_row_contract, published_at, retrieved_at, version_no,
+  previous_detail_id, original_detail_id, limitations, recorded_at
+)
+overriding system value
+select
+  900002,
+  '019a0000-0000-7000-8000-000000000302',
+  '1.1.0',
+  'firms-detection-v1',
+  repeat('b', 64),
+  900002,
+  900002,
+  source.id,
+  product.id,
+  product.product_key,
+  'NOAA-20',
+  'N20',
+  'VIIRS',
+  date_trunc('minute', now() - interval '1 hour'),
+  (date_trunc('minute', now() - interval '1 hour') at time zone 'UTC')::date,
+  (date_trunc('minute', now() - interval '1 hour') at time zone 'UTC')::time(0),
+  'minute',
+  39.001000,
+  26.402000,
+  0.500,
+  0.625,
+  'centroid_with_circumscribed_radius_v1',
+  null,
+  'high',
+  null,
+  371.25,
+  303.50,
+  'viirs_bright_ti4_ti5',
+  13.25,
+  'day',
+  '2.0NRT-revised',
+  'firms-area-csv-viirs-v1',
+  date_trunc('milliseconds', now() - interval '54 minutes')
+    + interval '0.0004 seconds',
+  date_trunc('milliseconds', now() - interval '49 minutes')
+    + interval '0.0004 seconds',
+  2,
+  900001,
+  900001,
+  array[
+    'thermal_pixel_not_flame_location',
+    'not_incident_confirmation',
+    'pixel_orientation_not_source_supplied',
+    'modeled_support_is_not_pixel_footprint',
+    'source_time_precision_minute',
+    'not_official_status',
+    'not_protective_guidance',
+    'not_all_clear'
+  ]::text[],
+  date_trunc('milliseconds', now() - interval '48 minutes')
+    + interval '0.0004 seconds'
+from core.sources as source
+join core.firms_products as product on product.source_id = source.id
+where source.slug = 'nasa-firms'
+  and product.product_key = 'VIIRS_NOAA20_NRT';
+
 insert into truth.thermal_anomaly_assessments (
   cursor, public_id, contract_version, original_detection_id,
   basis_detection_id, version_no, previous_assessment_cursor,
@@ -256,10 +378,11 @@ values
   ),
   (
     910002, '019a0000-0000-7000-8000-000000000402', '1.1.0',
-    900001, 900001, 2, 910001, 'unknown', 'operator_withheld',
+    900001, 900002, 2, 910001, 'unknown', 'operator_withheld',
     null, null, null, 'firms.assessment-review', '1.0.0',
     now() - interval '30 minutes',
-    now() - interval '25 minutes',
+    date_trunc('milliseconds', now() - interval '25 minutes')
+      + interval '0.0004 seconds',
     'thermal_anomaly_observation_only', 'none',
     array[
       'thermal_detection_not_incident_confirmation',
@@ -271,7 +394,8 @@ values
       'not_incident_resolution',
       'not_all_clear'
     ]::text[],
-    now() - interval '24 minutes'
+    date_trunc('milliseconds', now() - interval '24 minutes')
+      + interval '0.0004 seconds'
   );
 
 set local role firewatch_discovery_reader;
@@ -302,13 +426,16 @@ select is(
 select ok(
   (
     select
-      source_key = 'nasa-firms'
+      detection_id = '019a0000-0000-7000-8000-000000000301'::uuid
+      and basis_detection_id = '019a0000-0000-7000-8000-000000000302'::uuid
+      and basis_version_no = 2
+      and source_key = 'nasa-firms'
       and product_key = 'VIIRS_NOAA20_NRT'
       and platform = 'NOAA-20'
       and instrument = 'VIIRS'
       and source_time_precision = 'minute'
-      and scan_km = 0.375
-      and track_km = 0.375
+      and scan_km = 0.500
+      and track_km = 0.625
       and assessment_reason = 'operator_withheld'
       and assessment_rule_id = 'firms.assessment-review'
       and claim_kind = 'thermal_anomaly_observation_only'
@@ -322,7 +449,60 @@ select ok(
       ]::text[]
     from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
   ),
-  'projection preserves evidence detail and exposes only non-authoritative semantics'
+  'projection uses the exact assessment basis while preserving stable identity and non-authoritative semantics'
+);
+
+select is(
+  (
+    with first_read as (
+      select item_known_at
+      from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+    )
+    select count(*)
+    from first_read
+    cross join lateral api.thermal_anomalies_v3(
+      10, 587, 391, now(), first_read.item_known_at, 10
+    )
+  ),
+  1::bigint,
+  'a returned millisecond knowledge cutoff includes the same microsecond evidence on replay'
+);
+
+select is(
+  (
+    with first_read as (
+      select acquired_at, detection_id, gate_snapshot
+      from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+    )
+    select count(*)
+    from first_read
+    cross join lateral api.thermal_anomalies_v3(
+      10, 587, 391, now(), now(), 10,
+      first_read.acquired_at,
+      first_read.detection_id,
+      first_read.gate_snapshot
+    )
+  ),
+  0::bigint,
+  'the descending keyset boundary excludes the last row from the next page'
+);
+
+select throws_ok(
+  $$with first_read as (
+      select acquired_at, detection_id
+      from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+    )
+    select *
+    from first_read
+    cross join lateral api.thermal_anomalies_v3(
+      10, 587, 391, now(), now(), 10,
+      first_read.acquired_at,
+      first_read.detection_id,
+      repeat('f', 64)
+    )$$,
+  '22023',
+  'Thermal anomaly publication gate snapshot changed',
+  'a continuation cannot mix publication gate snapshots'
 );
 
 select is(

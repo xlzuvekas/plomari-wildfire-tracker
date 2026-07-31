@@ -4,7 +4,15 @@ import { z } from "zod";
 
 import { parseAreaCellKey } from "../../../../lib/firewatch/map-context";
 import {
+  InvalidThermalAnomalyCursorError,
+  THERMAL_ANOMALY_CURSOR_VERSION,
+  decodeThermalAnomalyCursor,
+  encodeThermalAnomalyCursor,
+} from "../../../../lib/firewatch/v3/thermal-anomaly-cursor.server";
+import {
+  THERMAL_ANOMALY_MAX_CURSOR_LENGTH,
   THERMAL_ANOMALY_MAX_PAGE_SIZE,
+  THERMAL_ANOMALY_ORDERING,
   THERMAL_ANOMALY_SCHEMA_VERSION,
   THERMAL_ANOMALY_WINDOW_MS,
   thermalAnomalyPayloadSchema,
@@ -13,7 +21,7 @@ import {
   readThermalAnomalyRows,
   thermalAnomalyReadLimits,
 } from "../../../../lib/supabase/thermal-anomaly-read-model";
-import { utcInstantSchema } from "../../../../lib/truth/v1";
+import { utcInstantSchema } from "../../../../lib/truth/v1/schemas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +36,7 @@ const ALLOWED_QUERY_NAMES = new Set([
   "asOf",
   "knownAt",
   "limit",
+  "after",
 ]);
 const canonicalCutoffSchema = utcInstantSchema.refine(
   (value) => new Date(value).toISOString() === value,
@@ -44,6 +53,11 @@ const querySchema = z.strictObject({
     .transform(Number)
     .pipe(z.number().int().min(1).max(THERMAL_ANOMALY_MAX_PAGE_SIZE))
     .default(50),
+  after: z
+    .string()
+    .min(1)
+    .max(THERMAL_ANOMALY_MAX_CURSOR_LENGTH)
+    .optional(),
 });
 
 class InvalidThermalAnomalyRequestError extends Error {
@@ -66,6 +80,7 @@ function parseRequest(request: Request, nowMs = Date.now()) {
     asOf: parameters.get("asOf") ?? undefined,
     knownAt: parameters.get("knownAt") ?? undefined,
     limit: parameters.get("limit") ?? undefined,
+    after: parameters.get("after") ?? undefined,
   });
   if (!parsed.success || !Number.isFinite(nowMs)) {
     throw new InvalidThermalAnomalyRequestError();
@@ -83,9 +98,26 @@ function parseRequest(request: Request, nowMs = Date.now()) {
   ) {
     throw new InvalidThermalAnomalyRequestError();
   }
-  const { cell: _requestedCell, ...data } = parsed.data;
+  let cursor = null;
+  if (parsed.data.after !== undefined) {
+    try {
+      cursor = decodeThermalAnomalyCursor(parsed.data.after, {
+        cell: cell.cellKey,
+        asOf: parsed.data.asOf,
+        knownAt: parsed.data.knownAt,
+        limit: parsed.data.limit,
+      });
+    } catch (error) {
+      if (error instanceof InvalidThermalAnomalyCursorError) {
+        throw new InvalidThermalAnomalyRequestError();
+      }
+      throw error;
+    }
+  }
+  const { cell: _requestedCell, after: _after, ...data } = parsed.data;
   void _requestedCell;
-  return Object.freeze({ cell, ...data });
+  void _after;
+  return Object.freeze({ cell, cursor, ...data });
 }
 
 function boundedJson(payload: unknown, status = 200) {
@@ -139,11 +171,23 @@ export async function GET(request: Request) {
         query.limit + 1,
         thermalAnomalyReadLimits.maximumRows,
       ),
+      after: query.cursor === null
+        ? undefined
+        : {
+            acquiredAt: query.cursor.afterAcquiredAt,
+            detectionId: query.cursor.afterDetectionId,
+            gateSnapshot: query.cursor.gateSnapshot,
+          },
     });
-    const truncated = rows.length > query.limit;
+    const hasMore = rows.length > query.limit;
     const pageRows = rows.slice(0, query.limit);
     const anomalies = pageRows.map((row) => ({
       detectionId: row.detection_id,
+      detailRevision: {
+        id: row.basis_detection_id,
+        version: row.basis_version_no,
+        role: "assessment-basis" as const,
+      },
       contractVersion: row.contract_version,
       identityVersion: row.identity_version,
       source: { id: row.source_id, key: row.source_key },
@@ -189,6 +233,7 @@ export async function GET(request: Request) {
       },
       assessment: {
         assessmentId: row.assessment_id,
+        basisDetailRevisionId: row.basis_detection_id,
         state: row.assessment_state,
         reason: row.assessment_reason,
         rule: {
@@ -211,6 +256,19 @@ export async function GET(request: Request) {
     const observedFrom = new Date(
       Date.parse(query.asOf) - THERMAL_ANOMALY_WINDOW_MS,
     ).toISOString();
+    const lastRow = pageRows.at(-1);
+    const nextCursor = hasMore && lastRow !== undefined
+      ? encodeThermalAnomalyCursor({
+          v: THERMAL_ANOMALY_CURSOR_VERSION,
+          cell: query.cell.cellKey,
+          asOf: query.asOf,
+          knownAt: query.knownAt,
+          limit: query.limit,
+          afterAcquiredAt: lastRow.acquired_at,
+          afterDetectionId: lastRow.detection_id,
+          gateSnapshot: lastRow.gate_snapshot,
+        })
+      : null;
     const payload = thermalAnomalyPayloadSchema.parse({
       schemaVersion: THERMAL_ANOMALY_SCHEMA_VERSION,
       mode: "persisted",
@@ -241,11 +299,11 @@ export async function GET(request: Request) {
         state: anomalies.length > 0 ? "items" : "indeterminate",
         count: {
           value: anomalies.length,
-          relation: truncated ? "at-least" : "exact",
+          relation: hasMore ? "at-least" : "exact",
         },
         allClearAssessment: "not_assessed",
         message: anomalies.length > 0
-          ? `${truncated ? "At least " : ""}${anomalies.length} assessed satellite thermal-pixel observation${anomalies.length === 1 ? "" : "s"} are visible at both cutoffs.`
+          ? `${hasMore ? "At least " : ""}${anomalies.length} assessed satellite thermal-pixel observation${anomalies.length === 1 ? "" : "s"} are visible at both cutoffs.`
           : "No assessed thermal-pixel observations are visible at both cutoffs. Coverage is not assessed, so this is not an all-clear.",
       },
       safety: {
@@ -259,7 +317,13 @@ export async function GET(request: Request) {
         allClear: false,
       },
       anomalies,
-      page: { limit: query.limit, truncated },
+      page: {
+        limit: query.limit,
+        ordering: THERMAL_ANOMALY_ORDERING,
+        isFirstPage: query.cursor === null,
+        hasMore,
+        nextCursor,
+      },
     });
     return boundedJson(payload);
   } catch (error) {

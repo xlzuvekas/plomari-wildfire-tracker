@@ -183,6 +183,7 @@ FIRMS_MAP_KEY=your_server_side_nasa_firms_key
 X_BEARER_TOKEN=your_optional_server_side_x_bearer_token
 SUPABASE_URL=your_optional_supabase_project_url
 SUPABASE_PUBLISHABLE_KEY=your_optional_supabase_publishable_key
+SUPABASE_DISCOVERY_READER_KEY=your_scoped_server_only_supabase_secret_key
 ```
 
 `FIRMS_MAP_KEY` enables live FIRMS point queries. Without it, the app keeps the
@@ -202,9 +203,10 @@ persisted polling is the failure fallback.
 
 `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are optional and enable the
 server-side v3 shadow read routes (`/api/v3/shadow/sources` and
-`/api/v3/satellite-passes`); without them those routes return 503 while the
-public map is unaffected. The disabled-by-default OpenRouter OODA variables are
-documented in `.env.example` and
+`/api/v3/satellite-passes`). `SUPABASE_DISCOVERY_READER_KEY` is additionally
+required for the privilege-scoped Nearby and thermal-anomaly projections;
+without it those routes fail closed with 503. The disabled-by-default OpenRouter
+OODA variables are documented in `.env.example` and
 [docs/ai-ooda-architecture.md](docs/ai-ooda-architecture.md).
 
 All of these variables are server-only. Never prefix any of them with
@@ -225,8 +227,9 @@ npm start
 4. Add `FIRMS_MAP_KEY` under **Settings → Environment Variables** for
    Production, Preview, and Development.
 5. Add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` there as well if the v3
-   shadow read routes should be active; never substitute a service-role or
-   secret key.
+   shadow read routes should be active. Add the separately provisioned
+   `SUPABASE_DISCOVERY_READER_KEY` for scoped Nearby and thermal reads; never
+   substitute a service-role key.
 6. Reserve `X_BEARER_TOKEN`, if configured, for the future scheduled evidence
    collector. Public browser-driven routes do not use it.
 7. Redeploy after adding or rotating an environment variable.
@@ -344,14 +347,30 @@ read-model boundary:
   return persisted items under historical `asOf` and `knownAt` cutoffs, but
   coverage remains `not_assessed` and `no-store`; omission can never authorize
   `valid-empty`.
+- `GET /api/v3/thermal-anomalies?cell=wm/z/x/y&schemaVersion=3&asOf=...&knownAt=...&limit=50`
+  reads a seven-day window of persisted, assessed FIRMS thermal-pixel
+  observations and never contacts NASA. `detectionId` is the stable public UUID
+  of the original detection; `detailRevision` identifies the exact immutable
+  detail revision used by the latest visible assessment. Every returned clock
+  is a conservative canonical millisecond value, so a returned `knownAt`
+  knowledge clock can be reused as a cutoff without excluding the same
+  sub-millisecond evidence.
+  `page.nextCursor` is an opaque, server-authenticated keyset cursor bound to
+  the exact cell, both cutoffs, limit, last acquisition/identity tuple, and the
+  current publication-gate snapshot. Gate changes invalidate continuation
+  rather than mixing snapshots. Candidate identity work is hard-capped before
+  assessment and wide evidence projection; a sparse page that cannot prove
+  exhaustion within that cap fails closed instead of omitting later rows.
+  Empty results and exhausted pages remain `not_assessed` / `indeterminate`,
+  never an all-clear.
 
-Both routes accept only canonical millisecond UTC cutoffs within the bounded
-31-day discovery horizon. The current-view projection is not snapshot-stable,
-so both endpoints reject continuation cursors. Nearby requests one bounded
-page; if a cell contains more than the requested limit, the route returns 503
-instead of truncating, skipping, or duplicating incidents. A successful empty
-Nearby read uses an explicit `UTC` fallback, remains `not_assessed` /
-`indeterminate`, and does not claim local-time resolution or an all-clear.
+These routes accept only canonical millisecond UTC cutoffs within the bounded
+31-day discovery horizon. Nearby remains a single bounded page and rejects
+continuation cursors; if a cell contains more than the requested limit, it
+returns 503 instead of truncating, skipping, or duplicating incidents. Thermal
+anomalies use the authenticated cursor described above. A successful empty
+read remains `not_assessed` / `indeterminate` and does not claim local-time
+resolution or an all-clear.
 
 Nearby has a mandatory deployment credential. After applying the migration,
 create a named, individually revocable Supabase secret API key whose fixed JWT
