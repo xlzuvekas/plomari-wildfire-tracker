@@ -495,7 +495,7 @@ button {
 .evacuation-banner {
   position: absolute;
   z-index: 1150;
-  top: 116px;
+  top: 136px;
   left: 50%;
   width: min(760px, calc(100% - 740px));
   min-width: 480px;
@@ -1079,6 +1079,20 @@ button {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.6rem;
   line-height: 1.4;
+}
+
+.satellite-coverage-summary {
+  border-left-color: #55ddff;
+  background: rgba(85, 221, 255, 0.025);
+}
+
+.satellite-coverage-summary.is-stale {
+  border-left-color: var(--amber);
+  background: rgba(255, 179, 71, 0.045);
+}
+
+.satellite-coverage-summary .satellite-coverage-caveat {
+  color: #ffd699;
 }
 
 .thermal-definition,
@@ -2163,6 +2177,13 @@ button {
   .scenario-hud {
     left: calc(50% + 8px);
   }
+
+  .mission-hud {
+    right: 20px;
+    left: auto;
+    width: min(880px, calc(100% - 396px));
+    transform: none;
+  }
 }
 
 /* Tablets use the same bounded drawer/sheet interaction as phones. Keeping
@@ -2171,9 +2192,9 @@ button {
    matchMedia query in app/page.tsx. */
 @media (max-width: 1180px) {
   .command-shell {
-    --mobile-head: calc(58px + env(safe-area-inset-top));
+    --mobile-head: calc(62px + env(safe-area-inset-top));
     --mobile-alert: 202px;
-    --mobile-time: 104px;
+    --mobile-time: 120px;
     --mobile-dock: calc(60px + env(safe-area-inset-bottom));
     min-height: 0;
   }
@@ -2810,7 +2831,7 @@ button {
 
 @media (max-width: 1180px) and (max-height: 520px) and (orientation: landscape) {
   .command-shell {
-    --mobile-head: calc(48px + env(safe-area-inset-top));
+    --mobile-head: calc(62px + env(safe-area-inset-top));
     --mobile-alert: 48px;
     --mobile-time: 92px;
     --mobile-dock: calc(54px + env(safe-area-inset-bottom));
@@ -3003,6 +3024,16 @@ button {
   font-size: 1.15rem;
 }
 
+/* A live action alert outranks the archived 112 reminder. On desktop, move
+   the archived banner below the bounded live toast instead of letting the two
+   independently positioned surfaces cover each other. Mobile already owns a
+   reserved alert stack through the layout variables below. */
+@media (min-width: 1181px) {
+  .command-shell.has-action-alert:not(.alert-collapsed) .evacuation-banner {
+    top: max(260px, calc(env(safe-area-inset-top) + 240px));
+  }
+}
+
 .wire-badge {
   position: absolute;
   top: 5px;
@@ -3180,11 +3211,12 @@ button {
     top: auto;
     left: 8px;
     bottom: calc(var(--mobile-dock) + 12px);
-    max-width: min(300px, calc(100vw - 96px));
-    max-height: min(248px, 40dvh);
-    padding: 8px 9px;
+    max-width: min(264px, calc(100vw - 112px));
+    max-height: min(190px, 32dvh);
+    gap: 2px;
+    padding: 6px 7px;
     overflow: auto;
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     overscroll-behavior: contain;
   }
 
@@ -3200,7 +3232,7 @@ button {
   }
 
   .locate-readout small {
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
   }
 
   .has-mobile-sheet .locate-control,
