@@ -80,9 +80,11 @@ function matchesEntityTag(value: string | null, etag: string) {
 function resultMessage(
   state: string,
   count: number,
+  truncated: boolean,
 ) {
   if (state === "catalog-footprints") {
-    return `${count} CMR FireMask catalog footprint${count === 1 ? "" : "s"} intersect this area in the catalog window.`;
+    const countLabel = truncated ? `At least ${count}` : String(count);
+    return `${countLabel} CMR FireMask catalog footprint${count === 1 ? "" : "s"} intersect this area in the catalog window.`;
   }
   if (state === "valid-empty") {
     return "No CMR FireMask granule footprints intersect this area in the completed catalog window.";
@@ -238,9 +240,13 @@ export async function GET(request: Request) {
       result: {
         state: resultState,
         validEmpty,
+        count: {
+          value: passes.length,
+          relation: page.truncated ? "at-least" as const : "exact" as const,
+        },
         coverage: "catalog-footprint-intersection" as const,
         anomalyAssessment: "not_assessed" as const,
-        message: resultMessage(resultState, passes.length),
+        message: resultMessage(resultState, passes.length, page.truncated),
       },
       passes: passes.map((pass) => ({
         observationId: pass.observation_id,
