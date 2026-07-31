@@ -18,6 +18,7 @@ describe("Supabase pgTAP discovery", () => {
       "cmr_catalog_projection.test.sql",
       "cmr_collector_runtime.test.sql",
       "firms_persistence_foundation.test.sql",
+      "firms_shadow_collector_runtime.test.sql",
       "http_exchanges.test.sql",
       "initial_truth_foundation.test.sql",
     ]);
