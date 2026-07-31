@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ExplorePageClient,
   loadExploreGlobeModule,
 } from "../app/explore/ExplorePageClient";
+import { synchronizeCandidateMarkerSelection } from "../app/explore/ExploreGlobe";
 import { resolveExplorePageOptions } from "../app/explore/explore-page-options";
 
 const exploreClientSource = readFileSync(
@@ -142,6 +143,39 @@ describe("Explore route shell", () => {
     );
     expect(exploreGlobeSource).toContain(
       "}, [mapRevision, response, selectionId]);",
+    );
+  });
+
+  it("updates marker selection without replacing or removing the focused element", () => {
+    const attributes = new Map<string, string>();
+    const element = {
+      dataset: {
+        candidateId: "0198f502-a99a-7000-8000-000000000001",
+        cell: "wm/7/67/45",
+        selected: "false",
+      },
+      setAttribute: (name: string, value: string) => attributes.set(name, value),
+    } as unknown as HTMLButtonElement;
+    const remove = vi.fn();
+    const marker = {
+      getElement: () => element,
+      remove,
+    };
+
+    synchronizeCandidateMarkerSelection(
+      [marker],
+      "0198f502-a99a-7000-8000-000000000001",
+    );
+
+    expect(marker.getElement()).toBe(element);
+    expect(remove).not.toHaveBeenCalled();
+    expect(element.dataset.selected).toBe("true");
+    expect(attributes.get("aria-pressed")).toBe("true");
+    expect(attributes.get("aria-label")).toBe(
+      "Selected unconfirmed candidate in aggregate cell wm/7/67/45",
+    );
+    expect(exploreGlobeSource).toContain(
+      "}, [mapRevision, onSelectionChange, response]);",
     );
   });
 

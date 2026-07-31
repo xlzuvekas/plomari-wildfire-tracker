@@ -109,6 +109,27 @@ type RuntimeState =
   | Readonly<{ kind: "degraded"; label: string }>
   | Readonly<{ kind: "unsupported"; label: string }>;
 
+type CandidateMarkerControl = Pick<MapLibreMarker, "getElement">;
+
+export function synchronizeCandidateMarkerSelection(
+  markers: readonly CandidateMarkerControl[],
+  selectionId: string | null,
+) {
+  for (const marker of markers) {
+    const button = marker.getElement();
+    const candidateId = button.dataset.candidateId;
+    const isSelected = candidateId === selectionId;
+    button.dataset.selected = isSelected ? "true" : "false";
+    button.setAttribute("aria-pressed", String(isSelected));
+    if (candidateId !== undefined) {
+      button.setAttribute(
+        "aria-label",
+        `${isSelected ? "Selected" : "Select"} unconfirmed candidate in aggregate cell ${button.dataset.cell ?? "unknown"}`,
+      );
+    }
+  }
+}
+
 function supportsWebGl2(): boolean {
   try {
     const canvas = document.createElement("canvas");
@@ -288,25 +309,31 @@ export function ExploreGlobe({
 
   useEffect(() => {
     const map = mapRef.current;
-    const maplibre = maplibreRef.current;
-    if (map === null || maplibre === null || !map.isStyleLoaded()) return;
+    if (map === null || !map.isStyleLoaded()) return;
     const source = map.getSource(CANDIDATE_SOURCE_ID) as
       | GeoJSONSource
       | undefined;
     source?.setData(featureCollection);
+  }, [featureCollection, mapRevision]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const maplibre = maplibreRef.current;
+    if (map === null || maplibre === null || !map.isStyleLoaded()) return;
 
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = (response?.candidates ?? []).map((candidate) => {
       const markerModel = candidateMapMarker(candidate);
-      const isSelected = candidate.candidateId === selectionId;
       const button = document.createElement("button");
       button.type = "button";
       button.className = styles.marker!;
-      button.dataset.selected = isSelected ? "true" : "false";
-      button.setAttribute("aria-pressed", String(isSelected));
+      button.dataset.candidateId = candidate.candidateId;
+      button.dataset.cell = candidate.displayArea.cell;
+      button.dataset.selected = "false";
+      button.setAttribute("aria-pressed", "false");
       button.setAttribute(
         "aria-label",
-        `${isSelected ? "Selected" : "Select"} unconfirmed candidate in aggregate cell ${candidate.displayArea.cell}`,
+        `Select unconfirmed candidate in aggregate cell ${candidate.displayArea.cell}`,
       );
       button.addEventListener("click", () => {
         onSelectionChange({
@@ -327,7 +354,11 @@ export function ExploreGlobe({
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
     };
-  }, [featureCollection, mapRevision, onSelectionChange, response, selectionId]);
+  }, [mapRevision, onSelectionChange, response]);
+
+  useEffect(() => {
+    synchronizeCandidateMarkerSelection(markersRef.current, selectionId);
+  }, [mapRevision, response, selectionId]);
 
   useEffect(() => {
     if (selectionId === null || response === null) return;
