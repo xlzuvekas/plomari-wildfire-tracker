@@ -5,7 +5,10 @@ import {
   candidateMapMarker,
   describeExploreMapSnapshot,
 } from "../app/explore/explore-globe-model";
-import type { ExploreDiscoveryResponse } from "../lib/firewatch/v3";
+import {
+  globalDiscoveryCursorSchema,
+  type ExploreDiscoveryResponse,
+} from "../lib/firewatch/v3";
 import { SYNTHETIC_MARSEILLE_EXPLORE } from "./fixtures/global-discovery-v3";
 
 function copy<Value>(value: Value): Value {
@@ -136,5 +139,26 @@ describe("Explore aggregate globe model", () => {
     expect(notice.title).toBe("1 aggregate candidate cell");
     expect(notice.detail).toContain("current read failed");
     expect(notice.detail).toContain("last complete snapshot");
+  });
+
+  it("labels a bounded continuation page as an incomplete globe view", () => {
+    const boundedPage = copy(SYNTHETIC_MARSEILLE_EXPLORE);
+    boundedPage.page = {
+      limit: 1,
+      isFirstPage: true,
+      hasMore: true,
+      nextCursor: globalDiscoveryCursorSchema.parse(
+        "eyJ2IjoxLCJpZCI6InN5bnRoZXRpYyJ9",
+      ),
+    };
+
+    const notice = describeExploreMapSnapshot({
+      requestStatus: "ready",
+      response: boundedPage,
+    });
+
+    expect(notice.title).toBe("1 aggregate candidate cell shown");
+    expect(notice.detail).toContain("only the current bounded page");
+    expect(notice.detail).toContain("more candidate cells are available");
   });
 });

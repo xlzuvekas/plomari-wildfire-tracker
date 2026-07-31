@@ -202,13 +202,17 @@ export function describeExploreMapSnapshot(
   }
 
   if (response.candidates.length > 0) {
+    const boundedPageNotice = response.page.hasMore
+      ? " This globe shows only the current bounded page; more candidate cells are available beyond it."
+      : "";
     return {
       tone: "positive",
       title: `${response.candidates.length} aggregate candidate ${
         response.candidates.length === 1 ? "cell" : "cells"
-      }`,
+      }${response.page.hasMore ? " shown" : ""}`,
       detail:
         "Markers and outlines are coarse Firewatch display cells, not raw satellite detections or confirmed incidents." +
+        boundedPageNotice +
         retainedSnapshot,
     };
   }

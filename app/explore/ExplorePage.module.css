@@ -160,6 +160,15 @@
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.24);
 }
 
+.controlsDisclosure,
+.controlsBody {
+  min-width: 0;
+}
+
+.controlsSummary {
+  display: none;
+}
+
 .controlSection {
   min-width: 0;
   padding: 1rem;
@@ -490,8 +499,71 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .controlsSummary {
+    min-height: 2.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.72rem 0.85rem;
+    color: var(--ink);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .controlsSummary::-webkit-details-marker {
+    display: none;
+  }
+
+  .controlsSummary > span:first-child {
+    display: grid;
+    min-width: 0;
+    gap: 0.18rem;
+  }
+
+  .controlsSummary strong,
+  .controlsSummary small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .controlsSummary strong {
+    font-size: 0.75rem;
+  }
+
+  .controlsSummary small {
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.59rem;
+  }
+
+  .controlsChevron {
+    flex: 0 0 auto;
+    color: var(--cyan);
+    font-size: 1.1rem;
+    line-height: 1;
+    transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  .controlsDisclosure[open] .controlsChevron {
+    transform: rotate(180deg);
+  }
+
+  .controlsDisclosure[open] .controlsSummary {
+    border-block-end: 1px solid var(--line-soft);
+  }
+
   .discoveryPanel {
     block-size: min(44rem, calc(100dvh - 3rem));
+  }
+}
+
+@media not all and (max-width: 52rem) {
+  /* Keep the desktop rail visible during hydration while React synchronizes
+     the native disclosure state to the viewport. */
+  .controlsDisclosure > .controlsBody {
+    display: block;
   }
 }
 
@@ -548,6 +620,10 @@
   }
 
   .locationPreview button {
+    transition: none;
+  }
+
+  .controlsChevron {
     transition: none;
   }
 

@@ -156,8 +156,47 @@ export function ExploreGlobe({
     const container = containerRef.current;
     if (container === null) return;
     let disposed = false;
+    let initializationFailed = false;
+    let mountedMap: MapLibreMap | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let loadTimer: number | null = null;
+
+    const teardownMapRuntime = () => {
+      const timer = loadTimer;
+      loadTimer = null;
+      if (timer !== null) {
+        try {
+          window.clearTimeout(timer);
+        } catch {
+          // Continue releasing the remaining renderer resources.
+        }
+      }
+      const observer = resizeObserver;
+      resizeObserver = null;
+      try {
+        observer?.disconnect();
+      } catch {
+        // Continue releasing the remaining renderer resources.
+      }
+      const markers = markersRef.current;
+      markersRef.current = [];
+      for (const marker of markers) {
+        try {
+          marker.remove();
+        } catch {
+          // Continue releasing the remaining renderer resources.
+        }
+      }
+      const map = mountedMap ?? mapRef.current;
+      mountedMap = null;
+      mapRef.current = null;
+      maplibreRef.current = null;
+      try {
+        map?.remove();
+      } catch {
+        // A partially initialized renderer must not block the safe list fallback.
+      }
+    };
 
     const mountMap = async () => {
       if (!supportsWebGl2()) {
@@ -192,6 +231,7 @@ export function ExploreGlobe({
             powerPreference: "high-performance",
           },
         });
+        mountedMap = map;
         mapRef.current = map;
         map.setProjection({ type: "globe" });
         map.addControl(
@@ -203,13 +243,14 @@ export function ExploreGlobe({
           "top-right",
         );
         map.on("load", () => {
-          if (disposed) return;
+          if (disposed || initializationFailed) return;
           if (loadTimer !== null) window.clearTimeout(loadTimer);
+          loadTimer = null;
           setRuntime({ kind: "ready", label: "Globe ready" });
           setMapRevision((revision) => revision + 1);
         });
         map.on("error", () => {
-          if (disposed) return;
+          if (disposed || initializationFailed) return;
           setRuntime({
             kind: "degraded",
             label:
@@ -219,7 +260,7 @@ export function ExploreGlobe({
         resizeObserver = new ResizeObserver(() => map.resize());
         resizeObserver.observe(container);
         loadTimer = window.setTimeout(() => {
-          if (disposed) return;
+          if (disposed || initializationFailed) return;
           setRuntime({
             kind: "degraded",
             label:
@@ -227,6 +268,8 @@ export function ExploreGlobe({
           });
         }, 12_000);
       } catch {
+        initializationFailed = true;
+        teardownMapRuntime();
         if (disposed) return;
         setRuntime({
           kind: "unsupported",
@@ -239,13 +282,7 @@ export function ExploreGlobe({
     void mountMap();
     return () => {
       disposed = true;
-      if (loadTimer !== null) window.clearTimeout(loadTimer);
-      resizeObserver?.disconnect();
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
-      mapRef.current?.remove();
-      mapRef.current = null;
-      maplibreRef.current = null;
+      teardownMapRuntime();
     };
   }, []);
 

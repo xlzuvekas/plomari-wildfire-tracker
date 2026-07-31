@@ -206,7 +206,7 @@
   color: var(--muted);
   border-block-start: 1px solid rgba(113, 210, 231, 0.16);
   background: rgba(2, 10, 14, 0.78);
-  font-size: 0.52rem;
+  font-size: 0.625rem;
   line-height: 1.45;
 }
 

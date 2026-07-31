@@ -21,6 +21,10 @@ const exploreGlobeStyles = readFileSync(
   new URL("../app/explore/ExploreGlobe.module.css", import.meta.url),
   "utf8",
 );
+const explorePageStyles = readFileSync(
+  new URL("../app/explore/ExplorePage.module.css", import.meta.url),
+  "utf8",
+);
 
 describe("Explore route options", () => {
   it("allows synthetic data only through an explicit development query", () => {
@@ -141,6 +145,23 @@ describe("Explore route shell", () => {
     );
   });
 
+  it("releases a partially initialized renderer before showing the list fallback", () => {
+    const catchIndex = exploreGlobeSource.indexOf(
+      "initializationFailed = true;\n        teardownMapRuntime();",
+    );
+    const fallbackIndex = exploreGlobeSource.indexOf(
+      'kind: "unsupported",\n          label:\n            "The globe renderer could not start.',
+    );
+
+    expect(catchIndex).toBeGreaterThanOrEqual(0);
+    expect(fallbackIndex).toBeGreaterThan(catchIndex);
+    expect(exploreGlobeSource).toContain("observer?.disconnect();");
+    expect(exploreGlobeSource).toContain("marker.remove();");
+    expect(exploreGlobeSource).toContain("map?.remove();");
+    expect(exploreGlobeSource).toContain("mapRef.current = null;");
+    expect(exploreGlobeSource).toContain("maplibreRef.current = null;");
+  });
+
   it("hides covered globe markers from pointer and keyboard interaction", () => {
     expect(exploreGlobeSource).toContain("opacityWhenCovered: 0");
     expect(exploreGlobeStyles).toMatch(
@@ -162,6 +183,34 @@ describe("Explore route shell", () => {
       "Tiles © Esri, Maxar, Earthstar Geographics, and the GIS User Community",
     );
     expect(exploreGlobeStyles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(exploreGlobeStyles).toMatch(
+      /\.footer\s*\{[^}]*font-size:\s*0\.625rem;/u,
+    );
     expect(exploreGlobeStyles).not.toMatch(/@keyframes|animation:/u);
+  });
+
+  it("collapses controls before results on mobile without visually reordering the DOM", () => {
+    const markup = renderToStaticMarkup(
+      <ExplorePageClient fixtureMode={false} initialSuggestedCell={null} />,
+    );
+    const detailsIndex = markup.indexOf("<details");
+    const summaryIndex = markup.indexOf("<summary");
+    const resultsIndex = markup.indexOf('id="discovery-results"');
+
+    expect(detailsIndex).toBeGreaterThanOrEqual(0);
+    expect(summaryIndex).toBeGreaterThan(detailsIndex);
+    expect(resultsIndex).toBeGreaterThan(summaryIndex);
+    expect(markup.slice(detailsIndex, summaryIndex)).not.toContain(" open");
+    expect(markup).toContain("Discovery controls");
+    expect(exploreClientSource).toContain(
+      'const COMPACT_CONTROLS_QUERY = "(max-width: 52rem)"',
+    );
+    expect(explorePageStyles).toMatch(
+      /@media \(max-width: 52rem\)[\s\S]*?\.controlsSummary\s*\{[^}]*min-height:\s*2\.75rem;[^}]*display:\s*flex;/u,
+    );
+    expect(explorePageStyles).toMatch(
+      /@media not all and \(max-width: 52rem\)[\s\S]*?\.controlsDisclosure\s*>\s*\.controlsBody\s*\{[^}]*display:\s*block;/u,
+    );
+    expect(explorePageStyles).not.toMatch(/\border\s*:/u);
   });
 });
