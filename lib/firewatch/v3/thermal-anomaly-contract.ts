@@ -382,6 +382,7 @@ export const thermalAnomalyErrorSchema = z.strictObject({
   error: z.strictObject({
     code: z.enum([
       "invalid_request",
+      "rate_limited",
       "snapshot_changed",
       "read_model_unavailable",
     ]),

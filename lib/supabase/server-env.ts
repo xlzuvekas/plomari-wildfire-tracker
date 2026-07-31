@@ -63,9 +63,11 @@ export class SupabaseServerConfigurationError extends Error {
 }
 
 /**
- * A named Supabase secret API key whose immutable JWT template contains only
- * role=firewatch_discovery_reader. It is individually revocable and does not
- * expose a project signing key or service-role credential to Vercel.
+ * A named Supabase secret API key whose release-verified JWT template contains
+ * only role=firewatch_discovery_reader. It is individually revocable and does
+ * not expose a project signing key or service-role credential to Vercel. The
+ * control-plane template is mutable, so activation and rotation must reverify
+ * its metadata and negative privileges as documented in the runbook.
  */
 export function readSupabaseDiscoveryReaderApiKey(
   environment: SupabaseServerEnvironmentInput = processEnvironment,

@@ -30,18 +30,24 @@ export type SupabasePostgrestReadErrorCode =
   | "timeout"
   | "unavailable"
   | "invalid_response"
-  | "snapshot_changed";
+  | "snapshot_changed"
+  | "database_timeout"
+  | "scan_cap";
 
 export class SupabasePostgrestReadError extends Error {
   constructor(readonly code: SupabasePostgrestReadErrorCode) {
     super(
       code === "timeout"
         ? "Supabase Data API read timed out."
-        : code === "snapshot_changed"
-          ? "Supabase Data API snapshot changed."
-          : code === "unavailable"
-            ? "Supabase Data API read is unavailable."
-            : "Supabase Data API returned an invalid response.",
+        : code === "database_timeout"
+          ? "Supabase canceled the database read at its statement boundary."
+          : code === "scan_cap"
+            ? "Supabase stopped the database read at its candidate scan bound."
+            : code === "snapshot_changed"
+              ? "Supabase Data API snapshot changed."
+              : code === "unavailable"
+                ? "Supabase Data API read is unavailable."
+                : "Supabase Data API returned an invalid response.",
     );
     this.name = "SupabasePostgrestReadError";
   }
@@ -83,7 +89,7 @@ type ReadPostgrestJsonRowsInput<Schema extends z.ZodType> =
 
 type ExpectedPostgrestError = Readonly<{
   postgresCode: string;
-  details: string;
+  details?: string;
   mapsTo: SupabasePostgrestReadErrorCode;
 }>;
 
@@ -184,7 +190,8 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
           const expected = input.expectedDatabaseErrors?.find(
             (candidate) =>
               candidate.postgresCode === parsedError.data.code &&
-              candidate.details === parsedError.data.details,
+              (candidate.details === undefined ||
+                candidate.details === parsedError.data.details),
           );
           if (expected !== undefined) {
             throw new SupabasePostgrestReadError(expected.mapsTo);
