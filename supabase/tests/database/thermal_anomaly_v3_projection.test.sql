@@ -24,15 +24,18 @@ select ok(
 
 select ok(
   (
-    select procedure.proconfig @> array[
-      'search_path=""',
-      'statement_timeout=5s'
-    ]::text[]
+    select procedure.proconfig @> array['search_path=""']::text[]
+      and not (
+        procedure.proconfig && array[
+          'statement_timeout=5s',
+          'statement_timeout=5000'
+        ]::text[]
+      )
     from pg_proc as procedure
     where procedure.oid =
       'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)'::regprocedure
   ),
-  'thermal anomaly projection fixes an empty search path and five-second timeout'
+  'thermal anomaly projection fixes an empty search path without claiming an ineffective in-function statement timeout'
 );
 
 select ok(
@@ -47,7 +50,7 @@ select ok(
     where procedure.oid =
       'api.thermal_anomalies_v3(integer,integer,integer,timestamptz,timestamptz,integer,timestamptz,uuid,text)'::regprocedure
   ),
-  'candidate work is capped and only the bounded page reaches wide projection'
+  'candidate materialization is capped before the bounded page reaches wide projection'
 );
 
 select ok(
@@ -137,6 +140,56 @@ select is(
   'sub-millisecond evidence clocks are conservatively rounded upward'
 );
 
+select ok(
+  (
+    select table_class.relrowsecurity
+      and table_class.relforcerowsecurity
+      and not has_table_privilege(
+        'firewatch_discovery_reader',
+        'truth.thermal_anomaly_projection_epochs',
+        'SELECT'
+      )
+    from pg_class as table_class
+    where table_class.oid =
+      'truth.thermal_anomaly_projection_epochs'::regclass
+  ),
+  'the evidence snapshot epoch is private and forced-RLS protected'
+);
+
+select ok(
+  exists (
+    select 1
+    from pg_trigger as trigger_row
+    where trigger_row.tgrelid = 'ingest.firms_detection_details'::regclass
+      and trigger_row.tgname = 'firms_detection_details_projection_epoch'
+      and not trigger_row.tgisinternal
+  )
+  and exists (
+    select 1
+    from pg_trigger as trigger_row
+    where trigger_row.tgrelid = 'truth.thermal_anomaly_assessments'::regclass
+      and trigger_row.tgname = 'thermal_anomaly_assessments_projection_epoch'
+      and not trigger_row.tgisinternal
+  ),
+  'every relevant append-only evidence table invalidates pagination snapshots'
+);
+
+select ok(
+  (
+    select procedure.prosecdef
+      and procedure.provolatile = 'v'
+      and not has_function_privilege(
+        'firewatch_discovery_reader',
+        'truth.bump_thermal_anomaly_projection_epoch()',
+        'EXECUTE'
+      )
+    from pg_proc as procedure
+    where procedure.oid =
+      'truth.bump_thermal_anomaly_projection_epoch()'::regprocedure
+  ),
+  'the volatile epoch writer is a private SECURITY DEFINER trigger boundary'
+);
+
 -- The production reader deliberately has no access to pgTAP helpers. Grant
 -- transaction-local test access so bounds execute under the exact caller role.
 grant usage on schema extensions to firewatch_discovery_reader;
@@ -155,7 +208,12 @@ select throws_ok(
 
 select throws_ok(
   $$select * from api.thermal_anomalies_v3(
-      10, 587, 391, now() - interval '32 days', now(), 10
+      10, 587, 391,
+      pg_catalog.date_trunc(
+        'milliseconds', now() - interval '32 days'
+      ),
+      pg_catalog.date_trunc('milliseconds', now()),
+      10
     )$$,
   '22023',
   'Thermal anomaly cutoffs must be ordered and current within 31 days',
@@ -164,7 +222,24 @@ select throws_ok(
 
 select throws_ok(
   $$select * from api.thermal_anomalies_v3(
-      10, 587, 391, now(), now(), 102
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now())
+        + interval '0.0004 seconds',
+      pg_catalog.date_trunc('milliseconds', now())
+        + interval '1 millisecond',
+      10
+    )$$,
+  '22023',
+  'Thermal anomaly cutoffs must be ordered and current within 31 days',
+  'direct callers must use replay-safe millisecond cutoffs'
+);
+
+select throws_ok(
+  $$select * from api.thermal_anomalies_v3(
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      pg_catalog.date_trunc('milliseconds', now()),
+      102
     )$$,
   '22023',
   'Thermal anomaly result limit must be between 1 and 101',
@@ -210,6 +285,10 @@ where product_key = 'VIIRS_NOAA20_NRT';
 -- with FK/validation triggers disabled inside this rolled-back transaction.
 alter table ingest.firms_detection_details disable trigger all;
 alter table truth.thermal_anomaly_assessments disable trigger all;
+alter table ingest.firms_detection_details
+  enable trigger firms_detection_details_projection_epoch;
+alter table truth.thermal_anomaly_assessments
+  enable trigger thermal_anomaly_assessments_projection_epoch;
 
 insert into ingest.firms_detection_details (
   id, public_id, contract_version, identity_version,
@@ -398,6 +477,16 @@ values
       + interval '0.0004 seconds'
   );
 
+select is(
+  (
+    select evidence_epoch
+    from truth.thermal_anomaly_projection_epochs
+    where projection_key = 'nasa-firms-thermal-anomaly-v3'
+  ),
+  3::bigint,
+  'two detection statements and one assessment statement transactionally bump the evidence epoch'
+);
+
 set local role firewatch_discovery_reader;
 
 select is(
@@ -405,8 +494,12 @@ select is(
     select assessment_state
     from api.thermal_anomalies_v3(
       10, 587, 391,
-      now() - interval '40 minutes',
-      now() - interval '35 minutes',
+      pg_catalog.date_trunc(
+        'milliseconds', now() - interval '40 minutes'
+      ),
+      pg_catalog.date_trunc(
+        'milliseconds', now() - interval '35 minutes'
+      ),
       10
     )
   ),
@@ -417,7 +510,12 @@ select is(
 select is(
   (
     select assessment_state
-    from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+    from api.thermal_anomalies_v3(
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      pg_catalog.date_trunc('milliseconds', now()),
+      10
+    )
   ),
   'unknown',
   'the latest assessment visible at both current cutoffs is selected'
@@ -447,7 +545,12 @@ select ok(
       and assessment_limitations @> array[
         'not_incident_resolution', 'not_all_clear'
       ]::text[]
-    from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+    from api.thermal_anomalies_v3(
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      pg_catalog.date_trunc('milliseconds', now()),
+      10
+    )
   ),
   'projection uses the exact assessment basis while preserving stable identity and non-authoritative semantics'
 );
@@ -456,12 +559,20 @@ select is(
   (
     with first_read as (
       select item_known_at
-      from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+      from api.thermal_anomalies_v3(
+        10, 587, 391,
+        pg_catalog.date_trunc('milliseconds', now()),
+        pg_catalog.date_trunc('milliseconds', now()),
+        10
+      )
     )
     select count(*)
     from first_read
     cross join lateral api.thermal_anomalies_v3(
-      10, 587, 391, now(), first_read.item_known_at, 10
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      first_read.item_known_at,
+      10
     )
   ),
   1::bigint,
@@ -472,12 +583,20 @@ select is(
   (
     with first_read as (
       select acquired_at, detection_id, gate_snapshot
-      from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+      from api.thermal_anomalies_v3(
+        10, 587, 391,
+        pg_catalog.date_trunc('milliseconds', now()),
+        pg_catalog.date_trunc('milliseconds', now()),
+        10
+      )
     )
     select count(*)
     from first_read
     cross join lateral api.thermal_anomalies_v3(
-      10, 587, 391, now(), now(), 10,
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      pg_catalog.date_trunc('milliseconds', now()),
+      10,
       first_read.acquired_at,
       first_read.detection_id,
       first_read.gate_snapshot
@@ -490,12 +609,20 @@ select is(
 select throws_ok(
   $$with first_read as (
       select acquired_at, detection_id
-      from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+      from api.thermal_anomalies_v3(
+        10, 587, 391,
+        pg_catalog.date_trunc('milliseconds', now()),
+        pg_catalog.date_trunc('milliseconds', now()),
+        10
+      )
     )
     select *
     from first_read
     cross join lateral api.thermal_anomalies_v3(
-      10, 587, 391, now(), now(), 10,
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      pg_catalog.date_trunc('milliseconds', now()),
+      10,
       first_read.acquired_at,
       first_read.detection_id,
       repeat('f', 64)
@@ -510,8 +637,12 @@ select is(
     select count(*)
     from api.thermal_anomalies_v3(
       10, 587, 391,
-      now() - interval '50 minutes',
-      now() - interval '46 minutes',
+      pg_catalog.date_trunc(
+        'milliseconds', now() - interval '50 minutes'
+      ),
+      pg_catalog.date_trunc(
+        'milliseconds', now() - interval '46 minutes'
+      ),
       10
     )
   ),
@@ -530,7 +661,12 @@ set local role firewatch_discovery_reader;
 select is(
   (
     select count(*)
-    from api.thermal_anomalies_v3(10, 587, 391, now(), now(), 10)
+    from api.thermal_anomalies_v3(
+      10, 587, 391,
+      pg_catalog.date_trunc('milliseconds', now()),
+      pg_catalog.date_trunc('milliseconds', now()),
+      10
+    )
   ),
   0::bigint,
   'disabled FIRMS catalog state cannot surface a valid row or empty-coverage claim'

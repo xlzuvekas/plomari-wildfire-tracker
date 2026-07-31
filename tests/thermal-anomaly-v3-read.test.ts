@@ -10,6 +10,7 @@ import {
   readThermalAnomalyRows,
   type ThermalAnomalyReadRow,
 } from "../lib/supabase/thermal-anomaly-read-model";
+import { SupabasePostgrestReadError } from "../lib/supabase/postgrest";
 
 const CELL = parseAreaCellKey("wm/10/587/391");
 if (CELL === null) throw new Error("Fixture cell is invalid");
@@ -192,6 +193,54 @@ describe("Supabase v3 thermal anomaly read model", () => {
       ).rejects.toMatchObject({ code: "invalid_response" });
     }
   });
+
+  it("maps only the controlled projection-snapshot sentinel", async () => {
+    const after = {
+      acquiredAt: "2026-07-31T11:45:00.000Z",
+      detectionId: "019a0000-0000-7000-8000-000000000102",
+      gateSnapshot: GATE_SNAPSHOT,
+    } as const;
+    const exactSnapshotChange = async () =>
+      Response.json(
+        {
+          code: "22023",
+          details: "firewatch_snapshot_changed_v1",
+          hint: null,
+          message: "Thermal anomaly publication gate snapshot changed",
+        },
+        { status: 400 },
+      );
+    await expect(
+      readThermalAnomalyRows(
+        { cell: CELL, asOf: AS_OF, knownAt: KNOWN_AT, limit: 51, after },
+        {
+          environment: ENVIRONMENT,
+          apiKey: DISCOVERY_KEY,
+          fetchImpl: exactSnapshotChange,
+        },
+      ),
+    ).rejects.toEqual(new SupabasePostgrestReadError("snapshot_changed"));
+
+    const unrelatedDatabaseError = async () =>
+      Response.json(
+        {
+          code: "22023",
+          details: "different_internal_failure",
+          message: "Do not expose this message",
+        },
+        { status: 400 },
+      );
+    await expect(
+      readThermalAnomalyRows(
+        { cell: CELL, asOf: AS_OF, knownAt: KNOWN_AT, limit: 51, after },
+        {
+          environment: ENVIRONMENT,
+          apiKey: DISCOVERY_KEY,
+          fetchImpl: unrelatedDatabaseError,
+        },
+      ),
+    ).rejects.toEqual(new SupabasePostgrestReadError("unavailable"));
+  });
 });
 
 describe("GET /api/v3/thermal-anomalies", () => {
@@ -238,6 +287,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
       coverage: { state: "not_assessed" },
       result: {
         state: "items",
+        count: { scope: "page", value: 1, relation: "exact" },
         allClearAssessment: "not_assessed",
       },
       page: {
@@ -327,6 +377,12 @@ describe("GET /api/v3/thermal-anomalies", () => {
     expect(second.anomalies.map((item) => item.detectionId)).toEqual([
       ids[50],
     ]);
+    expect(second.result.count).toEqual({
+      scope: "page",
+      value: 1,
+      relation: "exact",
+    });
+    expect(second.result.message).toMatch(/^This page contains 1 /u);
     expect(second.page).toEqual({
       limit: 50,
       ordering: "acquired-at-desc-detection-id-desc",
@@ -342,6 +398,38 @@ describe("GET /api/v3/thermal-anomalies", () => {
     const response = await GET(request("&after=not-a-signed-cursor"));
     expect(response.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("tells a continuation client to restart after a snapshot change", async () => {
+    const fetchMock = configure([]);
+    const ids = Array.from({ length: 51 }, (_, index) =>
+      `019a0000-0000-7000-8000-${(51 - index).toString(16).padStart(12, "0")}`,
+    );
+    fetchMock
+      .mockResolvedValueOnce(Response.json(ids.map((id) => row(id))))
+      .mockResolvedValueOnce(Response.json(
+        {
+          code: "22023",
+          details: "firewatch_snapshot_changed_v1",
+          message: "Thermal anomaly publication gate snapshot changed",
+        },
+        { status: 400 },
+      ));
+    const firstResponse = await GET(request());
+    const first = parseThermalAnomalyPayload(await firstResponse.json());
+    const response = await GET(
+      request(`&after=${encodeURIComponent(first.page.nextCursor ?? "")}`),
+    );
+    expect(response.status).toBe(409);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      schemaVersion: 3,
+      error: {
+        code: "snapshot_changed",
+        message:
+          "The thermal anomaly snapshot changed. Restart pagination from the first page.",
+      },
+    });
   });
 
   it("rejects incoherent public clocks and assessment-basis provenance", async () => {

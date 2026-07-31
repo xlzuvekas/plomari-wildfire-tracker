@@ -25,6 +25,66 @@ from public, anon, authenticated, service_role,
   firewatch_catalog_admin, firewatch_collector, firewatch_reconciler,
   firewatch_publisher, firewatch_dispatcher, firewatch_discovery_reader;
 
+-- One private transactional epoch makes HTTP keyset pages a coherent evidence
+-- snapshot. Relevant append-only writes bump this row in the same transaction
+-- as their evidence, so a reader snapshot sees either both changes or neither.
+create table truth.thermal_anomaly_projection_epochs (
+  projection_key text primary key check (
+    projection_key = 'nasa-firms-thermal-anomaly-v3'
+  ),
+  evidence_epoch bigint not null default 0 check (evidence_epoch >= 0)
+);
+
+insert into truth.thermal_anomaly_projection_epochs(
+  projection_key, evidence_epoch
+) values ('nasa-firms-thermal-anomaly-v3', 0);
+
+alter table truth.thermal_anomaly_projection_epochs enable row level security;
+alter table truth.thermal_anomaly_projection_epochs force row level security;
+
+revoke all on truth.thermal_anomaly_projection_epochs
+from public, anon, authenticated, service_role,
+  firewatch_catalog_admin, firewatch_collector, firewatch_reconciler,
+  firewatch_publisher, firewatch_dispatcher, firewatch_discovery_reader;
+
+comment on table truth.thermal_anomaly_projection_epochs is
+  'Private transactional invalidation epoch for snapshot-bound thermal anomaly pagination.';
+
+create function truth.bump_thermal_anomaly_projection_epoch()
+returns trigger
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+begin
+  update truth.thermal_anomaly_projection_epochs
+  set evidence_epoch = evidence_epoch + 1
+  where projection_key = 'nasa-firms-thermal-anomaly-v3';
+
+  if not found then
+    raise exception 'Thermal anomaly projection epoch is unavailable';
+  end if;
+
+  return null;
+end;
+$$;
+
+revoke execute on function truth.bump_thermal_anomaly_projection_epoch()
+from public, anon, authenticated, service_role,
+  firewatch_catalog_admin, firewatch_collector, firewatch_reconciler,
+  firewatch_publisher, firewatch_dispatcher, firewatch_discovery_reader;
+
+create trigger firms_detection_details_projection_epoch
+after insert on ingest.firms_detection_details
+for each statement
+execute function truth.bump_thermal_anomaly_projection_epoch();
+
+create trigger thermal_anomaly_assessments_projection_epoch
+after insert on truth.thermal_anomaly_assessments
+for each statement
+execute function truth.bump_thermal_anomaly_projection_epoch();
+
 -- The projection starts at immutable original identities and orders by their
 -- acquisition/public UUID tuple. The narrow partial index complements the
 -- spatial GiST index and avoids ordering every historical revision.
@@ -127,13 +187,13 @@ language plpgsql
 stable
 security definer
 set search_path = ''
-set statement_timeout = '5s'
 as $$
 declare
   cell_geom extensions.geometry(Polygon, 4326);
   cell_count integer;
   cell_minimum_span_m double precision;
   current_gate_snapshot text;
+  current_evidence_epoch bigint;
   candidate_scan_limit integer;
   scanned_candidate_count integer;
   eligible_candidate_count integer;
@@ -155,6 +215,8 @@ begin
 
   if p_as_of is null
     or p_known_at is null
+    or p_as_of <> pg_catalog.date_trunc('milliseconds', p_as_of)
+    or p_known_at <> pg_catalog.date_trunc('milliseconds', p_known_at)
     or p_as_of > p_known_at
     or p_known_at > now() + interval '5 minutes'
     or p_known_at < now() - interval '31 days'
@@ -222,15 +284,25 @@ begin
   end if;
 
   -- Bind continuation pages to the complete current publication-gate state,
-  -- not merely the product represented by the last row. Mutable catalog state
-  -- can therefore remove a first-page row immediately, while an in-progress
-  -- traversal fails closed instead of mixing two gate snapshots.
+  -- plus a transactionally coherent epoch for every relevant evidence insert.
+  -- Mutable catalog state or newly committed evidence therefore invalidates an
+  -- in-progress traversal instead of mixing two database snapshots.
+  select epoch.evidence_epoch
+  into current_evidence_epoch
+  from truth.thermal_anomaly_projection_epochs as epoch
+  where epoch.projection_key = 'nasa-firms-thermal-anomaly-v3';
+
+  if current_evidence_epoch is null then
+    raise exception 'Thermal anomaly projection epoch is unavailable';
+  end if;
+
   select pg_catalog.encode(
     pg_catalog.sha256(
       pg_catalog.convert_to(
         pg_catalog.concat_ws(
           '|',
-          'thermal-anomaly-gates-v1',
+          'thermal-anomaly-snapshot-v1',
+          current_evidence_epoch::text,
           provider.id::text,
           provider.public_id::text,
           provider.is_public::text,
@@ -284,14 +356,17 @@ begin
   join core.providers as provider on provider.id = source.provider_id
   where source.slug = 'nasa-firms';
 
-  if current_gate_snapshot is null
-    or (
-      p_gate_snapshot is not null
-      and p_gate_snapshot <> current_gate_snapshot
-    )
+  if current_gate_snapshot is null then
+    raise exception 'Thermal anomaly publication snapshot is unavailable';
+  end if;
+
+  if p_gate_snapshot is not null
+    and p_gate_snapshot <> current_gate_snapshot
   then
     raise exception 'Thermal anomaly publication gate snapshot changed'
-      using errcode = '22023';
+      using
+        errcode = '22023',
+        detail = 'firewatch_snapshot_changed_v1';
   end if;
 
   -- Bound original identities before assessment lookup. If the bounded set is

@@ -302,6 +302,16 @@ export async function readThermalAnomalyRows(
     rowSchema: thermalAnomalyReadRowSchema,
     maxResponseBytes:
       options.maxResponseBytes ?? THERMAL_ANOMALY_RESPONSE_BYTES,
+    expectedDatabaseErrors:
+      parsed.after === null
+        ? undefined
+        : [
+            {
+              postgresCode: "22023",
+              details: "firewatch_snapshot_changed_v1",
+              mapsTo: "snapshot_changed",
+            },
+          ],
   });
   validateRows(rows, parsed);
   return rows;

@@ -21,6 +21,7 @@ import {
   readThermalAnomalyRows,
   thermalAnomalyReadLimits,
 } from "../../../../lib/supabase/thermal-anomaly-read-model";
+import { SupabasePostgrestReadError } from "../../../../lib/supabase/postgrest";
 import { utcInstantSchema } from "../../../../lib/truth/v1/schemas";
 
 export const runtime = "nodejs";
@@ -138,6 +139,9 @@ function boundedJson(payload: unknown, status = 200) {
 
 function errorResponse(error: unknown) {
   const invalid = error instanceof InvalidThermalAnomalyRequestError;
+  const snapshotChanged =
+    error instanceof SupabasePostgrestReadError &&
+    error.code === "snapshot_changed";
   return boundedJson(
     {
       schemaVersion: THERMAL_ANOMALY_SCHEMA_VERSION,
@@ -146,12 +150,18 @@ function errorResponse(error: unknown) {
             code: "invalid_request",
             message: "The thermal anomaly request is invalid.",
           }
-        : {
-            code: "read_model_unavailable",
-            message: "Persisted thermal anomaly data is temporarily unavailable.",
-          },
+        : snapshotChanged
+          ? {
+              code: "snapshot_changed",
+              message:
+                "The thermal anomaly snapshot changed. Restart pagination from the first page.",
+            }
+          : {
+              code: "read_model_unavailable",
+              message: "Persisted thermal anomaly data is temporarily unavailable.",
+            },
     },
-    invalid ? 400 : 503,
+    invalid ? 400 : snapshotChanged ? 409 : 503,
   );
 }
 
@@ -298,12 +308,13 @@ export async function GET(request: Request) {
       result: {
         state: anomalies.length > 0 ? "items" : "indeterminate",
         count: {
+          scope: "page",
           value: anomalies.length,
-          relation: hasMore ? "at-least" : "exact",
+          relation: "exact",
         },
         allClearAssessment: "not_assessed",
         message: anomalies.length > 0
-          ? `${hasMore ? "At least " : ""}${anomalies.length} assessed satellite thermal-pixel observation${anomalies.length === 1 ? "" : "s"} are visible at both cutoffs.`
+          ? `This page contains ${anomalies.length} assessed satellite thermal-pixel observation${anomalies.length === 1 ? "" : "s"} visible at both cutoffs.${hasMore ? " More observations are available on the next page." : ""}`
           : "No assessed thermal-pixel observations are visible at both cutoffs. Coverage is not assessed, so this is not an all-clear.",
       },
       safety: {

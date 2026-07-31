@@ -28,7 +28,7 @@ describe("v3 thermal anomaly database projection", () => {
     );
     expect(migration).toContain("security definer");
     expect(migration).toContain("set search_path = ''");
-    expect(migration).toContain("set statement_timeout = '5s'");
+    expect(migration).not.toContain("set statement_timeout");
     expect(migration).toContain(
       "from ingest.firms_detection_details as original",
     );
@@ -62,6 +62,21 @@ describe("v3 thermal anomaly database projection", () => {
       "Thermal anomaly candidate scan bound exceeded",
     );
     expect(migration).not.toContain("detail.*");
+    expect(migration).toContain("truth.thermal_anomaly_projection_epochs");
+    expect(migration).toContain(
+      "create trigger firms_detection_details_projection_epoch",
+    );
+    expect(migration).toContain(
+      "create trigger thermal_anomaly_assessments_projection_epoch",
+    );
+    expect(migration).toContain("current_evidence_epoch::text");
+    expect(migration).toContain("firewatch_snapshot_changed_v1");
+    expect(migration).toContain(
+      "p_as_of <> pg_catalog.date_trunc('milliseconds', p_as_of)",
+    );
+    expect(migration).toContain(
+      "p_known_at <> pg_catalog.date_trunc('milliseconds', p_known_at)",
+    );
   });
 
   it("projects the exact assessment basis with conservative clocks", () => {
@@ -102,6 +117,7 @@ describe("v3 thermal anomaly database projection", () => {
       /revoke execute on function truth\.thermal_anomalies_v3_legacy[\s\S]*?firewatch_discovery_reader/u,
     );
     expect(postgrest).toContain('"thermal_anomalies_v3"');
+    expect(postgrest).toContain('"snapshot_changed"');
     expect(rollback).toContain(
       "drop function if exists api.thermal_anomalies_v3",
     );
@@ -113,6 +129,12 @@ describe("v3 thermal anomaly database projection", () => {
     );
     expect(rollback).toContain(
       "drop function if exists truth.ceil_millisecond_utc",
+    );
+    expect(rollback).toContain(
+      "drop function if exists truth.bump_thermal_anomaly_projection_epoch",
+    );
+    expect(rollback).toContain(
+      "drop table if exists truth.thermal_anomaly_projection_epochs",
     );
     expect(rollback).not.toContain("drop role");
     expect(rollback).toContain("set schema api");

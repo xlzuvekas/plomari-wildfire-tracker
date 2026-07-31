@@ -265,8 +265,9 @@ export const thermalAnomalyPayloadSchema = z
     result: z.strictObject({
       state: z.enum(["items", "indeterminate"]),
       count: z.strictObject({
+        scope: z.literal("page"),
         value: z.number().int().nonnegative().safe(),
-        relation: z.enum(["exact", "at-least"]),
+        relation: z.literal("exact"),
       }),
       allClearAssessment: z.literal("not_assessed"),
       message: z.string().trim().min(1).max(1_000),
@@ -361,8 +362,8 @@ export const thermalAnomalyPayloadSchema = z
     if (
       payload.anomalies.length > payload.page.limit ||
       payload.result.count.value !== payload.anomalies.length ||
-      payload.result.count.relation !==
-        (payload.page.hasMore ? "at-least" : "exact") ||
+      payload.result.count.scope !== "page" ||
+      payload.result.count.relation !== "exact" ||
       (payload.page.hasMore &&
         payload.anomalies.length !== payload.page.limit) ||
       (payload.page.nextCursor !== null) !== payload.page.hasMore ||
@@ -379,7 +380,11 @@ export const thermalAnomalyPayloadSchema = z
 export const thermalAnomalyErrorSchema = z.strictObject({
   schemaVersion: z.literal(THERMAL_ANOMALY_SCHEMA_VERSION),
   error: z.strictObject({
-    code: z.enum(["invalid_request", "read_model_unavailable"]),
+    code: z.enum([
+      "invalid_request",
+      "snapshot_changed",
+      "read_model_unavailable",
+    ]),
     message: z.string().trim().min(1).max(500),
   }),
 });

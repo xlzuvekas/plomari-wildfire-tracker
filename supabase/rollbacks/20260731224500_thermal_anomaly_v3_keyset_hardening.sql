@@ -7,6 +7,13 @@ drop index if exists truth.thermal_anomaly_assessments_projection_chain_idx;
 drop index if exists ingest.firms_detection_details_projection_original_idx;
 drop function if exists truth.ceil_millisecond_utc(timestamptz);
 
+drop trigger if exists thermal_anomaly_assessments_projection_epoch
+on truth.thermal_anomaly_assessments;
+drop trigger if exists firms_detection_details_projection_epoch
+on ingest.firms_detection_details;
+drop function if exists truth.bump_thermal_anomaly_projection_epoch();
+drop table if exists truth.thermal_anomaly_projection_epochs;
+
 alter function truth.thermal_anomalies_v3_legacy(
   integer, integer, integer, timestamptz, timestamptz, integer
 ) set schema api;

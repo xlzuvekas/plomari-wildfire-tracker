@@ -29,16 +29,19 @@ export type SupabaseApiRpc = z.infer<typeof apiRpcSchema>;
 export type SupabasePostgrestReadErrorCode =
   | "timeout"
   | "unavailable"
-  | "invalid_response";
+  | "invalid_response"
+  | "snapshot_changed";
 
 export class SupabasePostgrestReadError extends Error {
   constructor(readonly code: SupabasePostgrestReadErrorCode) {
     super(
       code === "timeout"
         ? "Supabase Data API read timed out."
-        : code === "unavailable"
-          ? "Supabase Data API read is unavailable."
-          : "Supabase Data API returned an invalid response.",
+        : code === "snapshot_changed"
+          ? "Supabase Data API snapshot changed."
+          : code === "unavailable"
+            ? "Supabase Data API read is unavailable."
+            : "Supabase Data API returned an invalid response.",
     );
     this.name = "SupabasePostgrestReadError";
   }
@@ -66,6 +69,7 @@ type ReadPostgrestRpcRowsInput<Schema extends z.ZodType> =
       rpc: SupabaseApiRpc;
       query: Readonly<Record<string, string>>;
       rowSchema: Schema;
+      expectedDatabaseErrors?: readonly ExpectedPostgrestError[];
     }>;
 
 type ReadPostgrestJsonRowsInput<Schema extends z.ZodType> =
@@ -74,7 +78,61 @@ type ReadPostgrestJsonRowsInput<Schema extends z.ZodType> =
       pathname: string;
       query: Readonly<Record<string, string>>;
       rowSchema: Schema;
+      expectedDatabaseErrors?: readonly ExpectedPostgrestError[];
     }>;
+
+type ExpectedPostgrestError = Readonly<{
+  postgresCode: string;
+  details: string;
+  mapsTo: SupabasePostgrestReadErrorCode;
+}>;
+
+const postgrestErrorEnvelopeSchema = z
+  .object({
+    code: z.string(),
+    details: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+async function readBoundedResponseBody(
+  response: Response,
+  maxResponseBytes: number,
+): Promise<string> {
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredBytes) &&
+    declaredBytes > maxResponseBytes
+  ) {
+    throw new SupabasePostgrestReadError("invalid_response");
+  }
+
+  if (response.body === null) {
+    const body = await response.text();
+    if (Buffer.byteLength(body, "utf8") > maxResponseBytes) {
+      throw new SupabasePostgrestReadError("invalid_response");
+    }
+    return body;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      receivedBytes += chunk.value.byteLength;
+      if (receivedBytes > maxResponseBytes) {
+        await reader.cancel();
+        throw new SupabasePostgrestReadError("invalid_response");
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, receivedBytes).toString("utf8");
+}
 
 async function readPostgrestJsonRows<Schema extends z.ZodType>(
   input: ReadPostgrestJsonRowsInput<Schema>,
@@ -110,43 +168,33 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
     });
 
     if (!response.ok) {
+      if ((input.expectedDatabaseErrors?.length ?? 0) > 0) {
+        const errorBody = await readBoundedResponseBody(
+          response,
+          Math.min(maxResponseBytes, 16_384),
+        );
+        let decodedError: unknown;
+        try {
+          decodedError = JSON.parse(errorBody);
+        } catch {
+          throw new SupabasePostgrestReadError("unavailable");
+        }
+        const parsedError = postgrestErrorEnvelopeSchema.safeParse(decodedError);
+        if (parsedError.success) {
+          const expected = input.expectedDatabaseErrors?.find(
+            (candidate) =>
+              candidate.postgresCode === parsedError.data.code &&
+              candidate.details === parsedError.data.details,
+          );
+          if (expected !== undefined) {
+            throw new SupabasePostgrestReadError(expected.mapsTo);
+          }
+        }
+      }
       throw new SupabasePostgrestReadError("unavailable");
     }
 
-    const declaredBytes = Number(response.headers.get("content-length"));
-    if (
-      Number.isFinite(declaredBytes) &&
-      declaredBytes > maxResponseBytes
-    ) {
-      throw new SupabasePostgrestReadError("invalid_response");
-    }
-
-    let body: string;
-    if (response.body === null) {
-      body = await response.text();
-      if (Buffer.byteLength(body, "utf8") > maxResponseBytes) {
-        throw new SupabasePostgrestReadError("invalid_response");
-      }
-    } else {
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let receivedBytes = 0;
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) break;
-          receivedBytes += chunk.value.byteLength;
-          if (receivedBytes > maxResponseBytes) {
-            await reader.cancel();
-            throw new SupabasePostgrestReadError("invalid_response");
-          }
-          chunks.push(chunk.value);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-      body = Buffer.concat(chunks, receivedBytes).toString("utf8");
-    }
+    const body = await readBoundedResponseBody(response, maxResponseBytes);
 
     let decoded: unknown;
     try {

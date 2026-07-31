@@ -357,10 +357,19 @@ read-model boundary:
   sub-millisecond evidence.
   `page.nextCursor` is an opaque, server-authenticated keyset cursor bound to
   the exact cell, both cutoffs, limit, last acquisition/identity tuple, and the
-  current publication-gate snapshot. Gate changes invalidate continuation
-  rather than mixing snapshots. Candidate identity work is hard-capped before
-  assessment and wide evidence projection; a sparse page that cannot prove
-  exhaustion within that cap fails closed instead of omitting later rows.
+  current publication-gate and evidence-epoch fingerprint. Gate or evidence
+  changes return a restartable `409` rather than mixing snapshots. The number
+  of candidate identities materialized for assessment and wide evidence
+  projection is hard-capped. The underlying
+  indexed seven-day PostGIS/time scan is not a physical-work bound; the server
+  reader aborts and fails closed after five seconds. A database-side statement
+  timeout and request-rate boundary must be enforced outside the RPC before this
+  endpoint is activated broadly. A sparse page that cannot prove exhaustion
+  within the materialization cap fails closed instead of omitting later rows.
+  Relevant evidence inserts transactionally bump a private projection epoch
+  folded into that snapshot, so records committed between HTTP pages force the
+  same restartable `409`. Result counts are explicitly exact for the current
+  page; they are never presented as a total across pages.
   Empty results and exhausted pages remain `not_assessed` / `indeterminate`,
   never an all-clear.
 
