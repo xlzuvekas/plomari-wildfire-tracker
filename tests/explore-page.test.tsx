@@ -142,7 +142,7 @@ describe("Explore route shell", () => {
       '"/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs"',
     );
     expect(exploreGlobeSource).toContain(
-      "}, [mapRevision, response, selectionId]);",
+      "}, [mapRevision, onSelectionChange, response, selectionId]);",
     );
   });
 

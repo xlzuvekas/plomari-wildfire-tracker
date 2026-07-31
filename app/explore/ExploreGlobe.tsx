@@ -358,7 +358,7 @@ export function ExploreGlobe({
 
   useEffect(() => {
     synchronizeCandidateMarkerSelection(markersRef.current, selectionId);
-  }, [mapRevision, response, selectionId]);
+  }, [mapRevision, onSelectionChange, response, selectionId]);
 
   useEffect(() => {
     if (selectionId === null || response === null) return;
