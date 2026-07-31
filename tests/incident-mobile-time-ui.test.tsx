@@ -147,6 +147,12 @@ describe("incident scrubber interaction contract", () => {
     );
     expect(pageSource).toContain("Checking FIRMS thermal observations");
     expect(pageSource).toContain(
+      "WAITING FOR FIRST FIRMS RESPONSE · NO ASSESSMENT YET",
+    );
+    expect(pageSource).toMatch(
+      /\{thermalLoading[\s\S]*?WAITING FOR FIRST FIRMS RESPONSE[\s\S]*?: thermalUnavailable[\s\S]*?: thermalDetections\.length === 0/u,
+    );
+    expect(pageSource).toContain(
       "Thermal observations unavailable · no assessment",
     );
     expect(pageSource).toContain(
