@@ -8,7 +8,7 @@ import {
   type HttpResponseEvidence,
   type HttpResponseOccurrence,
   type RecordedFetchOptions,
-} from "../evidence/recorded-fetch";
+} from "../evidence/recorded-fetch.ts";
 
 export const FIRMS_AREA_ENDPOINT =
   "https://firms.modaps.eosdis.nasa.gov/api/area/csv";

@@ -7,6 +7,9 @@ project_id = "plomari-wildfire-tracker"
 [functions.collect-cmr]
 verify_jwt = false
 
+[functions.collect-firms]
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.
