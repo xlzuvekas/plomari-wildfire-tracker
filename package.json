@@ -15,6 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:contracts": "vitest run tests/truth",
+    "test:discovery-timeout": "node tools/verify-discovery-reader-timeout.mjs",
+    "load:thermal-v3": "node tools/load-thermal-v3.mjs",
     "test:watch": "vitest",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },

@@ -17,6 +17,7 @@ import { readSupabaseDiscoveryReaderApiKey } from "./server-env";
 
 const MAX_THERMAL_ANOMALY_ROWS = 101;
 const THERMAL_ANOMALY_RESPONSE_BYTES = 1_000_000;
+const THERMAL_ANOMALY_READER_TIMEOUT_MS = 5_000;
 const limitationSchema = z
   .string()
   .regex(/^[a-z0-9]+(?:_[a-z0-9]+)*$/u)
@@ -302,16 +303,26 @@ export async function readThermalAnomalyRows(
     rowSchema: thermalAnomalyReadRowSchema,
     maxResponseBytes:
       options.maxResponseBytes ?? THERMAL_ANOMALY_RESPONSE_BYTES,
-    expectedDatabaseErrors:
-      parsed.after === null
-        ? undefined
+    timeoutMs: options.timeoutMs ?? THERMAL_ANOMALY_READER_TIMEOUT_MS,
+    expectedDatabaseErrors: [
+      {
+        postgresCode: "54000",
+        mapsTo: "scan_cap",
+      },
+      {
+        postgresCode: "57014",
+        mapsTo: "database_timeout",
+      },
+      ...(parsed.after === null
+        ? []
         : [
             {
               postgresCode: "22023",
               details: "firewatch_snapshot_changed_v1",
-              mapsTo: "snapshot_changed",
+              mapsTo: "snapshot_changed" as const,
             },
-          ],
+          ]),
+    ],
   });
   validateRows(rows, parsed);
   return rows;
@@ -319,4 +330,5 @@ export async function readThermalAnomalyRows(
 
 export const thermalAnomalyReadLimits = Object.freeze({
   maximumRows: MAX_THERMAL_ANOMALY_ROWS,
+  timeoutMs: THERMAL_ANOMALY_READER_TIMEOUT_MS,
 });

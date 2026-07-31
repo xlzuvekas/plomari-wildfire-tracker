@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GET } from "../app/api/v3/thermal-anomalies/route";
 import { parseAreaCellKey } from "../lib/firewatch/map-context";
 import {
+  handleThermalAnomalyRequest,
+  type ThermalAnomalyRouteDependencies,
+} from "../lib/firewatch/v3/thermal-anomaly-route.server";
+import { ThermalAdmissionUnavailableError } from "../lib/firewatch/v3/thermal-anomaly-admission.server";
+import type { ThermalTelemetryEvent } from "../lib/firewatch/v3/thermal-anomaly-telemetry.server";
+import {
   parseThermalAnomalyPayload,
+  thermalAnomalyErrorSchema,
   thermalAnomalyPayloadSchema,
 } from "../lib/firewatch/v3/thermal-anomaly-contract";
 import {
   readThermalAnomalyRows,
+  thermalAnomalyReadLimits,
   type ThermalAnomalyReadRow,
 } from "../lib/supabase/thermal-anomaly-read-model";
 import { SupabasePostgrestReadError } from "../lib/supabase/postgrest";
@@ -105,6 +112,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function routeGet(
+  request: Request,
+  overrides: Partial<ThermalAnomalyRouteDependencies> = {},
+) {
+  return handleThermalAnomalyRequest(request, {
+    admit: async () => ({
+      kind: "admitted",
+      lease: { release: async () => undefined },
+    }),
+    readRows: readThermalAnomalyRows,
+    reportTelemetry: () => undefined,
+    monotonicNow: () => 0,
+    ...overrides,
+  });
+}
+
 describe("Supabase v3 thermal anomaly read model", () => {
   it("calls only the allowlisted RPC with coarse cell and cutoff parameters", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
@@ -122,6 +145,7 @@ describe("Supabase v3 thermal anomaly read model", () => {
       expect(headers.get("apikey")).toBe(DISCOVERY_KEY);
       expect(headers.has("authorization")).toBe(false);
       expect(init).toMatchObject({ method: "GET", cache: "no-store" });
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
       return Response.json([row()]);
     });
 
@@ -132,6 +156,7 @@ describe("Supabase v3 thermal anomaly read model", () => {
       ),
     ).resolves.toHaveLength(1);
     expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(thermalAnomalyReadLimits.timeoutMs).toBe(5_000);
   });
 
   it("rejects unsafe, future-known, duplicate, and unordered rows", async () => {
@@ -241,6 +266,33 @@ describe("Supabase v3 thermal anomaly read model", () => {
       ),
     ).rejects.toEqual(new SupabasePostgrestReadError("unavailable"));
   });
+
+  it.each([
+    ["54000", "scan_cap"],
+    ["57014", "database_timeout"],
+  ] as const)(
+    "retains SQLSTATE %s only as a bounded internal error class",
+    async (postgresCode, expectedCode) => {
+      await expect(
+        readThermalAnomalyRows(
+          { cell: CELL, asOf: AS_OF, knownAt: KNOWN_AT, limit: 51 },
+          {
+            environment: ENVIRONMENT,
+            apiKey: DISCOVERY_KEY,
+            fetchImpl: async () =>
+              Response.json(
+                {
+                  code: postgresCode,
+                  details: null,
+                  message: "Internal database detail must not be public.",
+                },
+                { status: 500 },
+              ),
+          },
+        ),
+      ).rejects.toEqual(new SupabasePostgrestReadError(expectedCode));
+    },
+  );
 });
 
 describe("GET /api/v3/thermal-anomalies", () => {
@@ -267,7 +319,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
 
   it("returns explicit clocks, assessment evidence, and non-authoritative safety", async () => {
     configure([row()]);
-    const response = await GET(request());
+    const response = await routeGet(request());
     const payload = parseThermalAnomalyPayload(await response.json());
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -336,6 +388,27 @@ describe("GET /api/v3/thermal-anomalies", () => {
     });
   });
 
+  it("attests the server-derived Vercel environment on every response", async () => {
+    configure([]);
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", "firewatch-review-123.vercel.app");
+    vi.stubEnv("VERCEL_DEPLOYMENT_ID", `dpl_${"a".repeat(24)}`);
+
+    const response = await routeGet(request());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-firewatch-deployment-environment")).toBe(
+      "preview",
+    );
+    expect(response.headers.get("x-firewatch-deployment-host")).toBe(
+      "firewatch-review-123.vercel.app",
+    );
+    expect(response.headers.get("x-firewatch-deployment-id")).toBe(
+      `dpl_${"a".repeat(24)}`,
+    );
+  });
+
   it("issues and consumes an authenticated keyset cursor without skipping a tied acquisition minute", async () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
     vi.stubEnv("SUPABASE_URL", ENVIRONMENT.url);
@@ -361,7 +434,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const firstResponse = await GET(request());
+    const firstResponse = await routeGet(request());
     const first = parseThermalAnomalyPayload(await firstResponse.json());
     expect(first.anomalies).toHaveLength(50);
     expect(first.page).toMatchObject({
@@ -370,7 +443,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
     });
     expect(first.page.nextCursor).toBeTypeOf("string");
 
-    const secondResponse = await GET(
+    const secondResponse = await routeGet(
       request(`&after=${encodeURIComponent(first.page.nextCursor ?? "")}`),
     );
     const second = parseThermalAnomalyPayload(await secondResponse.json());
@@ -395,7 +468,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
 
   it("rejects a tampered cursor before querying Supabase", async () => {
     const fetchMock = configure([]);
-    const response = await GET(request("&after=not-a-signed-cursor"));
+    const response = await routeGet(request("&after=not-a-signed-cursor"));
     expect(response.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -415,9 +488,9 @@ describe("GET /api/v3/thermal-anomalies", () => {
         },
         { status: 400 },
       ));
-    const firstResponse = await GET(request());
+    const firstResponse = await routeGet(request());
     const first = parseThermalAnomalyPayload(await firstResponse.json());
-    const response = await GET(
+    const response = await routeGet(
       request(`&after=${encodeURIComponent(first.page.nextCursor ?? "")}`),
     );
     expect(response.status).toBe(409);
@@ -434,7 +507,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
 
   it("rejects incoherent public clocks and assessment-basis provenance", async () => {
     configure([row()]);
-    const response = await GET(request());
+    const response = await routeGet(request());
     const original = await response.json();
     const cases = [
       {
@@ -479,7 +552,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
 
   it("keeps absence indeterminate and never converts disabled data to empty coverage", async () => {
     const fetchMock = configure([]);
-    const response = await GET(request());
+    const response = await routeGet(request());
     const payload = thermalAnomalyPayloadSchema.parse(await response.json());
     expect(payload.anomalies).toEqual([]);
     expect(payload.coverage.state).toBe("not_assessed");
@@ -505,7 +578,7 @@ describe("GET /api/v3/thermal-anomalies", () => {
       request("&limit=101"),
     ];
     for (const candidate of invalid) {
-      const response = await GET(candidate);
+      const response = await routeGet(candidate);
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toMatchObject({
         error: { code: "invalid_request" },
@@ -513,12 +586,30 @@ describe("GET /api/v3/thermal-anomalies", () => {
     }
   });
 
+  it("admits and accounts for malformed traffic before full query parsing", async () => {
+    const release = vi.fn(async () => undefined);
+    const admit = vi.fn(async () => ({
+      kind: "admitted" as const,
+      lease: { release },
+    }));
+    const readRows = vi.fn<typeof readThermalAnomalyRows>();
+    const response = await routeGet(
+      new Request("http://localhost/api/v3/thermal-anomalies?nonce=1"),
+      { admit, readRows },
+    );
+
+    expect(response.status).toBe(400);
+    expect(admit).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(readRows).not.toHaveBeenCalled();
+  });
+
   it("fails closed with a generic 503 when the scoped key or read model fails", async () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
     vi.stubEnv("SUPABASE_URL", ENVIRONMENT.url);
     vi.stubEnv("SUPABASE_PUBLISHABLE_KEY", ENVIRONMENT.publishableKey);
     vi.stubEnv("SUPABASE_DISCOVERY_READER_KEY", "");
-    const response = await GET(request());
+    const response = await routeGet(request());
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
       schemaVersion: 3,
@@ -527,5 +618,145 @@ describe("GET /api/v3/thermal-anomalies", () => {
         message: "Persisted thermal anomaly data is temporarily unavailable.",
       },
     });
+  });
+
+  it.each([
+    ["burst", "rate_limited_burst"],
+    ["sustained", "rate_limited_sustained"],
+    ["capacity", "capacity_limited"],
+  ] as const)(
+    "returns 429 with Retry-After and never calls Supabase for %s rejection",
+    async (reason, expectedOutcome) => {
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
+      const readRows = vi.fn<typeof readThermalAnomalyRows>();
+      const telemetry: ThermalTelemetryEvent[] = [];
+      const monotonicNow = vi
+        .fn<() => number>()
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(125);
+      const response = await routeGet(request(), {
+        admit: async () => ({
+          kind: "rejected",
+          reason,
+          retryAfterSeconds: 7,
+        }),
+        readRows,
+        reportTelemetry: (event) => telemetry.push(event),
+        monotonicNow,
+      });
+
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("7");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const errorPayload = thermalAnomalyErrorSchema.parse(await response.json());
+      expect(errorPayload).toEqual({
+        schemaVersion: 3,
+        error: {
+          code: "rate_limited",
+          message: "Thermal anomaly request capacity is temporarily limited.",
+        },
+      });
+      expect(readRows).not.toHaveBeenCalled();
+      expect(telemetry).toEqual([
+        expect.objectContaining({
+          status: 429,
+          outcome: expectedOutcome,
+          pageType: "unknown",
+          zoom: null,
+          rows: null,
+          hasMore: null,
+          databaseSqlstate: null,
+          leaseRelease: "not_acquired",
+        }),
+      ]);
+    },
+  );
+
+  it("fails closed before Supabase when admission is unavailable", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
+    const readRows = vi.fn<typeof readThermalAnomalyRows>();
+    const telemetry: ThermalTelemetryEvent[] = [];
+    const response = await routeGet(request(), {
+      admit: async () => {
+        throw new ThermalAdmissionUnavailableError();
+      },
+      readRows,
+      reportTelemetry: (event) => telemetry.push(event),
+    });
+
+    expect(response.status).toBe(503);
+    expect(readRows).not.toHaveBeenCalled();
+    expect(telemetry).toEqual([
+      expect.objectContaining({
+        outcome: "admission_unavailable",
+        leaseRelease: "not_acquired",
+      }),
+    ]);
+  });
+
+  it.each([
+    ["database_timeout", "database_timeout", "57014"],
+    ["scan_cap", "database_scan_cap", "54000"],
+  ] as const)(
+    "releases the lease and sanitizes the %s database failure",
+    async (errorCode, expectedOutcome, expectedSqlstate) => {
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
+      const release = vi.fn(async () => undefined);
+      const telemetry: ThermalTelemetryEvent[] = [];
+      const response = await routeGet(request(), {
+        admit: async () => ({ kind: "admitted", lease: { release } }),
+        readRows: async () => {
+          throw new SupabasePostgrestReadError(errorCode);
+        },
+        reportTelemetry: (event) => telemetry.push(event),
+      });
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        schemaVersion: 3,
+        error: {
+          code: "read_model_unavailable",
+          message:
+            "Persisted thermal anomaly data is temporarily unavailable.",
+        },
+      });
+      expect(release).toHaveBeenCalledOnce();
+      expect(telemetry).toEqual([
+        expect.objectContaining({
+          status: 503,
+          outcome: expectedOutcome,
+          databaseSqlstate: expectedSqlstate,
+          leaseRelease: "released",
+        }),
+      ]);
+      expect(JSON.stringify(telemetry)).not.toContain("wm/10/587/391");
+    },
+  );
+
+  it("keeps a successful response when lease release falls back to expiry", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(KNOWN_AT));
+    const telemetry: ThermalTelemetryEvent[] = [];
+    const response = await routeGet(request(), {
+      admit: async () => ({
+        kind: "admitted",
+        lease: {
+          release: async () => {
+            throw new ThermalAdmissionUnavailableError();
+          },
+        },
+      }),
+      readRows: async () => [row()],
+      reportTelemetry: (event) => telemetry.push(event),
+    });
+
+    expect(response.status).toBe(200);
+    expect(telemetry).toEqual([
+      expect.objectContaining({
+        outcome: "success",
+        rows: 1,
+        hasMore: false,
+        leaseRelease: "expired_fallback",
+      }),
+    ]);
   });
 });
