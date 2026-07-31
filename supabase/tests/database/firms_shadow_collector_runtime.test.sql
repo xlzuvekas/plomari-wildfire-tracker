@@ -142,7 +142,7 @@ select ok(
       and source.license_status = 'unreviewed'
       and endpoint.endpoint_key = 'area-csv' and not endpoint_state.enabled
       and target.target_key = 'global-discovery' and not target.enabled
-      and revision.public_id = '018f0000-0000-7000-8000-000000000502'
+      and revision.public_id = '018f0000-0000-7000-8000-000000000702'
       and not revision.enabled
       and adapter.public_id = '018f0000-0000-7000-8000-000000000701'
       and not adapter_state.enabled
@@ -194,7 +194,7 @@ select
   prior.claim_kind, prior.operational_role, prior.cadence, prior.stale_after,
   true, prior.request_params, prior.effective_at
 from core.collection_target_revisions as prior
-where prior.public_id = '018f0000-0000-7000-8000-000000000502';
+where prior.public_id = '018f0000-0000-7000-8000-000000000702';
 
 insert into ingest.collection_target_state (
   collection_target_revision_id, collection_target_id

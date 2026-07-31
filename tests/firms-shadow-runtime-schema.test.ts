@@ -16,6 +16,7 @@ const rollback = readFileSync(new URL(
   "../supabase/rollbacks/20260731043914_firms_shadow_collector_runtime.sql",
   import.meta.url,
 ), "utf8");
+const seed = readFileSync(new URL("../supabase/seed.sql", import.meta.url), "utf8");
 const runtime = readFileSync(new URL(
   "../supabase/functions/collect-firms/runtime.ts",
   import.meta.url,
@@ -49,6 +50,16 @@ describe("FIRMS shadow production runtime contract", () => {
     expect(migration).toContain(
       "5c607d72fa1c21180bd64ec846d42f9ebae16603d6647f5c5023103d596fd404",
     );
+  });
+
+  it("owns deterministic runtime catalog identifiers outside seed data", () => {
+    for (const publicId of [
+      "018f0000-0000-7000-8000-000000000701",
+      "018f0000-0000-7000-8000-000000000702",
+    ]) {
+      expect(migration).toContain(publicId);
+      expect(seed).not.toContain(publicId);
+    }
   });
 
   it("is inert, unscheduled, and unable to publish an anomaly or all-clear", () => {

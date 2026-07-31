@@ -13,7 +13,7 @@ begin
 
   select id into runtime_revision_id
   from core.collection_target_revisions
-  where public_id = '018f0000-0000-7000-8000-000000000502';
+  where public_id = '018f0000-0000-7000-8000-000000000702';
   select id into runtime_adapter_id
   from core.adapter_releases
   where public_id = '018f0000-0000-7000-8000-000000000701';
@@ -92,13 +92,13 @@ drop function if exists ingest.firms_shadow_job_input_is_valid_v1(jsonb);
 delete from ingest.collection_target_state
 where collection_target_revision_id = (
   select id from core.collection_target_revisions
-  where public_id = '018f0000-0000-7000-8000-000000000502'
+  where public_id = '018f0000-0000-7000-8000-000000000702'
 );
 
 drop trigger if exists collection_target_revisions_reject_mutation
   on core.collection_target_revisions;
 delete from core.collection_target_revisions
-where public_id = '018f0000-0000-7000-8000-000000000502';
+where public_id = '018f0000-0000-7000-8000-000000000702';
 create trigger collection_target_revisions_reject_mutation
 before update or delete on core.collection_target_revisions
 for each row execute function core.reject_mutation();

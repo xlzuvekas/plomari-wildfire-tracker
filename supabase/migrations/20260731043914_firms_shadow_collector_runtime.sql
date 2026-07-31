@@ -114,7 +114,7 @@ insert into core.collection_target_revisions (
   effective_at
 )
 select
-  '018f0000-0000-7000-8000-000000000502'::core.uuid_v7,
+  '018f0000-0000-7000-8000-000000000702'::core.uuid_v7,
   '1.1.0', '2.0.0', prior.collection_target_id, prior.endpoint_id,
   2, prior.id, 'dataset',
   'c4ef36952530d631b7435cb48fab6a133405fa307a1a8c594f4f07d13ff22bfd',
@@ -147,7 +147,7 @@ insert into ingest.collection_target_state (
 )
 select revision.id, revision.collection_target_id
 from core.collection_target_revisions as revision
-where revision.public_id = '018f0000-0000-7000-8000-000000000502'
+where revision.public_id = '018f0000-0000-7000-8000-000000000702'
 on conflict (collection_target_revision_id) do nothing;
 
 -- Exact durable job-input validation. The key never appears in this object;
@@ -813,7 +813,7 @@ begin
       and not endpoint_state.enabled
       and target.target_key = 'global-discovery'
       and target.visibility = 'restricted' and not target.enabled
-      and revision.public_id = '018f0000-0000-7000-8000-000000000502'
+      and revision.public_id = '018f0000-0000-7000-8000-000000000702'
       and revision.version_no = 2 and not revision.enabled
       and target_state.cursor_state = '{}'::jsonb
       and target_state.last_enqueued_at is null
