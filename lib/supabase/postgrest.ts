@@ -15,6 +15,7 @@ const apiRpcSchema = z.enum([
   "nearby_incidents_v3",
   "satellite_passes_for_cell",
   "satellite_scan_status_for_window",
+  "thermal_anomalies_v3",
 ]);
 const timeoutSchema = z.number().int().min(1).max(10_000);
 const responseByteLimitSchema = z.number().int().min(1).max(8_000_000);
