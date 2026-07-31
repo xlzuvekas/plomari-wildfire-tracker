@@ -659,7 +659,8 @@ select is(
 reset role;
 
 update core.firms_products
-set enabled = false
+set enabled = false,
+    assessment_enabled = false
 where product_key = 'VIIRS_NOAA20_NRT';
 
 set local role firewatch_discovery_reader;
