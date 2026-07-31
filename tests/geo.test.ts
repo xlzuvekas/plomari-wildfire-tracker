@@ -311,6 +311,34 @@ describe("scenarioShape", () => {
     }
   });
 
+  it("rejects pole-reaching envelopes instead of emitting a wrapped edge", () => {
+    expect(() => scenarioShape([89.9, 179.99], 0, 18, 58)).toThrow(
+      /geographic pole/u,
+    );
+    expect(() => scenarioShape([-89.9, -179.99], 180, 18, 58)).toThrow(
+      /geographic pole/u,
+    );
+    expect(() => scenarioShape([89.9, 20], 40, 18, 58)).toThrow(
+      /geographic pole/u,
+    );
+    expect(() => scenarioShape([89.9, 20], 360, 12, 0)).toThrow(
+      /geographic pole/u,
+    );
+    expect(() => scenarioShape([90, 20], 90, 1, 20)).toThrow(
+      /geographic pole/u,
+    );
+  });
+
+  it("keeps near-pole envelopes continuous when they do not reach the pole", () => {
+    const towardNorth = scenarioShape([89.9, 179.99], 0, 10, 58);
+    const skirtingNorth = scenarioShape([89.9, 179.99], 90, 18, 58);
+    const towardSouth = scenarioShape([-89.9, -179.99], 180, 10, 58);
+
+    expectSimpleClosedPolygon(towardNorth);
+    expectSimpleClosedPolygon(skirtingNorth);
+    expectSimpleClosedPolygon(towardSouth);
+  });
+
   it("defines zero angle as a closed centerline", () => {
     const shape = scenarioShape(INCIDENT, 45, 2.5, 0);
     expect(shape).toHaveLength(3);
@@ -348,6 +376,12 @@ describe("scenarioShape", () => {
       RangeError,
     );
     expect(() => scenarioShape(INCIDENT, 45, 2.5, Infinity)).toThrow(
+      RangeError,
+    );
+    expect(() => scenarioShape(INCIDENT, Number.NaN, 2.5, 58)).toThrow(
+      RangeError,
+    );
+    expect(() => scenarioShape(INCIDENT, 45, Infinity, 58)).toThrow(
       RangeError,
     );
   });

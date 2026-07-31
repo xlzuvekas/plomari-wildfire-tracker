@@ -10,6 +10,7 @@ export type LatLngInput = readonly [latitude: number, longitude: number];
 const EARTH_RADIUS_KM = 6_371;
 const COINCIDENT_HAVERSINE_EPSILON = 1e-24;
 const ANTIPODAL_HAVERSINE_EPSILON = 1e-15;
+const LONGITUDE_HALF_TURN = 180;
 
 function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
@@ -30,6 +31,41 @@ function shortestLongitudeDelta(from: number, to: number): number {
 
 function longitudeNear(reference: number, longitude: number): number {
   return reference + shortestLongitudeDelta(reference, longitude);
+}
+
+function scenarioTaper(offset: number, halfAngle: number): number {
+  if (halfAngle === 0) return 1;
+  return (
+    0.38 +
+    0.62 * Math.cos((Math.abs(offset) / halfAngle) * (Math.PI / 2))
+  );
+}
+
+function scenarioReachesPole(
+  originLatitude: number,
+  heading: number,
+  distanceKm: number,
+  halfAngle: number,
+): boolean {
+  // Longitude is undefined at a pole, so any positive envelope originating
+  // there is unsuitable for a longitude/latitude polygon.
+  if (Math.abs(originLatitude) >= 90) return true;
+
+  for (const [poleLatitude, poleBearing] of [
+    [90, 0],
+    [-90, 180],
+  ] as const) {
+    const offset = shortestLongitudeDelta(heading, poleBearing);
+    if (Math.abs(offset) > halfAngle) continue;
+
+    const distanceToPoleKm =
+      EARTH_RADIUS_KM * toRadians(Math.abs(poleLatitude - originLatitude));
+    if (distanceKm * scenarioTaper(offset, halfAngle) >= distanceToPoleKm) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function destination(
@@ -162,6 +198,8 @@ export function nearestPointOnPolyline(
  * Builds a closed, tapered scenario wedge in a continuous longitude frame.
  * A zero half-angle is represented as an origin-tip-origin centerline;
  * positive half-angles must be less than 180 degrees so the ring stays simple.
+ * Envelopes that reach a geographic pole are rejected because no single
+ * longitude frame can represent them as both closed and continuous.
  */
 export function scenarioShape(
   origin: LatLngInput,
@@ -175,7 +213,15 @@ export function scenarioShape(
       "scenario halfAngle must be at least 0 and less than 180 degrees",
     );
   }
+  if (!Number.isFinite(heading) || !Number.isFinite(distanceKm)) {
+    throw new RangeError("scenario heading and distance must be finite");
+  }
   if (distanceKm <= 0) return [originPoint(), originPoint(), originPoint()];
+  if (scenarioReachesPole(origin[0], heading, distanceKm, halfAngle)) {
+    throw new RangeError(
+      "scenario envelope cannot reach a geographic pole in longitude/latitude geometry",
+    );
+  }
 
   if (halfAngle === 0) {
     const tip = destination(origin, heading, distanceKm);
@@ -192,23 +238,36 @@ export function scenarioShape(
   // silently dropping one side.
   let segmentCount = Math.max(2, Math.ceil((halfAngle * 2) / 8));
   if (segmentCount % 2 !== 0) segmentCount += 1;
+  let previousLongitude = origin[1];
   for (let index = 0; index <= segmentCount; index += 1) {
     const offset = -halfAngle + (halfAngle * 2 * index) / segmentCount;
-    const taper =
-      0.38 +
-      0.62 * Math.cos((Math.abs(offset) / halfAngle) * (Math.PI / 2));
     const vertex = destination(
       origin,
       heading + offset,
-      distanceKm * taper,
+      distanceKm * scenarioTaper(offset, halfAngle),
     );
-    // Keep the entire ring in the origin's longitude frame. A normalized
-    // vertex on the other side of the antimeridian would otherwise introduce
-    // a roughly 360-degree edge and render the envelope across the world.
-    points.push([
-      vertex[0],
-      longitudeNear(origin[1], vertex[1]),
-    ]);
+    // Unwrap from the preceding vertex rather than repeatedly from the origin.
+    // This preserves local continuity through every antimeridian crossing.
+    const unwrappedLongitude = longitudeNear(previousLongitude, vertex[1]);
+    if (
+      Math.abs(unwrappedLongitude - previousLongitude) >= LONGITUDE_HALF_TURN
+    ) {
+      throw new RangeError(
+        "scenario envelope cannot be represented in one continuous longitude frame",
+      );
+    }
+    points.push([vertex[0], unwrappedLongitude]);
+    previousLongitude = unwrappedLongitude;
+  }
+
+  // A sequentially unwrapped ring that winds around a pole ends one full turn
+  // away from its origin. Keep the returned ring exactly closed, and reject
+  // any unexpected winding instead of reintroducing a world-spanning edge.
+  const closingLongitude = longitudeNear(previousLongitude, origin[1]);
+  if (Math.abs(closingLongitude - origin[1]) >= LONGITUDE_HALF_TURN) {
+    throw new RangeError(
+      "scenario envelope cannot be represented in one continuous longitude frame",
+    );
   }
   points.push(originPoint());
 
