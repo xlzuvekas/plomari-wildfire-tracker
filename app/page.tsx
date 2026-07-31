@@ -31,8 +31,33 @@ import {
   zonedDateTimeAttribute,
 } from "@/lib/area-time";
 import { DEMAND_INTERVALS_MS } from "@/lib/firewatch/demand-policy";
+import {
+  bearingDeg,
+  destination,
+  distanceKm,
+  midpoint,
+  nearestPointOnPolyline,
+  scenarioShape,
+  type LatLngTuple,
+} from "@/lib/geo";
+import {
+  AGIOS_ANTONIOS,
+  AGIOS_ISIDOROS,
+  EVACUATION_ROUTE,
+  FIELD_REPORT_OCCURRED_AT,
+  INCIDENT,
+  INCIDENT_STARTED_AT,
+  INCIDENT_STARTED_EPOCH,
+  LANDFILL_FOOTPRINT,
+  MEGALOCHORI,
+  MELINTA,
+  MILIES,
+  OFFICIAL_ALERT_ISSUED_AT,
+  PERAMA,
+  PLAGIA,
+  PLOMARI_BEACH,
+} from "@/lib/incident";
 
-type LatLngTuple = [number, number];
 type Confidence = "official" | "observed" | "reported" | "modeled";
 type Language = "en" | "el";
 type LayerKey =
@@ -324,20 +349,6 @@ type UpdatesPayload = {
   }>;
 };
 
-const INCIDENT: LatLngTuple = [38.989013, 26.382489];
-const INCIDENT_STARTED_AT = "2026-07-29T10:30:00Z";
-const INCIDENT_STARTED_EPOCH = Date.parse(INCIDENT_STARTED_AT);
-const OFFICIAL_ALERT_ISSUED_AT = "2026-07-29T13:58:00Z";
-const FIELD_REPORT_OCCURRED_AT = "2026-07-29T17:50:00Z";
-const PLOMARI_BEACH: LatLngTuple = [38.9752, 26.3714];
-const AGIOS_ISIDOROS: LatLngTuple = [38.9702, 26.3927];
-const MELINTA: LatLngTuple = [38.9875, 26.3131];
-const MILIES: LatLngTuple = [38.998, 26.4109];
-const PLAGIA: LatLngTuple = [38.98234, 26.39769];
-const PERAMA: LatLngTuple = [39.0429, 26.50556];
-const AGIOS_ANTONIOS: LatLngTuple = [38.9817634, 26.4073025];
-const MEGALOCHORI: LatLngTuple = [39.0173137, 26.3687164];
-
 const STATIC_INTEL_OCCURRED_AT: Record<string, string> = {
   "overnight-hotspots": "2026-07-29T17:50:00Z",
   "no-active-front": "2026-07-29T16:55:00Z",
@@ -356,23 +367,6 @@ const CURRENT_ONLY_LAYER_KEYS = new Set<LayerKey>([
   "smokeObserved",
   "smoke",
 ]);
-
-// Road alignment for the archived 29 Jul 2026 16:58 EEST 112 instruction (Plomari beach ->
-// Agios Isidoros), traced once via OSRM. The alert named the endpoints,
-// not the streets; the map labels this caveat wherever the route shows.
-const EVACUATION_ROUTE: LatLngTuple[] = [[38.97519,26.3714],[38.97511,26.37183],[38.97492,26.37179],[38.97505,26.37152],[38.97512,26.37136],[38.97522,26.37117],[38.97531,26.37097],[38.9754,26.37069],[38.97556,26.37019],[38.97565,26.36987],[38.97556,26.36977],[38.97545,26.36967],[38.97527,26.36985],[38.97515,26.37007],[38.97503,26.37014],[38.975,26.37024],[38.97499,26.37043],[38.97499,26.37053],[38.97497,26.37068],[38.97488,26.37096],[38.97478,26.37116],[38.97468,26.37132],[38.97458,26.37157],[38.97441,26.3722],[38.97433,26.37257],[38.97427,26.37286],[38.97424,26.37306],[38.97413,26.3734],[38.97412,26.37362],[38.97411,26.37375],[38.97413,26.37423],[38.97416,26.37456],[38.97418,26.37478],[38.97418,26.37499],[38.97407,26.3753],[38.97402,26.37561],[38.97404,26.37588],[38.97403,26.37597],[38.9739,26.37621],[38.97383,26.37633],[38.97382,26.37638],[38.97382,26.37643],[38.97385,26.37652],[38.97422,26.377],[38.97431,26.37713],[38.97429,26.37722],[38.97416,26.3774],[38.97396,26.3777],[38.97386,26.37785],[38.97379,26.37795],[38.97348,26.37844],[38.97301,26.37922],[38.97291,26.37948],[38.97294,26.37977],[38.97292,26.37987],[38.97258,26.38018],[38.97227,26.38054],[38.97215,26.38068],[38.97212,26.38079],[38.97209,26.38093],[38.97209,26.38103],[38.97211,26.38109],[38.97219,26.38121],[38.9723,26.38129],[38.97254,26.38142],[38.9726,26.38146],[38.97263,26.38149],[38.97266,26.38152],[38.97266,26.38162],[38.97265,26.38169],[38.97261,26.38175],[38.97256,26.38179],[38.97186,26.38197],[38.97158,26.382],[38.97154,26.38202],[38.97151,26.38206],[38.97147,26.38211],[38.97145,26.38218],[38.97147,26.38321],[38.97146,26.38351],[38.97152,26.38383],[38.97152,26.38397],[38.97145,26.38433],[38.97144,26.38443],[38.97144,26.3847],[38.97149,26.3855],[38.97149,26.38566],[38.97147,26.38584],[38.97143,26.38602],[38.97136,26.38614],[38.97108,26.38631],[38.97092,26.38647],[38.97084,26.38664],[38.97078,26.38681],[38.97055,26.38761],[38.97041,26.38788],[38.97027,26.38807],[38.97012,26.38824],[38.97001,26.38838],[38.96966,26.38898],[38.96952,26.38913],[38.96942,26.38921],[38.96933,26.38925],[38.96912,26.3893],[38.96894,26.38937],[38.96885,26.38945],[38.96867,26.3898],[38.96847,26.39031],[38.96841,26.39059],[38.96839,26.39087],[38.9684,26.39107],[38.96843,26.3914],[38.96892,26.39187],[38.96893,26.39197],[38.96895,26.39199],[38.969,26.39198],[38.96915,26.39188],[38.96951,26.39179],[38.97006,26.39165],[38.97037,26.39158],[38.97048,26.39155],[38.9705,26.3916],[38.9705,26.39165],[38.97048,26.3917],[38.97015,26.39197],[38.96995,26.39216],[38.96986,26.39227]];
-
-const LANDFILL_FOOTPRINT: LatLngTuple[] = [
-  [38.9895777, 26.3815427],
-  [38.9896611, 26.3826692],
-  [38.9894318, 26.3841981],
-  [38.9890774, 26.3842678],
-  [38.9887021, 26.3833129],
-  [38.9879933, 26.3826156],
-  [38.9881392, 26.3818645],
-  [38.9887438, 26.3815963],
-  [38.9895777, 26.3815427],
-];
 
 const intelEn: IntelItem[] = [
   {
@@ -699,116 +693,6 @@ const BASEMAPS: Record<
   },
 };
 
-function destination(
-  origin: LatLngTuple,
-  bearingDegrees: number,
-  distanceKm: number,
-): LatLngTuple {
-  const radius = 6371;
-  const bearing = (bearingDegrees * Math.PI) / 180;
-  const angularDistance = distanceKm / radius;
-  const latitude = (origin[0] * Math.PI) / 180;
-  const longitude = (origin[1] * Math.PI) / 180;
-  const nextLatitude = Math.asin(
-    Math.sin(latitude) * Math.cos(angularDistance) +
-      Math.cos(latitude) * Math.sin(angularDistance) * Math.cos(bearing),
-  );
-  const nextLongitude =
-    longitude +
-    Math.atan2(
-      Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(latitude),
-      Math.cos(angularDistance) -
-        Math.sin(latitude) * Math.sin(nextLatitude),
-    );
-  return [
-    (nextLatitude * 180) / Math.PI,
-    (nextLongitude * 180) / Math.PI,
-  ];
-}
-
-function distanceKm(a: LatLngTuple, b: LatLngTuple) {
-  const radius = 6371;
-  const latA = (a[0] * Math.PI) / 180;
-  const latB = (b[0] * Math.PI) / 180;
-  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
-  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(latA) * Math.cos(latB) * Math.sin(dLon / 2) ** 2;
-  return 2 * radius * Math.asin(Math.sqrt(h));
-}
-
-function bearingDeg(a: LatLngTuple, b: LatLngTuple) {
-  const latA = (a[0] * Math.PI) / 180;
-  const latB = (b[0] * Math.PI) / 180;
-  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
-  const y = Math.sin(dLon) * Math.cos(latB);
-  const x =
-    Math.cos(latA) * Math.sin(latB) -
-    Math.sin(latA) * Math.cos(latB) * Math.cos(dLon);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
-// Equirectangular approximation is fine at incident scale (< 10 km spans).
-function nearestPointOnSegment(
-  point: LatLngTuple,
-  a: LatLngTuple,
-  b: LatLngTuple,
-): LatLngTuple {
-  const cosLat = Math.cos((point[0] * Math.PI) / 180);
-  const ax = (a[1] - point[1]) * cosLat;
-  const ay = a[0] - point[0];
-  const dx = (b[1] - a[1]) * cosLat;
-  const dy = b[0] - a[0];
-  const lengthSq = dx * dx + dy * dy;
-  const t =
-    lengthSq === 0
-      ? 0
-      : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSq));
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-}
-
-function nearestPointOnPolyline(
-  point: LatLngTuple,
-  line: readonly LatLngTuple[],
-): LatLngTuple {
-  let nearest = line[0] ?? point;
-  let nearestKm = distanceKm(point, nearest);
-
-  for (let index = 1; index < line.length; index += 1) {
-    const start = line[index - 1];
-    const end = line[index];
-    if (!start || !end) continue;
-    const candidate = nearestPointOnSegment(point, start, end);
-    const candidateKm = distanceKm(point, candidate);
-    if (candidateKm < nearestKm) {
-      nearest = candidate;
-      nearestKm = candidateKm;
-    }
-  }
-
-  return nearest;
-}
-
-function scenarioShape(
-  origin: LatLngTuple,
-  heading: number,
-  distanceKm: number,
-  halfAngle = 58,
-): LatLngTuple[] {
-  if (distanceKm <= 0) return [origin, origin, origin];
-  const points: LatLngTuple[] = [origin];
-  const step = Math.max(4, Math.round((halfAngle * 2) / 14));
-  for (let offset = -halfAngle; offset <= halfAngle; offset += step) {
-    const taper =
-      0.38 +
-      0.62 * Math.cos((Math.abs(offset) / halfAngle) * (Math.PI / 2));
-    points.push(destination(origin, heading + offset, distanceKm * taper));
-  }
-  points.push(origin);
-  return points;
-}
-
 function markerHtml(
   kind: "fire" | "settlement" | "arrow" | "wind" | "you",
   label: string,
@@ -831,10 +715,6 @@ function confidenceLabel(confidence: Confidence, language: Language) {
     return localize(language, "LOCAL REPORT", "ΤΟΠΙΚΗ ΑΝΑΦΟΡΑ");
   }
   return localize(language, "MODELED", "ΜΟΝΤΕΛΟ");
-}
-
-function midpoint(a: LatLngTuple, b: LatLngTuple): LatLngTuple {
-  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
 function ageLabel(
