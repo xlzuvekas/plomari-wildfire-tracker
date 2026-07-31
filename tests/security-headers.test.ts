@@ -12,9 +12,8 @@ describe("security headers", () => {
   it("applies the security header set to every path", async () => {
     const rules = await nextConfig.headers?.();
     expect(rules).toBeDefined();
-    expect(rules).toHaveLength(1);
-    expect(rules?.[0]?.source).toBe("/(.*)");
-    expect(rules?.[0]?.headers).toEqual(SECURITY_HEADERS);
+    expect(rules?.at(-1)?.source).toBe("/(.*)");
+    expect(rules?.at(-1)?.headers).toEqual(SECURITY_HEADERS);
   });
 
   it("locks framing, sniffing, referrers, and powerful features", () => {

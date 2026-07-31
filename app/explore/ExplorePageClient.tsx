@@ -28,8 +28,68 @@ import {
   type GlobalDiscoveryClient,
   type GlobalDiscoveryControllerSnapshot,
 } from "../../lib/firewatch/v3";
+import type { ExploreGlobeProps } from "./ExploreGlobe";
 
 import styles from "./ExplorePage.module.css";
+
+type ExploreGlobeModule = typeof import("./ExploreGlobe");
+type ExploreGlobeModuleLoader = () => Promise<ExploreGlobeModule>;
+type ExploreGlobeLoadState =
+  | Readonly<{ status: "loading" }>
+  | Readonly<{
+      status: "ready";
+      Component: ExploreGlobeModule["ExploreGlobe"];
+    }>
+  | Readonly<{ status: "error" }>;
+
+export async function loadExploreGlobeModule(
+  loader: ExploreGlobeModuleLoader = () => import("./ExploreGlobe"),
+): Promise<Exclude<ExploreGlobeLoadState, { status: "loading" }>> {
+  try {
+    const globeModule = await loader();
+    return { status: "ready", Component: globeModule.ExploreGlobe };
+  } catch {
+    return { status: "error" };
+  }
+}
+
+function LazyExploreGlobe(props: ExploreGlobeProps) {
+  const [loadState, setLoadState] = useState<ExploreGlobeLoadState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    let disposed = false;
+    void loadExploreGlobeModule().then((nextState) => {
+      if (!disposed) setLoadState(nextState);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  if (loadState.status === "ready") {
+    const Globe = loadState.Component;
+    return <Globe {...props} />;
+  }
+
+  const failed = loadState.status === "error";
+  return (
+    <section
+      className={styles.globeLoader}
+      data-state={failed ? "error" : "loading"}
+      aria-label="Global candidate map"
+    >
+      <p className={styles.eyebrow}>EXPLORE // AGGREGATE GLOBE</p>
+      <h2>{failed ? "Globe renderer unavailable" : "Loading globe renderer"}</h2>
+      <p role="status">
+        {failed
+          ? "The map code could not load. The authoritative, keyboard-accessible candidate list remains available below."
+          : "The keyboard-accessible candidate list remains available while the map code loads."}
+      </p>
+    </section>
+  );
+}
 
 type ExplorePageClientProps = Readonly<{
   fixtureMode: boolean;
@@ -37,6 +97,25 @@ type ExplorePageClientProps = Readonly<{
 }>;
 
 type PageMode = "explore" | "nearby";
+const COMPACT_CONTROLS_QUERY = "(max-width: 52rem)";
+
+function subscribeToCompactControls(onStoreChange: () => void) {
+  const query = window.matchMedia(COMPACT_CONTROLS_QUERY);
+  if (typeof query.addEventListener === "function") {
+    query.addEventListener("change", onStoreChange);
+    return () => query.removeEventListener("change", onStoreChange);
+  }
+  query.addListener(onStoreChange);
+  return () => query.removeListener(onStoreChange);
+}
+
+function compactControlsSnapshot() {
+  return window.matchMedia(COMPACT_CONTROLS_QUERY).matches;
+}
+
+function compactControlsServerSnapshot() {
+  return true;
+}
 
 type LocationStatus =
   | Readonly<{ state: "idle" }>
@@ -185,6 +264,13 @@ export function ExplorePageClient({
     state: "idle",
   });
   const [selected, setSelected] = useState<DiscoverySelection | null>(null);
+  const compactControls = useSyncExternalStore(
+    subscribeToCompactControls,
+    compactControlsSnapshot,
+    compactControlsServerSnapshot,
+  );
+  const [compactControlsOpen, setCompactControlsOpen] = useState(false);
+  const controlsOpen = !compactControls || compactControlsOpen;
   const locationIntent = useRef(0);
   const visibleExploreResponse =
     snapshot.status === "ready" &&
@@ -367,6 +453,16 @@ export function ExplorePageClient({
       : confirmedCell
         ? nearbyPanelState(snapshot, confirmedCell)
         : null;
+  const globeRequestStatus =
+    panelState?.mode === "explore-candidates"
+      ? panelState.status
+      : "loading";
+  const globeResponse =
+    panelState?.mode === "explore-candidates"
+      ? panelState.status === "ready"
+        ? panelState.response
+        : panelState.lastGood ?? null
+      : null;
   const refreshCurrentTarget = () => {
     if (mode === "explore") {
       void controller.activate({ mode: "explore-candidates" });
@@ -405,166 +501,197 @@ export function ExplorePageClient({
 
       <div className={styles.workspace}>
         <aside className={styles.controls} aria-label="Discovery controls">
-          <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}>
-              <span>01</span>
-              <div>
-                <h2>Choose a view</h2>
-                <p>Switching views aborts any stale request.</p>
-              </div>
-            </div>
-            <div
-              className={styles.modeControl}
-              role="group"
-              aria-label="Discovery view"
-            >
-              <button
-                type="button"
-                aria-pressed={mode === "explore"}
-                data-active={mode === "explore" || undefined}
-                onClick={() => {
-                  locationIntent.current += 1;
-                  setSelected(null);
-                  setMode("explore");
-                }}
-              >
-                Explore
-                <span>Global candidates</span>
-              </button>
-              <button
-                type="button"
-                aria-pressed={mode === "nearby"}
-                data-active={mode === "nearby" || undefined}
-                onClick={() => {
-                  locationIntent.current += 1;
-                  setSelected(null);
-                  setMode("nearby");
-                }}
-              >
-                Nearby
-                <span>Confirmed coarse area</span>
-              </button>
-            </div>
-          </section>
+          <details
+            className={styles.controlsDisclosure}
+            open={controlsOpen}
+            onToggle={(event) => {
+              if (compactControls) {
+                setCompactControlsOpen(event.currentTarget.open);
+              }
+            }}
+          >
+            <summary className={styles.controlsSummary}>
+              <span>
+                <strong>Discovery controls</strong>
+                <small>
+                  {mode === "explore"
+                    ? "Explore global candidates"
+                    : confirmedCell
+                      ? `Nearby · ${confirmedCell}`
+                      : "Nearby · area required"}
+                </small>
+              </span>
+              <span className={styles.controlsChevron} aria-hidden="true">
+                ⌄
+              </span>
+            </summary>
+            <div className={styles.controlsBody}>
+              <section className={styles.controlSection}>
+                <div className={styles.sectionHeading}>
+                  <span>01</span>
+                  <div>
+                    <h2>Choose a view</h2>
+                    <p>Switching views aborts any stale request.</p>
+                  </div>
+                </div>
+                <div
+                  className={styles.modeControl}
+                  role="group"
+                  aria-label="Discovery view"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={mode === "explore"}
+                    data-active={mode === "explore" || undefined}
+                    onClick={() => {
+                      locationIntent.current += 1;
+                      setSelected(null);
+                      setMode("explore");
+                    }}
+                  >
+                    Explore
+                    <span>Global candidates</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={mode === "nearby"}
+                    data-active={mode === "nearby" || undefined}
+                    onClick={() => {
+                      locationIntent.current += 1;
+                      setSelected(null);
+                      setMode("nearby");
+                    }}
+                  >
+                    Nearby
+                    <span>Confirmed coarse area</span>
+                  </button>
+                </div>
+              </section>
 
-          <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}>
-              <span>02</span>
-              <div>
-                <h2>Confirm a coarse area</h2>
-                <p>Nearby never sends an exact device position.</p>
-              </div>
-            </div>
+              <section className={styles.controlSection}>
+                <div className={styles.sectionHeading}>
+                  <span>02</span>
+                  <div>
+                    <h2>Confirm a coarse area</h2>
+                    <p>Nearby never sends an exact device position.</p>
+                  </div>
+                </div>
 
-            <button
-              type="button"
-              className={styles.locationButton}
-              onClick={useDeviceArea}
-              disabled={locationStatus.state === "requesting"}
-            >
-              {locationStatus.state === "requesting"
-                ? "Converting location locally…"
-                : "Find my coarse area"}
-            </button>
-            <p className={styles.privacyNote}>
-              Your browser converts the location to a canonical cell before
-              any request. Only that cell key leaves this device.
-            </p>
-
-            {locationStatus.state === "ready" ? (
-              <div className={styles.locationPreview}>
-                <p className={styles.inlineStatus} role="status">
-                  Device area ready: <code>{locationStatus.cell}</code>
+                <button
+                  type="button"
+                  className={styles.locationButton}
+                  onClick={useDeviceArea}
+                  disabled={locationStatus.state === "requesting"}
+                >
+                  {locationStatus.state === "requesting"
+                    ? "Converting location locally…"
+                    : "Find my coarse area"}
+                </button>
+                <p className={styles.privacyNote}>
+                  Your browser converts the location to a canonical cell before
+                  any request. Only that cell key leaves this device.
                 </p>
+
+                {locationStatus.state === "ready" ? (
+                  <div className={styles.locationPreview}>
+                    <p className={styles.inlineStatus} role="status">
+                      Device area ready: <code>{locationStatus.cell}</code>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => confirmCell(locationStatus.cell)}
+                    >
+                      Confirm this area for Nearby
+                    </button>
+                  </div>
+                ) : locationStatus.state === "error" ? (
+                  <p className={styles.inlineError} role="alert">
+                    {locationStatus.message}
+                  </p>
+                ) : null}
+
+                <form className={styles.cellForm} onSubmit={submitCell}>
+                  <label htmlFor="discovery-cell">Canonical coarse cell</label>
+                  <div>
+                    <input
+                      id="discovery-cell"
+                      name="cell"
+                      value={cellInput}
+                      onChange={(event) => setCellInput(event.target.value)}
+                      placeholder="wm/10/587/391"
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-describedby="discovery-cell-help"
+                      aria-invalid={cellError !== null}
+                    />
+                    <button type="submit">Confirm</button>
+                  </div>
+                  <p id="discovery-cell-help">
+                    A shared link or confirmed map/place selection can provide
+                    this cell without exposing coordinates.
+                  </p>
+                </form>
+                {cellError ? (
+                  <p className={styles.inlineError} role="alert">
+                    {cellError}
+                  </p>
+                ) : null}
+
+                {candidateCell ? (
+                  <div className={styles.suggestion}>
+                    <span>Selected candidate area</span>
+                    <code>{candidateCell}</code>
+                    <button
+                      type="button"
+                      onClick={() => confirmCell(candidateCell)}
+                    >
+                      Confirm for Nearby
+                    </button>
+                  </div>
+                ) : initialSuggestedCell &&
+                  confirmedCell !== initialSuggestedCell ? (
+                  <div className={styles.suggestion}>
+                    <span>Suggested area from this link</span>
+                    <code>{initialSuggestedCell}</code>
+                    <button
+                      type="button"
+                      onClick={() => confirmCell(initialSuggestedCell)}
+                    >
+                      Confirm suggestion
+                    </button>
+                  </div>
+                ) : null}
+
+                {confirmedCell ? (
+                  <p className={styles.confirmedCell}>
+                    Active Nearby area <code>{confirmedCell}</code>
+                  </p>
+                ) : null}
+              </section>
+
+              <section className={styles.controlSection}>
+                <div className={styles.sectionHeading}>
+                  <span>03</span>
+                  <div>
+                    <h2>Refresh policy</h2>
+                    <p>Canonical five-minute UTC snapshots.</p>
+                  </div>
+                </div>
                 <button
                   type="button"
-                  onClick={() => confirmCell(locationStatus.cell)}
+                  className={styles.refreshButton}
+                  disabled={!hasActiveTarget || isLoading}
+                  onClick={refreshCurrentTarget}
                 >
-                  Confirm this area for Nearby
+                  {isLoading ? "Refreshing…" : "Refresh now"}
                 </button>
-              </div>
-            ) : locationStatus.state === "error" ? (
-              <p className={styles.inlineError} role="alert">
-                {locationStatus.message}
-              </p>
-            ) : null}
-
-            <form className={styles.cellForm} onSubmit={submitCell}>
-              <label htmlFor="discovery-cell">Canonical coarse cell</label>
-              <div>
-                <input
-                  id="discovery-cell"
-                  name="cell"
-                  value={cellInput}
-                  onChange={(event) => setCellInput(event.target.value)}
-                  placeholder="wm/10/587/391"
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-describedby="discovery-cell-help"
-                  aria-invalid={cellError !== null}
-                />
-                <button type="submit">Confirm</button>
-              </div>
-              <p id="discovery-cell-help">
-                A shared link or confirmed map/place selection can provide this
-                cell without exposing coordinates.
-              </p>
-            </form>
-            {cellError ? (
-              <p className={styles.inlineError} role="alert">
-                {cellError}
-              </p>
-            ) : null}
-
-            {candidateCell ? (
-              <div className={styles.suggestion}>
-                <span>Selected candidate area</span>
-                <code>{candidateCell}</code>
-                <button type="button" onClick={() => confirmCell(candidateCell)}>
-                  Confirm for Nearby
-                </button>
-              </div>
-            ) : initialSuggestedCell && confirmedCell !== initialSuggestedCell ? (
-              <div className={styles.suggestion}>
-                <span>Suggested area from this link</span>
-                <code>{initialSuggestedCell}</code>
-                <button
-                  type="button"
-                  onClick={() => confirmCell(initialSuggestedCell)}
-                >
-                  Confirm suggestion
-                </button>
-              </div>
-            ) : null}
-
-            {confirmedCell ? (
-              <p className={styles.confirmedCell}>
-                Active Nearby area <code>{confirmedCell}</code>
-              </p>
-            ) : null}
-          </section>
-
-          <section className={styles.controlSection}>
-            <div className={styles.sectionHeading}>
-              <span>03</span>
-              <div>
-                <h2>Refresh policy</h2>
-                <p>Canonical five-minute UTC snapshots.</p>
-              </div>
+                <p className={styles.privacyNote}>
+                  Automatic refresh pauses while this tab is hidden and resumes
+                  on the next five-minute snapshot when visible.
+                </p>
+              </section>
             </div>
-            <button
-              type="button"
-              className={styles.refreshButton}
-              disabled={!hasActiveTarget || isLoading}
-              onClick={refreshCurrentTarget}
-            >
-              {isLoading ? "Refreshing…" : "Refresh now"}
-            </button>
-            <p className={styles.privacyNote}>
-              Automatic refresh pauses while this tab is hidden and resumes on
-              the next five-minute snapshot when visible.
-            </p>
-          </section>
+          </details>
         </aside>
 
         <section
@@ -572,6 +699,14 @@ export function ExplorePageClient({
           id="discovery-results"
           aria-label="Discovery results"
         >
+          {mode === "explore" ? (
+            <LazyExploreGlobe
+              requestStatus={globeRequestStatus}
+              response={globeResponse}
+              selected={selected}
+              onSelectionChange={setSelected}
+            />
+          ) : null}
           {panelState ? (
             <DiscoveryPanel
               className={styles.discoveryPanel}
