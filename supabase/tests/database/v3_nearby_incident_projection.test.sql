@@ -61,6 +61,12 @@ select ok(
   'PostgREST may assume a no-login, no-inherit, non-privileged reader role'
 );
 
+-- The production reader deliberately has no access to the extensions schema.
+-- Grant only transaction-local pgTAP access so the assertion itself can run
+-- under the same role as the RPC call; the outer rollback removes these grants.
+grant usage on schema extensions to firewatch_discovery_reader;
+grant execute on all functions in schema extensions to firewatch_discovery_reader;
+
 set local role firewatch_discovery_reader;
 
 select throws_ok(
