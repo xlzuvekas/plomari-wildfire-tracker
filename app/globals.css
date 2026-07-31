@@ -2203,6 +2203,33 @@ button {
     --mobile-alert: 0px;
   }
 
+  /* Server render cannot read the viewer's saved preference. Reserve only the
+     compact archived-alert row until hydration restores the explicit choice. */
+  .command-shell:not(.alert-preference-ready):not(.without-archived-alert) {
+    --mobile-alert: 48px;
+  }
+
+  .command-shell:not(.alert-preference-ready) .evacuation-banner {
+    height: var(--mobile-alert);
+    min-height: var(--mobile-alert);
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 8px;
+    overflow: hidden;
+  }
+
+  .command-shell:not(.alert-preference-ready) .evacuation-code,
+  .command-shell:not(.alert-preference-ready) .evacuation-copy > :not(.evacuation-archive-tag),
+  .command-shell:not(.alert-preference-ready) .evacuation-banner > a,
+  .command-shell:not(.alert-preference-ready) .evacuation-hide {
+    display: none;
+  }
+
+  .command-shell:not(.alert-preference-ready) .evacuation-archive-tag {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .top-hud {
     min-height: var(--mobile-head);
     padding-top: max(10px, env(safe-area-inset-top));
@@ -2910,6 +2937,10 @@ button {
   background: var(--green);
 }
 
+.locate-summary {
+  display: none;
+}
+
 .locate-readout {
   position: absolute;
   z-index: 1095;
@@ -2964,6 +2995,36 @@ button {
 
 .locate-readout--error span {
   color: #ffd699;
+}
+
+.location-context {
+  display: grid;
+  min-height: 0;
+  gap: 9px;
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.location-context[hidden] {
+  display: none;
+}
+
+.location-context strong {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.location-context span {
+  color: var(--ink);
+}
+
+.location-context small {
+  color: var(--muted);
+  font-size: 0.6875rem;
 }
 
 .alert-toast {
@@ -3207,36 +3268,82 @@ button {
   }
 
   .locate-readout {
-    z-index: 1200;
-    top: auto;
-    left: 8px;
-    bottom: calc(var(--mobile-dock) + 12px);
-    max-width: min(264px, calc(100vw - 112px));
-    max-height: min(190px, 32dvh);
-    gap: 2px;
-    padding: 6px 7px;
-    overflow: auto;
-    font-size: 0.625rem;
-    overscroll-behavior: contain;
-  }
-
-  .locate-readout__privacy-long,
-  .locate-readout__route,
-  .locate-readout__distance-note {
     display: none;
   }
 
-  .locate-readout .locate-readout__privacy-short {
-    display: inline;
-    color: var(--green);
+  .locate-summary {
+    position: absolute;
+    z-index: 1200;
+    right: 8px;
+    bottom: calc(var(--mobile-dock) + 12px);
+    left: 8px;
+    display: grid;
+    height: 56px;
+    max-height: 56px;
+    min-height: 44px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 1fr 1fr;
+    align-items: center;
+    column-gap: 10px;
+    padding: 6px 8px 6px 10px;
+    overflow: hidden;
+    color: var(--ink);
+    border: 1px solid rgba(57, 242, 197, 0.42);
+    border-left: 3px solid var(--green);
+    background: rgba(3, 12, 17, 0.96);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+    cursor: pointer;
+    text-align: left;
+    backdrop-filter: blur(12px);
+    transition:
+      transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+      border-color 140ms ease,
+      background-color 140ms ease;
   }
 
-  .locate-readout small {
+  .locate-summary strong,
+  .locate-summary span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .locate-summary strong {
+    align-self: end;
+    color: var(--green);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .locate-summary span {
+    align-self: start;
+    color: var(--muted);
+    font-size: 0.6875rem;
+    line-height: 1.2;
+  }
+
+  .locate-summary b {
+    min-width: 64px;
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    color: var(--cyan);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-align: right;
+  }
+
+  .locate-summary:active {
+    transform: scale(0.985);
   }
 
   .has-mobile-sheet .locate-control,
-  .has-mobile-sheet .locate-readout {
+  .has-mobile-sheet .locate-readout,
+  .has-mobile-sheet .locate-summary {
     display: none;
   }
 

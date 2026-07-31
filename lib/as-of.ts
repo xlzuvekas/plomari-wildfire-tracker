@@ -27,6 +27,25 @@ export function clampAsOfEpoch(
   return Math.min(currentTime, Math.max(incidentStartedAt, value));
 }
 
+/**
+ * Converts the range control's numeric value into the application's explicit
+ * Live/null sentinel. The final half-step is reserved for Live so a thumb at
+ * the visual right edge can never leave polling paused in a near-current
+ * historical state.
+ */
+export function asOfEpochFromRangeValue(
+  value: number,
+  incidentStartedAt: number,
+  currentTime: number,
+  stepMs: number,
+): number | null {
+  if (!Number.isFinite(stepMs) || stepMs <= 0) {
+    throw new RangeError("Invalid as-of range step");
+  }
+  const clamped = clampAsOfEpoch(value, incidentStartedAt, currentTime);
+  return clamped >= currentTime - stepMs / 2 ? null : clamped;
+}
+
 export function effectiveAsOfEpoch(
   selection: AsOfSelection,
   currentTime: number,

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   LIVE_AS_OF,
+  asOfEpochFromRangeValue,
   clampAsOfEpoch,
   effectiveAsOfEpoch,
   filterAtOrBefore,
@@ -33,6 +34,21 @@ describe("as-of bounds", () => {
   test("resolves Live to current time and preserves a historical selection", () => {
     expect(effectiveAsOfEpoch(LIVE_AS_OF, NOW)).toBe(NOW);
     expect(effectiveAsOfEpoch(AS_OF, NOW)).toBe(AS_OF.epochMs);
+  });
+
+  test("reserves the range right edge for the explicit Live sentinel", () => {
+    const step = 15 * 60_000;
+    expect(asOfEpochFromRangeValue(NOW, START, NOW, step)).toBeNull();
+    expect(asOfEpochFromRangeValue(NOW - step / 2, START, NOW, step)).toBeNull();
+    expect(
+      asOfEpochFromRangeValue(NOW - step / 2 - 1, START, NOW, step),
+    ).toBe(NOW - step / 2 - 1);
+  });
+
+  test("rejects an invalid range step", () => {
+    expect(() => asOfEpochFromRangeValue(NOW, START, NOW, 0)).toThrow(
+      RangeError,
+    );
   });
 });
 

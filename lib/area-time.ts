@@ -6,8 +6,25 @@ const OFFSET_TIMESTAMP = /(?:Z|[+-]\d{2}:\d{2})$/i;
 const LOCAL_DATE_TIME =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/;
 
-function locale(language: AreaTimeLanguage) {
+function areaLocale(language: AreaTimeLanguage) {
   return language === "el" ? "el-GR" : "en-GB";
+}
+
+function safeLocale(value: string | undefined) {
+  try {
+    return Intl.getCanonicalLocales(value ?? "en-GB")[0] ?? "en-GB";
+  } catch {
+    return "en-GB";
+  }
+}
+
+function safeTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: value }).format(0);
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 function part(
@@ -17,19 +34,20 @@ function part(
   return parts.find((candidate) => candidate.type === type)?.value ?? "";
 }
 
-function offsetForInstant(date: Date) {
+function offsetForInstant(date: Date, timeZone: string) {
   const value = part(
     new Intl.DateTimeFormat("en-GB", {
-      timeZone: AREA_TIME_ZONE,
+      timeZone,
       timeZoneName: "longOffset",
     }).formatToParts(date),
     "timeZoneName",
   );
-  return value.replace(/^GMT/, "UTC");
+  const normalized = value.replace(/^GMT/u, "UTC");
+  return normalized === "UTC" ? "UTC+00:00" : normalized;
 }
 
-function offsetMinutesForInstant(date: Date) {
-  const offset = offsetForInstant(date).match(
+function offsetMinutesForInstant(date: Date, timeZone: string) {
+  const offset = offsetForInstant(date, timeZone).match(
     /^UTC([+-])(\d{2}):(\d{2})$/,
   );
   if (!offset) return null;
@@ -43,13 +61,6 @@ function offsetSuffix(offsetMinutes: number) {
   return `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(
     absolute % 60,
   ).padStart(2, "0")}`;
-}
-
-function zoneAbbreviation(date: Date) {
-  const offset = offsetForInstant(date);
-  if (offset === "UTC+03:00") return "EEST";
-  if (offset === "UTC+02:00") return "EET";
-  return AREA_TIME_ZONE;
 }
 
 export function parseZonedInstant(
@@ -76,12 +87,12 @@ export function normalizeAthensWallTime(
 
   const approximateUtc = new Date(`${value}Z`);
   if (Number.isNaN(approximateUtc.getTime())) return null;
-  const firstOffset = offsetMinutesForInstant(approximateUtc);
+  const firstOffset = offsetMinutesForInstant(approximateUtc, AREA_TIME_ZONE);
   if (firstOffset === null) return null;
   const candidate = new Date(
     approximateUtc.getTime() - firstOffset * 60_000,
   );
-  const actualOffset = offsetMinutesForInstant(candidate);
+  const actualOffset = offsetMinutesForInstant(candidate, AREA_TIME_ZONE);
   if (actualOffset === null) return null;
   return `${value}${offsetSuffix(actualOffset)}`;
 }
@@ -92,22 +103,51 @@ export function zonedDateTimeAttribute(
   return parseZonedInstant(value)?.toISOString();
 }
 
-export function formatAreaDateTime(
+export type ZonedDateTimePresentation = Readonly<{
+  dateTime: string | undefined;
+  primary: string;
+  context: string;
+  label: string;
+}>;
+
+export type AreaDateTimePresentationOptions = Readonly<{
+  includeSeconds?: boolean;
+  includeWeekday?: boolean;
+  includeTimeZone?: boolean;
+  includeOffset?: boolean;
+}>;
+
+/**
+ * Presents an offset-qualified instant in an explicit civil timezone. Invalid
+ * timestamps and timezone identifiers fail closed instead of falling back to
+ * the viewer's device timezone.
+ */
+export function presentZonedDateTime(
   value: string | null | undefined,
-  language: AreaTimeLanguage = "en",
-  options: {
+  options: Readonly<{
+    timeZone: string;
+    locale?: string;
     includeSeconds?: boolean;
     includeWeekday?: boolean;
+    includeTimeZone?: boolean;
     includeOffset?: boolean;
-  } = {},
-) {
+    unknownLabel?: string;
+  }>,
+): ZonedDateTimePresentation {
   const parsed = parseZonedInstant(value);
-  if (!parsed) {
-    return language === "el" ? "ΑΓΝΩΣΤΗ ΩΡΑ" : "TIME UNKNOWN";
+  const timeZone = safeTimeZone(options.timeZone);
+  if (!parsed || timeZone === null) {
+    const unknown = options.unknownLabel ?? "TIME UNKNOWN";
+    return {
+      dateTime: undefined,
+      primary: unknown,
+      context: "",
+      label: unknown,
+    };
   }
 
-  const parts = new Intl.DateTimeFormat(locale(language), {
-    timeZone: AREA_TIME_ZONE,
+  const parts = new Intl.DateTimeFormat(safeLocale(options.locale), {
+    timeZone,
     weekday: options.includeWeekday ? "short" : undefined,
     day: "2-digit",
     month: "short",
@@ -118,19 +158,52 @@ export function formatAreaDateTime(
     hourCycle: "h23",
   }).formatToParts(parsed);
   const weekday = options.includeWeekday
-    ? `${part(parts, "weekday").replace(/\.$/, "")} `
+    ? `${part(parts, "weekday").replace(/\.$/u, "")} `
     : "";
   const date = `${weekday}${part(parts, "day")} ${part(parts, "month").replace(
-    /\.$/,
+    /\.$/u,
     "",
   )} ${part(parts, "year")}`;
   const clock = `${part(parts, "hour")}:${part(parts, "minute")}${
     options.includeSeconds ? `:${part(parts, "second")}` : ""
   }`;
-  const offset = options.includeOffset
-    ? ` (${offsetForInstant(parsed)})`
-    : "";
-  return `${date} · ${clock} ${zoneAbbreviation(parsed)}${offset}`;
+  const primary = `${date} · ${clock}`;
+  const context = [
+    options.includeTimeZone === false ? null : timeZone,
+    options.includeOffset === false ? null : offsetForInstant(parsed, timeZone),
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+  return {
+    dateTime: parsed.toISOString(),
+    primary,
+    context,
+    label: context ? `${primary} · ${context}` : primary,
+  };
+}
+
+export function presentAreaDateTime(
+  value: string | null | undefined,
+  language: AreaTimeLanguage = "en",
+  options: AreaDateTimePresentationOptions = {},
+): ZonedDateTimePresentation {
+  return presentZonedDateTime(value, {
+    timeZone: AREA_TIME_ZONE,
+    locale: areaLocale(language),
+    includeSeconds: options.includeSeconds,
+    includeWeekday: options.includeWeekday,
+    includeTimeZone: options.includeTimeZone,
+    includeOffset: options.includeOffset,
+    unknownLabel: language === "el" ? "ΑΓΝΩΣΤΗ ΩΡΑ" : "TIME UNKNOWN",
+  });
+}
+
+export function formatAreaDateTime(
+  value: string | null | undefined,
+  language: AreaTimeLanguage = "en",
+  options: AreaDateTimePresentationOptions = {},
+) {
+  return presentAreaDateTime(value, language, options).label;
 }
 
 export function formatAreaDate(
@@ -141,7 +214,7 @@ export function formatAreaDate(
   if (!parsed) {
     return language === "el" ? "ΑΓΝΩΣΤΗ ΗΜΕΡΟΜΗΝΙΑ" : "DATE UNKNOWN";
   }
-  return new Intl.DateTimeFormat(locale(language), {
+  return new Intl.DateTimeFormat(areaLocale(language), {
     timeZone: AREA_TIME_ZONE,
     day: "2-digit",
     month: "short",
