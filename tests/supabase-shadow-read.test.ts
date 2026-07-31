@@ -329,6 +329,29 @@ describe("GET /api/v3/shadow/sources", () => {
     expect(await conditional.text()).toBe("");
   });
 
+  it.each(["1", "100"])(
+    "accepts the canonical limit boundary %s",
+    async (limit) => {
+      configureRouteEnvironment();
+      const fetchMock = installRouteFetch();
+
+      const response = await GET(
+        new Request(
+          `http://localhost/api/v3/shadow/sources?limit=${limit}`,
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      const healthCall = fetchMock.mock.calls.find(([input]) =>
+        new URL(String(input)).pathname.endsWith("/source_health"),
+      );
+      expect(healthCall).toBeDefined();
+      expect(new URL(String(healthCall?.[0])).searchParams.get("limit")).toBe(
+        String(Number(limit) + 1),
+      );
+    },
+  );
+
   it("fails closed and skips the network when server configuration is absent", async () => {
     vi.stubEnv("SUPABASE_URL", "");
     vi.stubEnv("SUPABASE_PUBLISHABLE_KEY", "");
@@ -367,6 +390,52 @@ describe("GET /api/v3/shadow/sources", () => {
     expect(body).not.toContain(marker);
   });
 
+  it("fails closed when source projection expands beyond the public response ceiling", async () => {
+    configureRouteEnvironment();
+    const uuidAt = (sequence: number) =>
+      `018f0000-0000-7000-8000-${sequence.toString(16).padStart(12, "0")}`;
+    const healthRows = Array.from({ length: 100 }, (_, index) => ({
+      ...HEALTH_ROW,
+      health_id: uuidAt(0x700 + index),
+      collection_target_id: uuidAt(0x900 + index),
+      collection_target_name: `Global target ${index + 1}`,
+    }));
+    const marker = "oversized-public-marker";
+    const catalogRow = {
+      ...CATALOG_ROW,
+      homepage_url: `https://example.com/${marker}/${"x".repeat(12_000)}`,
+    };
+    const fetchMock = vi.fn(
+      async (input: Parameters<typeof fetch>[0]) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/source_health")) {
+          return Response.json(healthRows);
+        }
+        if (url.pathname.endsWith("/source_catalog")) {
+          return Response.json([catalogRow]);
+        }
+        return Response.json(
+          { error: "unexpected test route" },
+          { status: 404 },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(
+      new Request("http://localhost/api/v3/shadow/sources?limit=100"),
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("etag")).toBeNull();
+    expect(body).toContain("read_model_unavailable");
+    expect(body).not.toContain(marker);
+    expect(body.length).toBeLessThan(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects malformed, repeated, and unknown query parameters before fetching", async () => {
     configureRouteEnvironment();
     const fetchMock = vi.fn();
@@ -374,6 +443,11 @@ describe("GET /api/v3/shadow/sources", () => {
 
     const paths = [
       "/api/v3/shadow/sources?limit=101",
+      "/api/v3/shadow/sources?limit=01",
+      "/api/v3/shadow/sources?limit=1.0",
+      "/api/v3/shadow/sources?limit=1e1",
+      "/api/v3/shadow/sources?limit=%2B1",
+      "/api/v3/shadow/sources?limit=1%20",
       "/api/v3/shadow/sources?limit=1&limit=2",
       "/api/v3/shadow/sources?unknown=true",
       "/api/v3/shadow/sources?after=not-a-cursor",
