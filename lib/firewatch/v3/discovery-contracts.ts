@@ -35,7 +35,14 @@ const areaCellKeySchema = z
   .trim()
   .min(1)
   .max(64)
-  .refine((value) => parseAreaCellKey(value)?.cellKey === value, {
+  .refine((value) => {
+    const cell = parseAreaCellKey(value);
+    return (
+      cell?.cellKey === value &&
+      cell.minimumSpanM >= 8_000 &&
+      cell.minimumSpanM <= 80_000
+    );
+  }, {
     message: "Expected a canonical Firewatch coarse-area cell key",
   });
 
@@ -221,6 +228,7 @@ export const publicTemporalValueSchema = z.discriminatedUnion("precision", [
   z.strictObject({
     precision: z.literal("date_only"),
     date: localDateSchema,
+    calendarTimeZone: ianaTimeZoneSchema,
   }),
   z.strictObject({
     precision: z.literal("unknown"),
@@ -235,6 +243,7 @@ const datedPublicTemporalValueSchema = z.discriminatedUnion("precision", [
   z.strictObject({
     precision: z.literal("date_only"),
     date: localDateSchema,
+    calendarTimeZone: ianaTimeZoneSchema,
   }),
 ]);
 
@@ -248,7 +257,11 @@ function comparePublicTemporalValues(
     const difference = Date.parse(left.instant) - Date.parse(right.instant);
     return difference === 0 ? "equal" : difference < 0 ? "before" : "after";
   }
-  if (left.precision === "date_only" && right.precision === "date_only") {
+  if (
+    left.precision === "date_only" &&
+    right.precision === "date_only" &&
+    left.calendarTimeZone === right.calendarTimeZone
+  ) {
     return left.date === right.date
       ? "equal"
       : left.date < right.date
@@ -341,6 +354,10 @@ export const discoveryCoverageSchema = z
     }),
     z.strictObject({
       state: z.literal("unconfigured"),
+      ...coverageBaseShape,
+    }),
+    z.strictObject({
+      state: z.literal("not_assessed"),
       ...coverageBaseShape,
     }),
   ])
@@ -601,7 +618,6 @@ type ResponseItemTime = Readonly<{
   eventTimes: readonly z.output<typeof publicTemporalValueSchema>[];
   inclusionTime: z.output<typeof datedPublicTemporalValueSchema>;
   knownAt: string;
-  timeZone: string;
 }>;
 
 type ResponseEnvelope = Readonly<{
@@ -767,12 +783,6 @@ function addResponseEnvelopeIssues(
   }
 
   for (const [index, item] of itemTimes.entries()) {
-    const asOfLocalDate = localDateAt(time.asOf, item.timeZone);
-    const knownAtLocalDate = localDateAt(item.knownAt, item.timeZone);
-    const observedFromLocalDate = localDateAt(
-      time.observedWindow.from,
-      item.timeZone,
-    );
     if (Date.parse(item.knownAt) > knownAtMs) {
       context.addIssue({
         code: "custom",
@@ -793,7 +803,8 @@ function addResponseEnvelopeIssues(
       }
       if (
         eventTime.precision === "date_only" &&
-        eventTime.date > asOfLocalDate
+        eventTime.date >
+          localDateAt(time.asOf, eventTime.calendarTimeZone)
       ) {
         context.addIssue({
           code: "custom",
@@ -803,7 +814,8 @@ function addResponseEnvelopeIssues(
       }
       if (
         eventTime.precision === "date_only" &&
-        eventTime.date > knownAtLocalDate
+        eventTime.date >
+          localDateAt(item.knownAt, eventTime.calendarTimeZone)
       ) {
         context.addIssue({
           code: "custom",
@@ -827,7 +839,11 @@ function addResponseEnvelopeIssues(
     }
     if (
       item.inclusionTime.precision === "date_only" &&
-      item.inclusionTime.date < observedFromLocalDate
+      item.inclusionTime.date <
+        localDateAt(
+          time.observedWindow.from,
+          item.inclusionTime.calendarTimeZone,
+        )
     ) {
       context.addIssue({
         code: "custom",
@@ -907,7 +923,6 @@ export const exploreDiscoveryResponseSchema = z
         ],
         inclusionTime: candidate.times.latestObservedAt,
         knownAt: candidate.times.knownAt,
-        timeZone: candidate.displayArea.timeZone,
       })),
       "candidates",
       context,
@@ -929,10 +944,34 @@ export const nearbyDiscoveryResponseSchema = z
     page: responsePageSchema,
   })
   .superRefine((response, context) => {
-    if (response.time.timeZone.basis !== "scope") {
+    const usesUtcFallback = response.time.timeZone.basis === "utc-fallback";
+    if (
+      response.time.timeZone.basis !== "scope" &&
+      !usesUtcFallback
+    ) {
       context.addIssue({
         code: "custom",
-        message: "A nearby response must use its server-resolved scope time zone",
+        message:
+          "A nearby response must use a server-resolved scope zone or an explicit UTC fallback",
+        path: ["time", "timeZone", "basis"],
+      });
+    }
+    if (
+      usesUtcFallback &&
+      (response.time.timeZone.id !== "UTC" ||
+        response.scope.timeZone !== "UTC" ||
+        response.incidents.length > 0 ||
+        ![
+          "disabled",
+          "unavailable",
+          "unconfigured",
+          "not_assessed",
+        ].includes(response.coverage.state))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Nearby UTC fallback is allowed only for an empty read without assessed coverage",
         path: ["time", "timeZone", "basis"],
       });
     }
@@ -974,7 +1013,6 @@ export const nearbyDiscoveryResponseSchema = z
         ],
         inclusionTime: incident.times.latestObservedAt,
         knownAt: incident.times.knownAt,
-        timeZone: response.scope.timeZone,
       })),
       "incidents",
       context,

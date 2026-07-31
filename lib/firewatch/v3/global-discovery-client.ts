@@ -13,8 +13,9 @@ export type GlobalDiscoveryTransport =
 
 /**
  * The transport result remains distinct from discovery coverage. In
- * particular, an HTTP-success response may still carry partial, stale, or
- * unavailable domain coverage and must not be promoted to valid-empty.
+ * particular, an HTTP-success response may still carry partial, stale,
+ * not-assessed, or unavailable domain coverage and must not be promoted to
+ * valid-empty or retained as a complete last-good snapshot.
  */
 export type GlobalDiscoveryClientResult<Response> =
   | Readonly<{

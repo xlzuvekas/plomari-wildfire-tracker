@@ -88,11 +88,12 @@ export function presentDiscoveryTime(
     };
   }
   if (value.precision === "date_only") {
+    const calendarTimeZone = value.calendarTimeZone;
     return {
       dateTime: value.date,
       primary: calendarDate(value.date, resolvedLocale),
-      context: `${timeZone} · date only · no clock supplied`,
-      title: `Source precision is calendar date only in ${timeZone}.`,
+      context: `${calendarTimeZone} · date only · no clock supplied`,
+      title: `Source precision is calendar date only in ${calendarTimeZone}.`,
     };
   }
 

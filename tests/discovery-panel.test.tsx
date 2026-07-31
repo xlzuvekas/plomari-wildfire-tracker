@@ -135,7 +135,7 @@ describe("semantic global discovery panel", () => {
     expect(lastGood).toContain("Coverage complete");
   });
 
-  it("renders complete, stale, partial, unavailable, disabled, and unconfigured coverage explicitly", () => {
+  it("renders every assessed and unassessed coverage state explicitly", () => {
     const complete = copy(SYNTHETIC_MARSEILLE_EXPLORE);
     const stale = copy(SYNTHETIC_MARSEILLE_EXPLORE);
     stale.coverage = {
@@ -183,6 +183,12 @@ describe("semantic global discovery panel", () => {
       policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
       scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
     };
+    const notAssessed = copy(SYNTHETIC_MARSEILLE_EXPLORE);
+    notAssessed.coverage = {
+      state: "not_assessed",
+      policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
+    };
 
     const states = [
       [complete, "Coverage complete"],
@@ -191,6 +197,7 @@ describe("semantic global discovery panel", () => {
       [unavailable, "Discovery unavailable"],
       [disabled, "Discovery disabled"],
       [unconfigured, "Discovery unconfigured"],
+      [notAssessed, "Coverage not assessed"],
     ] as const;
     for (const [response, expected] of states) {
       const markup = render({
@@ -243,12 +250,19 @@ describe("semantic global discovery panel", () => {
       title: "The source did not provide a usable event time.",
     });
     const dateOnly = presentDiscoveryTime(
-      { precision: "date_only", date: "2026-07-31" },
+      {
+        precision: "date_only",
+        date: "2026-07-31",
+        calendarTimeZone: "Pacific/Kiritimati",
+      },
       "Europe/Paris",
       "en-GB",
     );
     expect(dateOnly.primary).toBe("31 Jul 2026");
-    expect(dateOnly.context).toContain("date only · no clock supplied");
+    expect(dateOnly.context).toBe(
+      "Pacific/Kiritimati · date only · no clock supplied",
+    );
+    expect(dateOnly.context).not.toContain("Europe/Paris");
     expect(dateOnly.context).not.toContain("00:00");
   });
 
