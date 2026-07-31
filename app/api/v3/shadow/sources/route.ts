@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 const SUCCESS_CACHE_CONTROL =
   "public, max-age=0, s-maxage=30, stale-while-revalidate=60";
 const ERROR_CACHE_CONTROL = "no-store";
+const MAX_PUBLIC_RESPONSE_BYTES = 1_000_000;
 const ALLOWED_QUERY_NAMES = new Set(["after", "limit"]);
 const encodedCursorSchema = z
   .string()
@@ -24,7 +25,12 @@ const cursorSchema = z.strictObject({
 });
 const querySchema = z.strictObject({
   after: encodedCursorSchema.optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  limit: z
+    .string()
+    .regex(/^[1-9]\d{0,2}$/u)
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(100))
+    .default(50),
 });
 
 class InvalidShadowReadRequestError extends Error {
@@ -133,6 +139,9 @@ export async function GET(request: Request) {
       page: { nextCursor: encodeCursor(page.nextAfter) },
     };
     const body = JSON.stringify(payload);
+    if (Buffer.byteLength(body, "utf8") > MAX_PUBLIC_RESPONSE_BYTES) {
+      throw new Error("Shadow source response exceeded its public bound.");
+    }
     const etag = entityTag(body);
     const headers = {
       "Cache-Control": SUCCESS_CACHE_CONTROL,

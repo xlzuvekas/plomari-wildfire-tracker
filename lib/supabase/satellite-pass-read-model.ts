@@ -380,13 +380,19 @@ function validateScanStatus(
 function validatePassRows(
   rows: readonly z.output<typeof satellitePassAreaRowSchema>[],
   scan: z.output<typeof satelliteScanStatusRowSchema>,
+  observedFrom: string,
+  observedTo: string,
 ) {
   const observationIds = new Set<string>();
+  const requestedFromMs = Date.parse(observedFrom);
+  const requestedToMs = Date.parse(observedTo);
   for (const row of rows) {
     if (
       row.source_id !== scan.source_id ||
       row.source_slug !== scan.source_slug ||
-      observationIds.has(row.observation_id)
+      observationIds.has(row.observation_id) ||
+      Date.parse(row.observed_to) < requestedFromMs ||
+      Date.parse(row.observed_from) > requestedToMs
     ) {
       invalidResponse();
     }
@@ -471,7 +477,7 @@ export async function readSatellitePassArea(
     },
     rowSchema: satellitePassAreaRowSchema,
   });
-  validatePassRows(rows, scan);
+  validatePassRows(rows, scan, window.observedFrom, window.observedTo);
 
   return Object.freeze({
     scan,
