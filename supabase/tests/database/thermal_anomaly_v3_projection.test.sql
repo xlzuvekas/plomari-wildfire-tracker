@@ -281,10 +281,16 @@ set updated_at = now() - interval '2 hours'
 where product_key = 'VIIRS_NOAA20_NRT';
 
 -- Typed detector validation normally binds the full immutable HTTP ledger. The
--- projection test isolates read semantics by inserting a check-valid fixture
--- with FK/validation triggers disabled inside this rolled-back transaction.
-alter table ingest.firms_detection_details disable trigger all;
-alter table truth.thermal_anomaly_assessments disable trigger all;
+-- projection test isolates read semantics with a check-valid fixture. Drop only
+-- the two upstream-ledger foreign keys transaction-locally and disable user
+-- validation triggers; PostgreSQL does not permit a non-superuser test runner
+-- to disable the system triggers that implement foreign keys.
+alter table ingest.firms_detection_details
+  drop constraint firms_detection_details_observation_cursor_fkey;
+alter table ingest.firms_detection_details
+  drop constraint firms_detection_details_source_revision_fkey;
+alter table ingest.firms_detection_details disable trigger user;
+alter table truth.thermal_anomaly_assessments disable trigger user;
 alter table ingest.firms_detection_details
   enable trigger firms_detection_details_projection_epoch;
 alter table truth.thermal_anomaly_assessments
