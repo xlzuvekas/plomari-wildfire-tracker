@@ -309,22 +309,22 @@ export class PostgresCmrAdapter
              as member_of_publisher,
            pg_has_role(current_user, 'firewatch_dispatcher', 'member')
              as member_of_dispatcher,
-           array(
+           to_jsonb(array(
              select granted_role.rolname
              from pg_catalog.pg_auth_members as membership
              join pg_catalog.pg_roles as granted_role
                on granted_role.oid = membership.roleid
              where membership.member = role.oid
              order by granted_role.rolname
-           ) as direct_memberships,
-           array(
+           )) as direct_memberships,
+           to_jsonb(array(
              select inherited_role.rolname
              from pg_catalog.pg_roles as inherited_role
              where inherited_role.rolname <> current_user
                and pg_has_role(current_user, inherited_role.oid, 'member')
              order by inherited_role.rolname
-           ) as effective_memberships,
-           array(
+           )) as effective_memberships,
+           to_jsonb(array(
              select granted_role.rolname
              from pg_catalog.pg_auth_members as membership
              join pg_catalog.pg_roles as granted_role
@@ -335,7 +335,7 @@ export class PostgresCmrAdapter
                where collector.rolname = 'firewatch_collector'
              )
              order by granted_role.rolname
-           ) as collector_memberships
+           )) as collector_memberships
          from pg_catalog.pg_roles as role
          where role.rolname = current_user`,
       ),
@@ -550,22 +550,22 @@ export class PostgresCmrAdapter
            as member_of_publisher,
          pg_has_role(current_user, 'firewatch_dispatcher', 'member')
            as member_of_dispatcher,
-         array(
+         to_jsonb(array(
            select granted_role.rolname
            from pg_catalog.pg_auth_members as membership
            join pg_catalog.pg_roles as granted_role
              on granted_role.oid = membership.roleid
            where membership.member = runtime_role.oid
            order by granted_role.rolname
-         ) as direct_memberships,
-         array(
+         )) as direct_memberships,
+         to_jsonb(array(
            select inherited_role.rolname
            from pg_catalog.pg_roles as inherited_role
            where inherited_role.rolname <> current_user
              and pg_has_role(current_user, inherited_role.oid, 'member')
            order by inherited_role.rolname
-         ) as effective_memberships,
-         array(
+         )) as effective_memberships,
+         to_jsonb(array(
            select granted_role.rolname
            from pg_catalog.pg_auth_members as membership
            join pg_catalog.pg_roles as granted_role
@@ -576,7 +576,7 @@ export class PostgresCmrAdapter
              where collector.rolname = 'firewatch_collector'
            )
            order by granted_role.rolname
-         ) as collector_memberships,
+         )) as collector_memberships,
          source.id as source_id,
          endpoint.id as endpoint_id,
          target.id as target_id,

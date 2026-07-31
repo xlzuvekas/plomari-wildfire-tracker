@@ -154,6 +154,10 @@ platform-provided `SUPABASE_URL`, preventing a valid credential for another
 project from being accepted by misconfiguration. The driver is fixed at one
 connection with `prepare: false`, short connect/idle timeouts, and TLS required,
 as recommended for serverless transaction pooling.
+Because driver-side array type discovery is disabled on this connection, the
+identity queries cast all role-membership arrays to JSON before enforcing the
+exact least-privilege sets; PostgreSQL array text is never accepted as an
+identity assertion.
 
 Set this value as the Edge Function secret without putting it in the repository
 or shell history (for example, use a protected temporary env file with

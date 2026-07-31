@@ -750,6 +750,7 @@ describe("CMR production wiring", () => {
     expect(adapterSource).toContain(
       "and revision.geometry_precision_source = 'not_applicable'",
     );
+    expect(adapterSource.match(/to_jsonb\(array\(/gu)).toHaveLength(6);
     expect(JSON.parse(denoConfig).imports).toEqual({
       "@supabase/server": "npm:@supabase/server@1.4.1",
       "polygon-clipping": "npm:polygon-clipping@0.15.7",
