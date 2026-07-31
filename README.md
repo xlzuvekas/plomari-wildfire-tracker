@@ -56,9 +56,9 @@ language on first load, remembers the selected language, and keeps the original
   **not** measured PM2.5, an air-quality forecast, or safe-route guidance.
 - An optional spread scenario controlled by wind force, direction, and time.
   It is intentionally labeled as a scenario rather than a forecast.
-- A map-first phone layout with a safe-area-aware bottom dock, mutually
-  exclusive Layers and Updates sheets, 44px-or-larger touch targets, and a
-  compact official-status/wind ribbon.
+- A map-first phone layout with a safe-area-aware bottom dock, a single tabbed
+  panel (Layers / Thermal / Wind / Updates) opened from either dock button,
+  44px-or-larger touch targets, and a compact official-status/wind ribbon.
 - An explicit **Live / as-of** scrubber from incident start to now. Historical
   view admits only known source or observation times at or before the cutoff;
   latest-only wind, source health, Fire Service board state, and daily current
@@ -138,10 +138,10 @@ Thermal responses expose one of four explicit states:
 
 | State | Meaning |
 | --- | --- |
-| `ok` | All configured VIIRS datasets returned valid responses |
-| `partial` | At least one VIIRS dataset succeeded and at least one failed |
-| `unconfigured` | `FIRMS_MAP_KEY` is not present |
-| `upstream-error` | No configured VIIRS dataset produced a valid response |
+| `ok` | Every configured VIIRS and MODIS dataset returned a valid response with no degraded delivery source |
+| `partial` | At least one dataset succeeded while another dataset or one of a dataset's delivery sources failed or was unconfigured |
+| `unconfigured` | No delivery source applicable to the request is configured. Live requests always have the keyless 24-hour regional download available, so this state is reachable only for historical `?date=` requests without `FIRMS_MAP_KEY` |
+| `upstream-error` | No configured dataset produced a valid response |
 
 ## Sources
 
@@ -181,6 +181,8 @@ Create a local `.env.local` file:
 ```bash
 FIRMS_MAP_KEY=your_server_side_nasa_firms_key
 X_BEARER_TOKEN=your_optional_server_side_x_bearer_token
+SUPABASE_URL=your_optional_supabase_project_url
+SUPABASE_PUBLISHABLE_KEY=your_optional_supabase_publishable_key
 ```
 
 `FIRMS_MAP_KEY` enables live FIRMS point queries. Without it, the app keeps the
@@ -198,8 +200,15 @@ state is one verified X Activity API webhook with three `post.create`
 subscriptions after narrow, idempotent database ingestion is deployed;
 persisted polling is the failure fallback.
 
-Both variables are server-only. Never prefix either with `NEXT_PUBLIC_`, expose
-their values in browser code, or commit `.env.local`.
+`SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are optional and enable the
+server-side v3 shadow read routes (`/api/v3/shadow/sources` and
+`/api/v3/satellite-passes`); without them those routes return 503 while the
+public map is unaffected. The disabled-by-default OpenRouter OODA variables are
+documented in `.env.example` and
+[docs/ai-ooda-architecture.md](docs/ai-ooda-architecture.md).
+
+All of these variables are server-only. Never prefix any of them with
+`NEXT_PUBLIC_`, expose their values in browser code, or commit `.env.local`.
 
 Production validation:
 
@@ -215,14 +224,19 @@ npm start
 3. Use the default build command (`npm run build`) and output settings.
 4. Add `FIRMS_MAP_KEY` under **Settings → Environment Variables** for
    Production, Preview, and Development.
-5. Reserve `X_BEARER_TOKEN`, if configured, for the future scheduled evidence
+5. Add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` there as well if the v3
+   shadow read routes should be active; never substitute a service-role or
+   secret key.
+6. Reserve `X_BEARER_TOKEN`, if configured, for the future scheduled evidence
    collector. Public browser-driven routes do not use it.
-6. Redeploy after adding or rotating an environment variable.
+7. Redeploy after adding or rotating an environment variable.
 
 The `/api/thermal`, `/api/updates`, and `/api/wind` routes keep upstream
 credentials and cross-origin requests on the server. Neither key is sent to the
 browser. Vercel caches the shared local feed snapshot for 5 minutes, live FIRMS
-responses for 2 minutes, and complete finished historical UTC days for 1 hour;
+responses for 2 minutes, normalized wind/METAR responses for 5 minutes (with a
+60-second browser `max-age`), and complete finished historical UTC days for
+1 hour;
 the client uses those shared responses at the documented cadence and pauses
 recurring polling while hidden or offline. An offline load still makes one
 best-effort read through the service worker so a cached last-known-good snapshot
@@ -357,17 +371,38 @@ project.
 
 ```text
 app/
-  api/thermal/route.ts # NASA FIRMS thermal detections
-  api/updates/route.ts # official incident board and local/official feeds
-  api/wind/route.ts    # normalized model wind and LGMT METAR
-  globals.css        # responsive tactical interface
-  layout.tsx         # metadata and document shell
-  page.tsx           # Leaflet map, layers, timeline, and scenarios
+  api/thermal/route.ts       # NASA FIRMS thermal detections (v2)
+  api/updates/route.ts       # official incident board and local/official feeds (v2)
+  api/updates/fireservice.ts # Fire Service incident-board parser
+  api/updates/text.ts        # shared XML/HTML text normalization
+  api/wind/route.ts          # normalized model wind and LGMT METAR (v2)
+  api/v3/shadow/sources/     # bounded Supabase source-catalog read (shadow)
+  api/v3/satellite-passes/   # persisted CMR satellite-pass read (shadow)
+  globals.css                # responsive tactical interface
+  layout.tsx                 # metadata and document shell
+  manifest.ts                # PWA manifest
+  page.tsx                   # Leaflet map, layers, timeline, and scenarios
+docs/                        # architecture, rollout, and roadmap documents
+lib/
+  area-time.ts               # Athens-time formatting rules
+  as-of.ts                   # as-of history admission rules
+  assist/                    # disabled-by-default AI orientation adapter
+  evidence/                  # evidence-recording fetch contract
+  firewatch/                 # map context and demand policy (global foundations)
+  satellite/                 # NASA CMR catalog adapter and collector
+  supabase/                  # server-only Supabase read models
+  truth/                     # domain contracts, registries, v1 runtime schemas
 public/
-  favicon.svg
+  favicon.svg, icon-*.png    # static assets and PWA icons
+  sw.js                      # offline/service-worker caching
 supabase/
-  migrations/      # versioned PostGIS truth-layer DDL
-  tests/           # pgTAP access, immutability, and integrity tests
+  config.toml                # local Data API exposure (api schema only)
+  functions/collect-cmr/     # scheduled CMR Edge Function collector
+  migrations/                # versioned PostGIS truth-layer DDL
+  seed.sql                   # disabled global source catalog
+  tests/                     # pgTAP access, immutability, and integrity tests
+tests/                       # Vitest route, contract, and fixture suites
+.github/workflows/ci.yml     # lint, typecheck, tests, build, database checks
 ```
 
 ## Design attribution
