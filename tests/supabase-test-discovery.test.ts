@@ -19,6 +19,7 @@ describe("Supabase pgTAP discovery", () => {
       "cmr_collector_runtime.test.sql",
       "http_exchanges.test.sql",
       "initial_truth_foundation.test.sql",
+      "v3_nearby_incident_projection.test.sql",
     ]);
     expect(legacyUndiscoverable).toEqual([]);
   });

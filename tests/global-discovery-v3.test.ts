@@ -141,6 +141,13 @@ describe("v3 global discovery contracts", () => {
       scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
     };
 
+    const notAssessed = copy(SYNTHETIC_MARSEILLE_EXPLORE);
+    notAssessed.coverage = {
+      state: "not_assessed",
+      policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_MARSEILLE_EXPLORE.coverage.scope),
+    };
+
     const fixtures = [
       SYNTHETIC_MARSEILLE_EXPLORE,
       validEmpty,
@@ -149,12 +156,13 @@ describe("v3 global discovery contracts", () => {
       unavailable,
       disabled,
       unconfigured,
+      notAssessed,
     ];
     expect(
       fixtures.map((fixture) =>
         exploreDiscoveryResponseSchema.safeParse(fixture).success,
       ),
-    ).toEqual([true, true, true, true, true, true, true]);
+    ).toEqual([true, true, true, true, true, true, true, true]);
     expect([
       SYNTHETIC_MARSEILLE_EXPLORE.coverage.state,
       SYNTHETIC_PARIS_VALID_EMPTY.result.state,
@@ -167,9 +175,11 @@ describe("v3 global discovery contracts", () => {
       "unavailable",
       "disabled",
       "unconfigured",
+      "not_assessed",
     ]);
     expect(stale.result.state).toBe("items");
     expect(partial.result.state).toBe("items");
+    expect(notAssessed.result.state).toBe("items");
   });
 
   it("permits valid-empty only for a complete first-page proof", () => {
@@ -185,6 +195,20 @@ describe("v3 global discovery contracts", () => {
     expect(
       nearbyDiscoveryResponseSchema.safeParse(emptyPartial).success,
     ).toBe(false);
+
+    const emptyNotAssessed = copy(SYNTHETIC_PARIS_VALID_EMPTY);
+    emptyNotAssessed.coverage = {
+      state: "not_assessed",
+      policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_PARIS_VALID_EMPTY.coverage.scope),
+    };
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(emptyNotAssessed).success,
+    ).toBe(false);
+    emptyNotAssessed.result = { state: "indeterminate" };
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(emptyNotAssessed).success,
+    ).toBe(true);
 
     emptyPartial.result = { state: "indeterminate" };
     expect(
@@ -241,6 +265,45 @@ describe("v3 global discovery contracts", () => {
     ).toBe(false);
   });
 
+  it("permits an explicit UTC fallback only when Nearby is not configured", () => {
+    const fallback = copy(SYNTHETIC_PARIS_VALID_EMPTY);
+    fallback.scope.timeZone = "UTC";
+    fallback.time.timeZone = {
+      id: "UTC",
+      basis: "utc-fallback",
+      utcOffsetMinutesAtAsOf: 0,
+    };
+    fallback.coverage = {
+      state: "unconfigured",
+      policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_PARIS_VALID_EMPTY.coverage.scope),
+    };
+    fallback.result = { state: "indeterminate" };
+    expect(nearbyDiscoveryResponseSchema.safeParse(fallback).success).toBe(
+      true,
+    );
+
+    const fallbackWithItems = copy(fallback);
+    fallbackWithItems.incidents = copy(SYNTHETIC_PLOMARI_NEARBY.incidents);
+    fallbackWithItems.result = { state: "items" };
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(fallbackWithItems).success,
+    ).toBe(false);
+
+    const partialFallback = copy(fallback);
+    partialFallback.coverage = {
+      state: "partial",
+      policyVersion: GLOBAL_DISCOVERY_POLICY_VERSION,
+      scope: copy(SYNTHETIC_PARIS_VALID_EMPTY.coverage.scope),
+      checkedAt: "2026-07-31T15:00:00.000Z",
+      requiredPartitionCount: 2,
+      completedPartitionCount: 1,
+    };
+    expect(
+      nearbyDiscoveryResponseSchema.safeParse(partialFallback).success,
+    ).toBe(false);
+  });
+
   it("requires canonical coarse-area geometry and rejects raw location input", () => {
     const scope = copy(SYNTHETIC_PARIS_VALID_EMPTY.scope);
     scope.bounds.west += 0.001;
@@ -277,6 +340,12 @@ describe("v3 global discovery contracts", () => {
       nearbyDiscoveryRequestSchema.safeParse({
         ...request,
         cell: "wm/010/0518/0352",
+      }).success,
+    ).toBe(false);
+    expect(
+      nearbyDiscoveryRequestSchema.safeParse({
+        ...request,
+        cell: "wm/7/64/64",
       }).success,
     ).toBe(false);
     expect(
@@ -464,6 +533,7 @@ describe("v3 global discovery contracts", () => {
       publicTemporalValueSchema.safeParse({
         precision: "date_only",
         date: "2026-07-31",
+        calendarTimeZone: "Europe/Paris",
       }).success,
     ).toBe(true);
     expect(
@@ -485,10 +555,12 @@ describe("v3 global discovery contracts", () => {
     dateOnlyCandidate.times.firstObservedAt = {
       precision: "date_only",
       date: "2026-07-30",
+      calendarTimeZone: "Europe/Paris",
     };
     dateOnlyCandidate.times.latestObservedAt = {
       precision: "date_only",
       date: "2026-07-31",
+      calendarTimeZone: "Europe/Paris",
     };
     expect(wildfireCandidateSchema.safeParse(dateOnlyCandidate).success).toBe(
       true,
@@ -506,6 +578,7 @@ describe("v3 global discovery contracts", () => {
     impreciseIncident.times.latestObservedAt = {
       precision: "date_only",
       date: "2026-07-31",
+      calendarTimeZone: "Europe/Athens",
     };
     expect(nearbyIncidentSchema.safeParse(impreciseIncident).success).toBe(
       true,
@@ -540,6 +613,7 @@ describe("v3 global discovery contracts", () => {
     dateOnlyCandidate.times.latestObservedAt = {
       precision: "date_only",
       date: "2026-08-01",
+      calendarTimeZone: "Europe/Paris",
     };
     expect(
       exploreDiscoveryResponseSchema.safeParse(futureDateOnly).success,
@@ -553,10 +627,12 @@ describe("v3 global discovery contracts", () => {
     oldCandidate.times.firstObservedAt = {
       precision: "date_only",
       date: "2026-07-28",
+      calendarTimeZone: "Europe/Paris",
     };
     oldCandidate.times.latestObservedAt = {
       precision: "date_only",
       date: "2026-07-29",
+      calendarTimeZone: "Europe/Paris",
     };
     expect(
       exploreDiscoveryResponseSchema.safeParse(beforeWindow).success,
@@ -683,6 +759,7 @@ describe("v3 global discovery contracts", () => {
     candidate.times.latestObservedAt = {
       precision: "date_only",
       date: "2026-08-01",
+      calendarTimeZone: "Europe/Paris",
     };
     expect(wildfireCandidateSchema.safeParse(candidate).success).toBe(false);
 
@@ -707,6 +784,7 @@ describe("v3 global discovery contracts", () => {
     incident.times.latestObservedAt = {
       precision: "date_only",
       date: "2026-08-02",
+      calendarTimeZone: "Europe/Athens",
     };
     incident.times.knownAt = "2026-08-01T18:01:00.000Z";
     expect(nearbyDiscoveryResponseSchema.safeParse(response).success).toBe(
