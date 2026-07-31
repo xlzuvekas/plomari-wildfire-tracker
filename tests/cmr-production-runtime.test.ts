@@ -660,7 +660,7 @@ describe("CMR Edge invocation contract", () => {
     const failing: CollectorDatabase = {
       ...base,
       async transaction<Result>(): Promise<Result> {
-        throw new TypeError("postgresql://collector:must-not-be-logged@example.test");
+        throw new TypeError("sensitive-database-detail-must-not-be-logged");
       },
     };
     const diagnostics: unknown[] = [];
