@@ -1047,6 +1047,14 @@ function compass(degrees: number, language: Language = "en") {
   return points[Math.round((((degrees % 360) + 360) % 360) / 45) % 8];
 }
 
+function compassBearing(
+  degrees: number | null,
+  language: Language = "en",
+): string | null {
+  // A coincident or antipodal target has no safe direction to display.
+  return degrees === null ? null : (compass(degrees, language) ?? null);
+}
+
 function localizeFireStatus(
   status: NonNullable<UpdatesPayload["fireServiceIncident"]>["status"] | null,
   fallback: string | undefined,
@@ -1465,12 +1473,15 @@ export default function Home() {
       nearest,
       nearestKm,
       nearestDir: nearest
-        ? compass(bearingDeg(point, [nearest.lat, nearest.lon]), language)
+        ? compassBearing(
+            bearingDeg(point, [nearest.lat, nearest.lon]),
+            language,
+          )
         : null,
       routeKm: distanceKm(point, routePoint),
-      routeDir: compass(bearingDeg(point, routePoint), language),
+      routeDir: compassBearing(bearingDeg(point, routePoint), language),
       incidentKm: distanceKm(point, INCIDENT),
-      incidentDir: compass(bearingDeg(point, INCIDENT), language),
+      incidentDir: compassBearing(bearingDeg(point, INCIDENT), language),
     };
   }, [userPosition, incidentThermalDetections, language]);
   const latestIncidentPass = useMemo(
@@ -3503,7 +3514,9 @@ export default function Home() {
               {userReadout.nearest ? (
                 <span>
                   {userReadout.nearestKm.toFixed(1)} km{" "}
-                  {userReadout.nearestDir} →{" "}
+                  {userReadout.nearestDir
+                    ? `${userReadout.nearestDir} → `
+                    : ""}
                   {localize(
                     language,
                     "nearest satellite hotspot",
@@ -3530,7 +3543,8 @@ export default function Home() {
                 </span>
               )}
               <span className="locate-readout__route">
-                {userReadout.routeKm.toFixed(1)} km {userReadout.routeDir} →{" "}
+                {userReadout.routeKm.toFixed(1)} km{" "}
+                {userReadout.routeDir ? `${userReadout.routeDir} → ` : ""}
                 {localize(
                   language,
                   `app-drawn archived road reference (${officialAlertIssuedLabel})`,
@@ -3539,7 +3553,9 @@ export default function Home() {
               </span>
               <span>
                 {userReadout.incidentKm.toFixed(1)} km{" "}
-                {userReadout.incidentDir} →{" "}
+                {userReadout.incidentDir
+                  ? `${userReadout.incidentDir} → `
+                  : ""}
                 {localize(
                   language,
                   "incident reference point",
