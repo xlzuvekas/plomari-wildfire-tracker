@@ -5,12 +5,17 @@ import type {
   NearbyDiscoveryResponse,
 } from "./discovery-contracts";
 
-export type GlobalDiscoveryTransport = "live" | "cache-fallback";
+export type GlobalDiscoveryTransport =
+  | "live"
+  | "revalidated-cache"
+  | "cache-fallback"
+  | "fixture";
 
 /**
  * The transport result remains distinct from discovery coverage. In
- * particular, an HTTP-success response may still carry partial, stale, or
- * unavailable domain coverage and must not be promoted to valid-empty.
+ * particular, an HTTP-success response may still carry partial, stale,
+ * not-assessed, or unavailable domain coverage and must not be promoted to
+ * valid-empty or retained as a complete last-good snapshot.
  */
 export type GlobalDiscoveryClientResult<Response> =
   | Readonly<{
@@ -20,6 +25,10 @@ export type GlobalDiscoveryClientResult<Response> =
     }>
   | Readonly<{
       kind: "invalid-request";
+      retryable: false;
+    }>
+  | Readonly<{
+      kind: "cancelled";
       retryable: false;
     }>
   | Readonly<{
