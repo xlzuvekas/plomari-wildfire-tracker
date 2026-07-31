@@ -28,9 +28,6 @@ import {
 } from "./database.ts";
 import { canonicalJson, sha256Hex, uuidV7 } from "./identifiers.ts";
 
-const SOURCE_SLUG = "nasa-cmr-firemask";
-const ENDPOINT_KEY = "granules-umm-g-1-6-7";
-const TARGET_KEY = "global-firemask-granules";
 const LEASE_SECONDS = 150;
 const COLLECTOR_SCHEMA_VERSION = "cmr-umm-g-1.6.7-pass-v1";
 
@@ -444,7 +441,6 @@ export class PostgresCmrAdapter
          )
        order by completion.health_cursor desc
        limit 1`,
-      [SOURCE_SLUG, ENDPOINT_KEY, TARGET_KEY],
     );
     const latest = optionalSingleRow(rows, "CMR completion lookup was ambiguous.");
     if (latest === null) {
@@ -577,9 +573,9 @@ export class PostgresCmrAdapter
          on adapter_state.adapter_release_id = adapter.id
        join pg_catalog.pg_roles as runtime_role
          on runtime_role.rolname = current_user
-       where source.slug = $1
-         and endpoint.endpoint_key = $2
-         and target.target_key = $3
+       where source.slug = 'nasa-cmr-firemask'
+         and endpoint.endpoint_key = 'granules-umm-g-1-6-7'
+         and target.target_key = 'global-firemask-granules'
          and source.enabled
          and source.license_status = 'approved'
          and source.redistribution_allowed is true

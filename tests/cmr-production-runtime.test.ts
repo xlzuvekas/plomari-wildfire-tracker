@@ -62,7 +62,13 @@ function currentDatabase(
   },
   reapedRunId: string | null = null,
 ): CollectorDatabase {
-  const query = async <Row extends DatabaseRow = DatabaseRow>(statement: string) => {
+  const query = async <Row extends DatabaseRow = DatabaseRow>(
+    statement: string,
+    parameters: readonly unknown[] = [],
+  ) => {
+    const placeholders = [...statement.matchAll(/\$(\d+)/gu)]
+      .map((match) => Number(match[1]));
+    expect(parameters).toHaveLength(Math.max(0, ...placeholders));
     if (
       statement.includes("current_user as runtime_role") &&
       statement.includes("target_state.cursor_state")
