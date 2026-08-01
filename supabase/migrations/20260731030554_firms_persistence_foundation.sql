@@ -143,6 +143,262 @@ values (
 )
 on conflict (slug) do nothing;
 
+-- One early hosted bootstrap ran seed.sql before this migration existed. That
+-- produced the exact disabled catalog identity below with legacy public,
+-- query-secret metadata, but no jobs, runs, evidence, adapter, or target state.
+-- Adopt only that complete inert shape. Any partial, active, or otherwise
+-- different collision remains untouched and is rejected by the terminal
+-- canonical-identity assertion later in this migration.
+do $$
+declare
+  legacy_source_id bigint;
+  legacy_endpoint_id bigint;
+  legacy_target_id bigint;
+begin
+  select source.id, endpoint.id, target.id
+  into legacy_source_id, legacy_endpoint_id, legacy_target_id
+  from core.providers as provider
+  join core.sources as source on source.provider_id = provider.id
+  join core.endpoints as endpoint on endpoint.source_id = source.id
+  join ingest.endpoint_state as endpoint_state
+    on endpoint_state.endpoint_id = endpoint.id
+  join core.collection_targets as target
+    on target.source_id = source.id
+    and target.endpoint_id = endpoint.id
+  join core.collection_target_revisions as revision
+    on revision.collection_target_id = target.id
+    and revision.endpoint_id = endpoint.id
+  where provider.public_id = '018f0000-0000-7000-8000-000000000001'
+    and provider.slug = 'nasa'
+    and provider.contract_version = '1.1.0'
+    and provider.name = 'NASA'
+    and provider.organization_type = 'government'
+    and provider.homepage_url = 'https://www.nasa.gov/'
+    and provider.jurisdiction = 'United States'
+    and provider.is_public
+    and provider.metadata = '{}'::jsonb
+    and source.public_id = '018f0000-0000-7000-8000-000000000101'
+    and source.contract_version = '1.1.0'
+    and source.slug = 'nasa-firms'
+    and source.name = 'NASA FIRMS Active Fire Data'
+    and source.description =
+      'Satellite thermal detections; detections are observations, not confirmed wildfire incidents.'
+    and source.product_family = 'active_fire'
+    and source.default_trust_class = 'official_observation'
+    and source.default_evidence_class = 'thermal_detection'
+    and source.operational_scope = 'mixed'
+    and source.homepage_url = 'https://firms.modaps.eosdis.nasa.gov/'
+    and source.terms_url =
+      'https://firms.modaps.eosdis.nasa.gov/content/academy/data_api/firms_api_use.html'
+    and source.license_code = 'provider_terms'
+    and source.license_name is null
+    and source.attribution_text is null
+    and source.license_status = 'unreviewed'
+    and source.commercial_use_allowed is null
+    and source.redistribution_allowed is null
+    and source.cache_ttl is null
+    and source.retention_limit is null
+    and not source.contains_personal_data
+    and source.sensitivity = 'public'
+    and source.default_freshness = interval '15 minutes'
+    and source.default_max_staleness = interval '3 hours'
+    and not source.enabled
+    and source.is_public
+    and source.metadata = '{}'::jsonb
+    and endpoint.public_id = '018f0000-0000-7000-8000-000000000201'
+    and endpoint.contract_version = '1.1.0'
+    and endpoint.endpoint_key = 'area-csv'
+    and endpoint.name = 'FIRMS Area CSV API'
+    and endpoint.endpoint_kind = 'dataset'
+    and endpoint.source_kind = 'sensor'
+    and endpoint.authority_scopes = array['thermal_anomaly']::text[]
+    and endpoint.content_policy = 'structured_data'
+    and endpoint.license_policy = 'provider_terms'
+    and endpoint.transport = 'http_poll'
+    and endpoint.base_url =
+      'https://firms.modaps.eosdis.nasa.gov/api/area/csv'
+    and endpoint.http_method = 'GET'
+    and endpoint.auth_mode = 'query_secret'
+    and endpoint.credential_ref = 'FIRMS_MAP_KEY'
+    and endpoint.trust_class = 'official_observation'
+    and endpoint.evidence_class = 'thermal_detection'
+    and endpoint.authoritativeness_scope =
+      'Satellite thermal anomaly observation only; not incident confirmation or severity.'
+    and endpoint.coverage_scope = 'global'
+    and endpoint.coverage_geom is null
+    and endpoint.coverage_geog is null
+    and endpoint.poll_interval = interval '15 minutes'
+    and endpoint.expected_source_latency = interval '3 hours'
+    and endpoint.freshness = interval '15 minutes'
+    and endpoint.max_staleness = interval '3 hours'
+    and endpoint.timeout_ms = 15000
+    and endpoint.rate_limit_per_minute is null
+    and endpoint.priority = 100
+    and endpoint.supports_bbox
+    and not endpoint.supports_cursor
+    and endpoint.supports_backfill
+    and endpoint.request_template = '{
+      "credential_parameter":"map_key",
+      "products":["VIIRS_SNPP_NRT","VIIRS_NOAA20_NRT","VIIRS_NOAA21_NRT","MODIS_NRT"]
+    }'::jsonb
+    and endpoint.response_contract = '{}'::jsonb
+    and endpoint.capabilities = '{}'::jsonb
+    and not endpoint_state.enabled
+    and endpoint_state.paused_reason is null
+    and endpoint_state.consecutive_failures = 0
+    and endpoint_state.next_due_at is null
+    and target.public_id = '018f0000-0000-7000-8000-000000000401'
+    and target.contract_version = '1.1.0'
+    and target.target_key = 'global-discovery'
+    and target.name = 'FIRMS global discovery'
+    and target.incident_id is null
+    and target.visibility = 'public'
+    and not target.enabled
+    and revision.public_id = '018f0000-0000-7000-8000-000000000501'
+    and revision.contract_version = '1.1.0'
+    and revision.identity_version = '2.0.0'
+    and revision.version_no = 1
+    and revision.previous_revision_id is null
+    and revision.target_kind = 'dataset'
+    and revision.configuration_sha256 =
+      '309a06db9800af00eedc364890a3e29348ae18973f72ac348d7b36bac5ab52f2'
+    and revision.scope = 'global'
+    and revision.incident_id is null
+    and revision.aoi_version_id is null
+    and revision.target_geom is null
+    and revision.target_geog is null
+    and revision.geometry_precision_m is null
+    and revision.geometry_precision_source = 'not_applicable'
+    and revision.claim_kind = 'thermal_detection'
+    and revision.operational_role = 'discovery'
+    and revision.cadence = interval '15 minutes'
+    and revision.stale_after = interval '3 hours'
+    and revision.priority = 100
+    and revision.trust_class_override is null
+    and not revision.enabled
+    and revision.request_params = '{}'::jsonb
+    and revision.effective_at = timestamptz '2026-07-30 00:00:00+00'
+    and not exists (
+      select 1
+      from ingest.collection_target_state as target_state
+      where target_state.collection_target_revision_id = revision.id
+    )
+    and (select count(*) from core.endpoints as candidate_endpoint
+      where candidate_endpoint.source_id = source.id) = 1
+    and (select count(*) from core.collection_targets as candidate_target
+      where candidate_target.source_id = source.id) = 1
+    and (select count(*) from core.collection_target_revisions as candidate_revision
+      where candidate_revision.collection_target_id = target.id) = 1
+    and not exists (
+      select 1 from core.incident_bindings as binding
+      where binding.collection_target_id = target.id
+    )
+    and not exists (
+      select 1 from core.adapter_releases as adapter
+      where adapter.source_id = source.id
+    )
+    and not exists (
+      select 1 from ingest.jobs as job where job.source_id = source.id
+    )
+    and not exists (
+      select 1 from ingest.runs as run where run.source_id = source.id
+    )
+    and not exists (
+      select 1 from ingest.http_exchanges as exchange
+      where exchange.source_id = source.id
+    )
+    and not exists (
+      select 1 from ingest.raw_objects as raw where raw.source_id = source.id
+    )
+    and not exists (
+      select 1 from ingest.source_revisions as source_revision
+      where source_revision.source_id = source.id
+    )
+    and not exists (
+      select 1 from ingest.global_observations as observation
+      where observation.source_id = source.id
+    )
+    and not exists (
+      select 1 from truth.source_health as health
+      where health.source_id = source.id
+    )
+  for update of provider, source, endpoint, endpoint_state, target, revision;
+
+  if legacy_source_id is not null then
+    if not exists (
+      select 1
+      from pg_catalog.pg_trigger as candidate_trigger
+      where candidate_trigger.tgrelid = 'core.endpoints'::regclass
+        and candidate_trigger.tgname = 'endpoints_reject_mutation'
+        and candidate_trigger.tgenabled = 'O'
+        and not candidate_trigger.tgisinternal
+    ) then
+      raise exception 'FIRMS legacy adoption requires the endpoint immutability trigger'
+        using errcode = '55000';
+    end if;
+
+    update core.sources
+    set
+      description =
+        'Satellite thermal-pixel detections. A detection is not a confirmed wildfire incident, perimeter, flame location, severity, official status, protective instruction, containment statement, or all-clear.',
+      license_name = 'NASA FIRMS terms require review before activation',
+      attribution_text =
+        'NASA FIRMS; retain product, platform, acquisition time, and thermal-pixel limitations.',
+      sensitivity = 'restricted',
+      is_public = false,
+      metadata = '{
+        "activation":"license_review_required",
+        "anomalyAssessment":"disabled",
+        "credentialPersistence":"forbidden",
+        "thermalPixelNotFirePerimeter":true
+      }'::jsonb
+    where id = legacy_source_id;
+
+    -- Endpoint identity is normally immutable. The exact inert legacy seed row
+    -- above is the sole exception: disable its rejection trigger only inside
+    -- this migration transaction, update the selected row, and restore the
+    -- trigger before any later statement can proceed. A migration error rolls
+    -- both the row update and trigger DDL back together.
+    execute 'alter table core.endpoints disable trigger endpoints_reject_mutation';
+
+    update core.endpoints
+    set
+      license_policy = 'provider_terms_unreviewed',
+      auth_mode = 'path_secret',
+      authoritativeness_scope =
+        'Satellite thermal-pixel observations only; no incident, severity, official-status, protective-action, containment, or all-clear authority.',
+      request_template = '{
+        "credentialLocation":"path_segment_not_persisted",
+        "credentialRef":"FIRMS_MAP_KEY",
+        "products":["VIIRS_SNPP_NRT","VIIRS_NOAA20_NRT","VIIRS_NOAA21_NRT","MODIS_NRT"],
+        "redactedRequestUrl":"catalog_base_url_only"
+      }'::jsonb,
+      response_contract = '{
+        "format":"csv",
+        "itemIdentity":"firms-detection-v1",
+        "orientationField":null,
+        "scanTrackMeaning":"reported_pixel_dimensions_km"
+      }'::jsonb,
+      capabilities = '{
+        "assessment":"persistence_only",
+        "negativeAssessment":false,
+        "pagination":"none"
+      }'::jsonb
+    where id = legacy_endpoint_id;
+
+    execute 'alter table core.endpoints enable trigger endpoints_reject_mutation';
+
+    update ingest.endpoint_state
+    set paused_reason = 'license_review_and_adapter_release_required'
+    where endpoint_id = legacy_endpoint_id;
+
+    update core.collection_targets
+    set visibility = 'restricted'
+    where id = legacy_target_id;
+  end if;
+end;
+$$;
+
 -- Hosted migration pushes do not execute seed.sql. Register the source here,
 -- restricted and unlicensed, so production cannot silently rely on local seed.
 insert into core.sources (
@@ -1438,38 +1694,180 @@ do $$
 begin
   if not exists (
     select 1
-    from core.sources as source
+    from core.providers as provider
+    join core.sources as source on source.provider_id = provider.id
     join core.endpoints as endpoint on endpoint.source_id = source.id
     join ingest.endpoint_state as endpoint_state
       on endpoint_state.endpoint_id = endpoint.id
-    join core.collection_targets as target on target.endpoint_id = endpoint.id
+    join core.collection_targets as target
+      on target.endpoint_id = endpoint.id
+      and target.source_id = source.id
     join core.collection_target_revisions as revision
       on revision.collection_target_id = target.id
+      and revision.endpoint_id = endpoint.id
     join ingest.collection_target_state as target_state
       on target_state.collection_target_revision_id = revision.id
       and target_state.collection_target_id = target.id
-    where source.public_id = '018f0000-0000-7000-8000-000000000101'
+    where provider.public_id = '018f0000-0000-7000-8000-000000000001'
+      and provider.slug = 'nasa'
+      and provider.contract_version = '1.1.0'
+      and provider.name = 'NASA'
+      and provider.organization_type = 'government'
+      and provider.homepage_url = 'https://www.nasa.gov/'
+      and provider.jurisdiction = 'United States'
+      and provider.is_public
+      and provider.metadata = '{}'::jsonb
+      and source.public_id = '018f0000-0000-7000-8000-000000000101'
+      and source.contract_version = '1.1.0'
       and source.slug = 'nasa-firms'
+      and source.name = 'NASA FIRMS Active Fire Data'
+      and source.description =
+        'Satellite thermal-pixel detections. A detection is not a confirmed wildfire incident, perimeter, flame location, severity, official status, protective instruction, containment statement, or all-clear.'
+      and source.product_family = 'active_fire'
+      and source.default_trust_class = 'official_observation'
+      and source.default_evidence_class = 'thermal_detection'
+      and source.operational_scope = 'mixed'
+      and source.homepage_url = 'https://firms.modaps.eosdis.nasa.gov/'
+      and source.terms_url =
+        'https://firms.modaps.eosdis.nasa.gov/content/academy/data_api/firms_api_use.html'
+      and source.license_code = 'provider_terms'
+      and source.license_name =
+        'NASA FIRMS terms require review before activation'
+      and source.attribution_text =
+        'NASA FIRMS; retain product, platform, acquisition time, and thermal-pixel limitations.'
       and source.license_status = 'unreviewed'
+      and source.commercial_use_allowed is null
+      and source.redistribution_allowed is null
+      and source.cache_ttl is null
+      and source.retention_limit is null
+      and not source.contains_personal_data
       and source.sensitivity = 'restricted'
+      and source.default_freshness = interval '15 minutes'
+      and source.default_max_staleness = interval '3 hours'
       and not source.enabled
       and not source.is_public
+      and source.metadata = '{
+        "activation":"license_review_required",
+        "anomalyAssessment":"disabled",
+        "credentialPersistence":"forbidden",
+        "thermalPixelNotFirePerimeter":true
+      }'::jsonb
       and endpoint.public_id = '018f0000-0000-7000-8000-000000000201'
+      and endpoint.contract_version = '1.1.0'
       and endpoint.endpoint_key = 'area-csv'
+      and endpoint.name = 'FIRMS Area CSV API'
+      and endpoint.endpoint_kind = 'dataset'
+      and endpoint.source_kind = 'sensor'
+      and endpoint.authority_scopes = array['thermal_anomaly']::text[]
+      and endpoint.content_policy = 'structured_data'
+      and endpoint.license_policy = 'provider_terms_unreviewed'
+      and endpoint.transport = 'http_poll'
       and endpoint.auth_mode = 'path_secret'
       and endpoint.credential_ref = 'FIRMS_MAP_KEY'
       and endpoint.base_url = 'https://firms.modaps.eosdis.nasa.gov/api/area/csv'
+      and endpoint.http_method = 'GET'
+      and endpoint.trust_class = 'official_observation'
+      and endpoint.evidence_class = 'thermal_detection'
+      and endpoint.authoritativeness_scope =
+        'Satellite thermal-pixel observations only; no incident, severity, official-status, protective-action, containment, or all-clear authority.'
+      and endpoint.coverage_scope = 'global'
+      and endpoint.coverage_geom is null
+      and endpoint.coverage_geog is null
+      and endpoint.poll_interval = interval '15 minutes'
+      and endpoint.expected_source_latency = interval '3 hours'
+      and endpoint.freshness = interval '15 minutes'
+      and endpoint.max_staleness = interval '3 hours'
+      and endpoint.timeout_ms = 15000
+      and endpoint.rate_limit_per_minute is null
+      and endpoint.priority = 100
+      and endpoint.supports_bbox
+      and not endpoint.supports_cursor
+      and endpoint.supports_backfill
+      and endpoint.request_template = '{
+        "credentialLocation":"path_segment_not_persisted",
+        "credentialRef":"FIRMS_MAP_KEY",
+        "products":["VIIRS_SNPP_NRT","VIIRS_NOAA20_NRT","VIIRS_NOAA21_NRT","MODIS_NRT"],
+        "redactedRequestUrl":"catalog_base_url_only"
+      }'::jsonb
+      and endpoint.response_contract = '{
+        "format":"csv",
+        "itemIdentity":"firms-detection-v1",
+        "orientationField":null,
+        "scanTrackMeaning":"reported_pixel_dimensions_km"
+      }'::jsonb
+      and endpoint.capabilities = '{
+        "assessment":"persistence_only",
+        "negativeAssessment":false,
+        "pagination":"none"
+      }'::jsonb
       and not endpoint_state.enabled
+      and endpoint_state.paused_reason =
+        'license_review_and_adapter_release_required'
+      and endpoint_state.consecutive_failures = 0
+      and endpoint_state.next_due_at is null
       and target.public_id = '018f0000-0000-7000-8000-000000000401'
+      and target.contract_version = '1.1.0'
+      and target.target_key = 'global-discovery'
+      and target.name = 'FIRMS global discovery'
+      and target.incident_id is null
       and target.visibility = 'restricted'
       and not target.enabled
       and revision.public_id = '018f0000-0000-7000-8000-000000000501'
+      and revision.contract_version = '1.1.0'
+      and revision.identity_version = '2.0.0'
+      and revision.version_no = 1
+      and revision.previous_revision_id is null
+      and revision.target_kind = 'dataset'
       and revision.configuration_sha256 = '309a06db9800af00eedc364890a3e29348ae18973f72ac348d7b36bac5ab52f2'
+      and revision.scope = 'global'
+      and revision.incident_id is null
+      and revision.aoi_version_id is null
+      and revision.target_geom is null
+      and revision.target_geog is null
+      and revision.geometry_precision_m is null
+      and revision.geometry_precision_source = 'not_applicable'
+      and revision.claim_kind = 'thermal_detection'
+      and revision.operational_role = 'discovery'
+      and revision.cadence = interval '15 minutes'
+      and revision.stale_after = interval '3 hours'
+      and revision.priority = 100
+      and revision.trust_class_override is null
       and revision.request_params = '{}'::jsonb
       and not revision.enabled
+      and revision.effective_at = timestamptz '2026-07-30 00:00:00+00'
+      and target_state.cursor_state = '{}'::jsonb
+      and target_state.last_enqueued_at is null
+      and target_state.last_started_at is null
+      and target_state.last_succeeded_at is null
+      and target_state.next_due_at is null
+      and target_state.consecutive_failures = 0
+      and target_state.last_error is null
+      and (select count(*) from core.endpoints as candidate_endpoint
+        where candidate_endpoint.source_id = source.id) = 1
+      and (select count(*) from core.collection_targets as candidate_target
+        where candidate_target.source_id = source.id) = 1
+      and (select count(*)
+        from core.collection_target_revisions as candidate_revision
+        where candidate_revision.collection_target_id = target.id) = 1
+      and not exists (
+        select 1 from core.incident_bindings as binding
+        where binding.collection_target_id = target.id
+      )
   ) then
     raise exception 'conflicting FIRMS source, endpoint, or target bootstrap identity'
       using errcode = '23514';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger as candidate_trigger
+    where candidate_trigger.tgrelid = 'core.endpoints'::regclass
+      and candidate_trigger.tgname = 'endpoints_reject_mutation'
+      and candidate_trigger.tgenabled = 'O'
+      and not candidate_trigger.tgisinternal
+  ) then
+    raise exception 'FIRMS bootstrap requires endpoint immutability enforcement'
+      using errcode = '55000';
   end if;
 
   if (select count(*)
