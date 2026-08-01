@@ -31,6 +31,67 @@ describe("FIRMS persistence schema contract", () => {
     expect(migration).not.toMatch(/insert into core\.adapter_releases/i);
   });
 
+  it("adopts only the exact inert legacy seed bootstrap", () => {
+    const adoption = migration.slice(
+      migration.indexOf("One early hosted bootstrap ran seed.sql"),
+      migration.indexOf(
+        "Hosted migration pushes do not execute seed.sql",
+      ),
+    );
+
+    expect(adoption).toContain("source.sensitivity = 'public'");
+    expect(adoption).toContain("and source.is_public");
+    expect(adoption).toContain("endpoint.auth_mode = 'query_secret'");
+    expect(adoption).toContain("target.visibility = 'public'");
+    expect(adoption).toContain("not exists (\n      select 1 from ingest.jobs");
+    expect(adoption).toContain(
+      "select 1 from ingest.http_exchanges as exchange",
+    );
+    expect(adoption).toContain("select 1 from truth.source_health as health");
+    expect(adoption).toContain("sensitivity = 'restricted'");
+    expect(adoption).toContain("auth_mode = 'path_secret'");
+    expect(adoption).toContain("set visibility = 'restricted'");
+    expect(adoption).toContain(
+      "disable trigger endpoints_reject_mutation",
+    );
+    expect(adoption).toContain("enable trigger endpoints_reject_mutation");
+    expect(adoption).toContain("candidate_trigger.tgenabled = 'O'");
+    expect(adoption).toContain("from core.incident_bindings as binding");
+    expect(adoption).toContain(
+      "paused_reason = 'license_review_and_adapter_release_required'",
+    );
+    expect(adoption).not.toMatch(/delete\s+from/i);
+    expect(adoption).not.toMatch(/migration\s+repair/i);
+  });
+
+  it("verifies the complete canonical bootstrap after adoption", () => {
+    const assertion = migration.slice(
+      migration.indexOf("do $$", migration.indexOf("on conflict (product_key)")),
+      migration.indexOf("firms_area_logical_request_sha256_v1"),
+    );
+
+    expect(assertion).toContain(
+      "where provider.public_id = '018f0000-0000-7000-8000-000000000001'",
+    );
+    expect(assertion).toContain("provider.metadata = '{}'::jsonb");
+    expect(assertion).toContain(
+      "endpoint_state.paused_reason =\n        'license_review_and_adapter_release_required'",
+    );
+    expect(assertion).toContain("target_state.cursor_state = '{}'::jsonb");
+    expect(assertion).toContain("target_state.last_error is null");
+    expect(assertion).toContain(
+      "endpoint.license_policy = 'provider_terms_unreviewed'",
+    );
+    expect(assertion).toContain("endpoint.response_contract = '{");
+    expect(assertion).toContain("revision.identity_version = '2.0.0'");
+    expect(assertion).toContain(
+      "revision.effective_at = timestamptz '2026-07-30 00:00:00+00'",
+    );
+    expect(assertion).toContain(
+      "FIRMS bootstrap requires endpoint immutability enforcement",
+    );
+  });
+
   it("stores point detections and reported dimensions without a fabricated footprint", () => {
     const detailTable = migration.slice(
       migration.indexOf("create table ingest.firms_detection_details"),
