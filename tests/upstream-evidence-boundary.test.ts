@@ -8,7 +8,7 @@ const KNOWN_DIRECT_FETCH_COUNTS = new Map([
   ["app/api/updates/route.ts", 2],
   ["app/api/wind/route.ts", 1],
   // Browser calls below are to Firewatch's own routes, not upstream providers.
-  ["app/page.tsx", 3],
+  ["app/incidents/plomari-2026-07-29/PlomariIncidentClient.tsx", 3],
 ]);
 
 function source(path: string) {

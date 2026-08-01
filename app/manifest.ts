@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Plomari Firewatch | Πυροφύλαξη Πλωμαρίου",
+    name: "Firewatch | Global Wildfire Intelligence",
     short_name: "Firewatch",
     description:
-      "Bilingual public situational-awareness map for the Plomari wildfire.",
+      "Evidence-aware global wildfire discovery with localized incident context.",
     start_url: "/",
     display: "standalone",
     background_color: "#03070a",

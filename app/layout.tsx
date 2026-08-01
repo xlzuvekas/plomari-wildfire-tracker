@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Plomari Firewatch Map | Χάρτης Πυροφύλαξης Πλωμαρίου",
+  title: "Firewatch | Global Wildfire Intelligence",
   description:
-    "A bilingual public situational-awareness map for the Plomari wildfire. Δίγλωσσος δημόσιος χάρτης επιχειρησιακής ενημέρωσης για την πυρκαγιά στο Πλωμάρι.",
+    "Evidence-aware global wildfire discovery with localized incident context, explicit source coverage, and clear time uncertainty.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

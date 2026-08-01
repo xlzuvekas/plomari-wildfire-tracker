@@ -11,7 +11,10 @@ import {
 } from "../lib/firewatch/incident-ui";
 
 const pageSource = readFileSync(
-  new URL("../app/page.tsx", import.meta.url),
+  new URL(
+    "../app/incidents/plomari-2026-07-29/PlomariIncidentClient.tsx",
+    import.meta.url,
+  ),
   "utf8",
 );
 const globalStyles = readFileSync(
@@ -114,13 +117,18 @@ describe("incident scrubber interaction contract", () => {
     expect(pageSource).toContain("setCommittedThermalAsOfEpoch(");
   });
 
-  test("maps the End key through the explicit Live range sentinel", () => {
+  test("maps the End key to the fixed archive snapshot", () => {
     expect(pageSource).toMatch(
       /event\.key === "End"[\s\S]*?event\.preventDefault\(\);[\s\S]*?updateAsOfFromRange\(asOfRangeMaximum\)/u,
     );
     expect(pageSource).toContain("step={AS_OF_STEP_MS}");
     expect(pageSource).toContain("max={asOfRangeMaximum}");
     expect(pageSource).toContain("value={asOfEpoch ?? asOfRangeMaximum}");
+    expect(pageSource).toContain(
+      "const asOfRangeMaximum = INCIDENT_ARCHIVE_AS_OF_EPOCH",
+    );
+    expect(pageSource).toContain("LATEST EVIDENCE");
+    expect(pageSource).not.toContain("RETURN TO NOW");
   });
 
   test("keeps operational timestamp copy explicit", () => {

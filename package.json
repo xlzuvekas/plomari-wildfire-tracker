@@ -2,7 +2,7 @@
   "name": "plomari-wildfire-tracker",
   "version": "1.0.0",
   "private": true,
-  "description": "Public situational-awareness map for the Plomari wildfire.",
+  "description": "Evidence-aware global wildfire discovery and incident intelligence.",
   "license": "Apache-2.0",
   "engines": {
     "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
