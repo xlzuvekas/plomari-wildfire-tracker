@@ -10,10 +10,10 @@
  *     capped so the cache cannot grow without bound.
  */
 
-// v4 adds the version-pinned MapLibre worker modules required by the Explore
-// globe and retires earlier caches. Cache writes stay off the response-critical
-// path so Cache Storage bookkeeping cannot delay tiles.
-const VERSION = "firewatch-v4";
+// v5 makes the global Explore surface the offline root and retires the cached
+// Plomari-first shell. Cache writes stay off the response-critical path so
+// Cache Storage bookkeeping cannot delay tiles.
+const VERSION = "firewatch-v5";
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 const MAPLIBRE_CACHE = `${VERSION}-maplibre`;

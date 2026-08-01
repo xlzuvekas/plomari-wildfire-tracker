@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { metadata } from "../app/explore/page";
+import { metadata as exploreMetadata } from "../app/explore/page";
+import { metadata as rootMetadata } from "../app/page";
 import { GlobalDiscoveryLink } from "../components/firewatch/GlobalDiscoveryLink";
 
 describe("global discovery navigation", () => {
@@ -14,7 +15,7 @@ describe("global discovery navigation", () => {
       </>,
     );
 
-    expect(markup.match(/href="\/explore"/g)).toHaveLength(2);
+    expect(markup.match(/href="\/"/g)).toHaveLength(2);
     expect(markup).toContain("Global discovery");
     expect(markup).toContain("May be partial / unconfigured");
     expect(markup).toContain("Παγκόσμια");
@@ -26,7 +27,8 @@ describe("global discovery navigation", () => {
   });
 
   it("keeps the global page out of search indexing while discovery is incomplete", () => {
-    expect(metadata.robots).toEqual({ index: false, follow: false });
+    expect(rootMetadata.robots).toEqual({ index: false, follow: false });
+    expect(exploreMetadata.robots).toEqual({ index: false, follow: false });
   });
 
   it("reserves four mobile dock columns and a full touch target", () => {

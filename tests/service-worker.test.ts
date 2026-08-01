@@ -78,8 +78,8 @@ describe("service worker caching", () => {
     });
     await installPromise;
 
-    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v4-shell");
-    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v4-maplibre");
+    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v5-shell");
+    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v5-maplibre");
     expect(shellCache.addAll).toHaveBeenCalledWith(["/"]);
     expect(assetCache.addAll).toHaveBeenCalledWith([
       "/vendor/maplibre-gl/6.1.0/maplibre-gl-worker.mjs",
@@ -136,7 +136,7 @@ describe("service worker caching", () => {
     expect(await responsePromise).toBe(cached);
     await backgroundPromise;
     expect(open).toHaveBeenCalledOnce();
-    expect(open).toHaveBeenCalledWith("firewatch-v4-maplibre");
+    expect(open).toHaveBeenCalledWith("firewatch-v5-maplibre");
     expect(cache.match).toHaveBeenCalledWith(request);
     expect(cache.keys).not.toHaveBeenCalled();
     expect(cache.delete).not.toHaveBeenCalled();
@@ -339,8 +339,8 @@ describe("service worker caching", () => {
     });
 
     expect(await responsePromise).toBe(response);
-    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v4-data");
-    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v4-data");
+    expect(open).toHaveBeenNthCalledWith(1, "firewatch-v5-data");
+    expect(open).toHaveBeenNthCalledWith(2, "firewatch-v5-data");
     expect(cache.keys).toHaveBeenCalledOnce();
   });
 

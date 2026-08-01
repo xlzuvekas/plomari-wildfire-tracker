@@ -1,16 +1,15 @@
-# Plomari Wildfire Tracker
+# Firewatch
 
-A public, mobile-friendly situational-awareness map first deployed for the
-29 July 2026 Plomari wildfire on Lesvos, Greece. It combines source-labeled
-official instructions, satellite thermal detections, local field reporting,
-detailed modeled wind, a measured airport observation, a smoke transport proxy,
-and a clearly marked spread-scenario tool.
+A mobile-friendly, evidence-aware wildfire discovery and incident-intelligence
+platform. Firewatch opens on a global view, can localize to a user-approved
+coarse area, and keeps source coverage, observation time, and uncertainty
+explicit instead of turning missing data into reassurance.
 
-The repository is now also building the production foundation for a global,
-multi-incident wildfire platform. The current public map remains Plomari-
-specific while the new Supabase/PostGIS truth layer runs through migration,
-fixture replay, shadow ingestion, and safety review before any cutover.
-The broader situational-awareness direction is inspired by
+Firewatch was first deployed for the 29 July 2026 Plomari wildfire on Lesvos,
+Greece. That view is now preserved as a dated historical incident archive; it
+does not present current Fire Service status or assert an official resolution.
+The production foundation uses a Supabase/PostGIS truth layer and evidence-
+first ingestion contracts. The broader situational-awareness direction is inspired by
 [VrushankPatel/godseye](https://github.com/VrushankPatel/godseye), with this
 project supplying its own evidence-first wildfire backend.
 
@@ -18,7 +17,7 @@ The interface is localized in English and Greek. It follows the browser
 language on first load, remembers the selected language, and keeps the original
 16:58 112 instruction visibly marked as an archived alert in both languages.
 
-[Open the live map](https://plomari-wildfire-tracker.vercel.app)
+[Open Firewatch](https://plomari-wildfire-tracker.vercel.app)
 
 > **Safety notice**
 >
@@ -29,47 +28,49 @@ language on first load, remembers the selected language, and keeps the original
 > are scenarios, not observations or predictions. In an emergency, call 112
 > and follow authorities.
 
-## What the map shows
+## What Firewatch shows
 
-- The archived, source-linked 16:58 112 instruction, the health of the optional
-  live official-alert feed, and the latest Fire Service response update.
-- Near-real-time NASA FIRMS VIIRS thermal detections from NOAA-20, NOAA-21,
-  Suomi-NPP, and MODIS. The point layer is limited to an 8 km incident radius and can
-  be filtered to the latest satellite detecting pass, 6 hours, or
-  24 hours. FIRMS does not report otherwise empty satellite overpasses.
-- A separate, no-key NASA GIBS current-day thermal raster and optional VIIRS
-  aerosol classification layer. Raster pixels are imagery, not additional
-  point detections or a mapped fire edge.
-- Automatic official and publisher feeds from the Hellenic Fire Service
-  incident board, Greek Civil Protection, the Municipality of Mytilene, ERT
-  North Aegean, StoNisi, and Aeolos. Optional official X feeds can add
-  `@112Greece`, `@pyrosvestiki`, and `@CivPro_GR`; only `@112Greece` is
-  classified as an official-alert feed.
+The root route is the global discovery workspace:
+
+- A globe-scale Explore view backed only by Firewatch v3 reads. The current
+  aggregate endpoint explicitly reports `unconfigured` / `indeterminate`
+  until persisted global candidate generation is activated; it does not fake
+  incidents or call providers from the browser.
+- An opt-in Nearby flow that derives a coarse Web Mercator cell on-device and
+  submits only that cell after confirmation. Exact GPS coordinates are not
+  sent to Firewatch.
+- A semantic candidate list that remains usable if WebGL is unavailable, with
+  coverage, event time, knowledge time, source health, and uncertainty visible.
+
+The dated Plomari route preserves the original incident interface as a
+historical archive:
+
+- The source-linked 16:58 112 instruction and dated official, observed, and
+  local reports through the latest embedded evidence at 20:50 Europe/Athens on
+  29 July 2026. It does not display current Fire Service status or an all-clear.
+- NASA FIRMS VIIRS and MODIS thermal detections limited to the 8 km incident
+  radius. The archive performs one historical read when opened or when the
+  user commits a different date on the scrubber; it does not continuously poll
+  the Plomari area.
 - Source-labeled local reports, with official, observed, reported, and modeled
-  information visually distinguished. Feed health, source tier, category,
-  severity, publication time, and action-required status remain separate.
-- Open-Meteo wind at 10 m, 80 m, 120 m, and 180 m above ground for the incident
-  area, plus gusts, humidity, pressure, and boundary-layer height.
-- The latest available measured METAR from Mytilene Airport (LGMT), shown with
-  its own observation time.
-- A wind-driven smoke exposure envelope and selectable time horizon. It is
-  **not** measured PM2.5, an air-quality forecast, or safe-route guidance.
+  information visually distinguished. Current-only wind, source health, Fire
+  Service board state, GIBS imagery, measured METAR, and smoke transport are
+  withheld rather than presented as historical evidence.
 - An optional spread scenario controlled by wind force, direction, and time.
   It is intentionally labeled as a scenario rather than a forecast.
 - A map-first phone layout with a safe-area-aware bottom dock, a single tabbed
   panel (Layers / Thermal / Wind / Updates) opened from either dock button,
   44px-or-larger touch targets, and a compact official-status/wind ribbon.
-- An explicit **Live / as-of** scrubber from incident start to now. Historical
-  view admits only known source or observation times at or before the cutoff;
-  latest-only wind, source health, Fire Service board state, and daily current
-  rasters are clearly withheld rather than presented as historical evidence.
+- An explicit historical scrubber from incident start to the latest embedded
+  evidence. There is no Live sentinel or return-to-now action on the archive.
 
 Personal location is optional and requested only after an explicit tap. The
-Firewatch client uses it for a temporary marker and distance readouts and does
-not submit the coordinates to Firewatch servers. Explicitly centering the map
-can cause the configured third-party map and overlay providers (Carto, Esri,
-OpenTopoMap, and NASA) to receive ordinary tile requests for the nearby view.
-There is no account data or user-specific incident status in this repository.
+global client computes its suggested coarse cell locally and sends only that
+cell after explicit confirmation. The Plomari archive uses location for a
+temporary marker and distance readouts without submitting the coordinates to
+Firewatch. Centering either map can cause configured third-party tile providers
+to receive ordinary tile requests for the visible area. There is no account
+data or user-specific incident status in this repository.
 
 ## Understanding satellite thermal detections
 
@@ -118,21 +119,26 @@ one.
 
 ## Data freshness and limitations
 
+The current Plomari archive does not schedule current-only wind, METAR, GIBS,
+Fire Service, or publisher-feed checks. The table below documents the dormant
+active-incident policies and provider constraints that remain available for a
+future evidence-backed active incident. Historical FIRMS is requested once on
+archive entry or after a committed scrubber date change.
+
 | Layer | Application check | Underlying data cadence | Important limitation |
 | --- | --- | --- | --- |
-| Detailed wind | Every 5 minutes while the page is open | Open-Meteo model cycles update less often | Point forecast/model, not an on-site anemometer |
-| LGMT METAR | Every 5 minutes through the server route | Usually observed about every 30 minutes; provider cache updates about once a minute | Airport is not the fireground; terrain can produce very different local wind |
+| Detailed wind | Active-incident policy: every 5 minutes | Open-Meteo model cycles update less often | Withheld in the archive; point forecast/model, not an on-site anemometer |
+| LGMT METAR | Active-incident policy: every 5 minutes through the server route | Usually observed about every 30 minutes; provider cache updates about once a minute | Withheld in the archive; airport is not the fireground |
 | Smoke envelope | Recomputed whenever wind data or the selected horizon changes | Derived from the current 10 m model wind | Not observed smoke, PM2.5, or a dispersion model |
-| NASA FIRMS points | Every 2 minutes for the active incident while the tab is visible; shared response cache 2 minutes | FIRMS services refresh after satellite processing | Orbital detecting snapshots, not continuous coverage; point age is observation age, not API age |
-| NASA GIBS thermal/aerosol overlay | Reloaded every 5 minutes | Daily satellite layers updated as observations arrive | Current-day detections persist; aerosol retrieval is coarse, daylight-only, cloud-sensitive, and not PM2.5 |
-| Fire Service incident status | Every 5 minutes through the shared server cache | Official board refreshes approximately every 15 minutes and may publish newer minute-age data | Status only; no perimeter, route, or public action instructions |
-| Local feed reader | Every 5 minutes for a visible active-incident tab; shared response cache 5 minutes | Source-controlled RSS/page updates | Source failures and unconfigured optional feeds are shown; publisher reporting is not official |
+| NASA FIRMS points | Archive: one historical read on entry or committed date change; active-incident policy: every 2 minutes | FIRMS services refresh after satellite processing | Orbital detecting snapshots, not continuous coverage; point age is observation age, not API age |
+| NASA GIBS thermal/aerosol overlay | Active-incident policy: reload every 5 minutes | Daily satellite layers updated as observations arrive | Withheld in the archive; current-day imagery cannot be historical evidence |
+| Fire Service incident status | Active-incident policy: every 5 minutes through the shared server cache | Official board refreshes approximately every 15 minutes and may publish newer minute-age data | Withheld in the archive; status only, with no perimeter or public action instructions |
+| Local feed reader | Active-incident policy: every 5 minutes for a visible tab | Source-controlled RSS/page updates | Withheld in the archive; publisher reporting is not official |
 | 112 instruction | Browser polling never calls X; the original 16:58 permalink remains visible as an archived alert until a persisted scheduled collector publishes a newer verified projection | Cell broadcast and official publisher | The archived banner is not proof that the instruction remains current; phone alerts and authorities remain authoritative, and X API availability is not guaranteed |
 
-Every live data panel exposes its model/observation time. If live wind retrieval
-fails, the interface marks the model unavailable and withholds wind vectors,
-smoke proxies, and model values rather than silently presenting a fallback as
-current.
+Every active data panel exposes its model or observation time. If retrieval
+fails, the interface marks the source unavailable rather than silently
+presenting a fallback as current.
 
 Thermal responses expose one of four explicit states:
 
@@ -379,7 +385,8 @@ read-model boundary:
   Empty results and exhausted pages remain `not_assessed` / `indeterminate`,
   never an all-clear.
 
-The `/explore` Nearby thermal panel is implemented behind the strict server-only
+The `/` Nearby thermal panel (`/explore` remains a compatibility alias) is
+implemented behind the strict server-only
 `FIREWATCH_THERMAL_V3_UI_ENABLED=true` gate and defaults off. Once activated, it
 reuses only the exact canonical cell, event-time cutoff, and knowledge-time
 cutoff from a freshly validated Nearby response. It performs one bounded

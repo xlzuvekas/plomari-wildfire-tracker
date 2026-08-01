@@ -2212,7 +2212,7 @@ button {
 /* Tablets use the same bounded drawer/sheet interaction as phones. Keeping
    two free-floating rails at these widths causes the alert and time stack to
    compete for the same map space. Keep this breakpoint in sync with the
-   matchMedia query in app/page.tsx. */
+   matchMedia query in the Plomari incident client. */
 @media (max-width: 1180px) {
   .command-shell {
     --mobile-head: calc(62px + env(safe-area-inset-top));

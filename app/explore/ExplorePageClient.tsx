@@ -543,8 +543,11 @@ export function ExplorePageClient({
           ) : (
             <span className={styles.liveFlag}>Persisted HTTP reads</span>
           )}
-          <Link className={styles.mapLink} href="/">
-            Local incident map
+          <Link
+            className={styles.mapLink}
+            href="/incidents/plomari-2026-07-29"
+          >
+            Plomari · 29 Jul archive
           </Link>
         </div>
       </header>

@@ -30,7 +30,7 @@ export function GlobalDiscoveryLink({
   return (
     <Link
       className={`global-discovery-link global-discovery-link--${variant}`}
-      href="/explore"
+      href="/"
       prefetch={false}
       aria-label={copy.accessibleLabel}
     >
