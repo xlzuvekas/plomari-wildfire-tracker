@@ -70,6 +70,68 @@ describe("semantic global discovery panel", () => {
     );
   });
 
+  it("renders bounded Previous/Next controls and retains the page on continuation failure", () => {
+    const firstPage = exploreDiscoveryResponseSchema.parse({
+      ...copy(SYNTHETIC_MARSEILLE_EXPLORE),
+      page: {
+        limit: 1,
+        isFirstPage: true,
+        hasMore: true,
+        nextCursor: "continuation_cursor_v1",
+      },
+    });
+    const readyMarkup = renderToStaticMarkup(
+      <DiscoveryPanel
+        state={{
+          status: "ready",
+          mode: "explore-candidates",
+          response: firstPage,
+          transport: "live",
+        }}
+        onSelectionChange={() => undefined}
+        pagination={{
+          pageNumber: 1,
+          canGoPrevious: false,
+          canGoNext: true,
+          loading: false,
+          onPrevious: () => undefined,
+          onNext: () => undefined,
+        }}
+      />,
+    );
+    expect(readyMarkup).toContain('aria-label="Explore result pages"');
+    expect(readyMarkup).toContain("More results are available.");
+    expect(readyMarkup).toContain("Event and knowledge cutoffs stay fixed");
+    expect(readyMarkup).toMatch(/<button[^>]*>Next page<\/button>/u);
+    expect(readyMarkup).toContain("Page 1");
+
+    const failedMarkup = renderToStaticMarkup(
+      <DiscoveryPanel
+        state={{
+          status: "error",
+          mode: "explore-candidates",
+          issue: "unavailable",
+          lastGood: firstPage,
+        }}
+        onSelectionChange={() => undefined}
+        pagination={{
+          pageNumber: 1,
+          canGoPrevious: false,
+          canGoNext: true,
+          loading: false,
+          issue: "unavailable",
+          onPrevious: () => undefined,
+          onNext: () => undefined,
+        }}
+      />,
+    );
+    expect(failedMarkup).toContain("wm/10/527/375");
+    expect(failedMarkup).toContain(
+      "The next page could not be loaded. The current validated page remains visible.",
+    );
+    expect(failedMarkup).toContain('role="alert"');
+  });
+
   it("keeps incident records structurally and semantically distinct", () => {
     const incident = SYNTHETIC_PLOMARI_NEARBY.incidents[0];
     if (!incident) throw new Error("Missing Plomari incident");
@@ -131,7 +193,7 @@ describe("semantic global discovery panel", () => {
       response: SYNTHETIC_MARSEILLE_EXPLORE,
       transport: "cache-fallback",
     });
-    expect(lastGood).toContain("Last-good snapshot");
+    expect(lastGood).toContain("Previous validated snapshot");
     expect(lastGood).toContain("Coverage complete");
   });
 
@@ -231,7 +293,7 @@ describe("semantic global discovery panel", () => {
       issue: "unavailable",
       lastGood: SYNTHETIC_PARIS_VALID_EMPTY,
     });
-    expect(lastGood).toContain("Last-good snapshot");
+    expect(lastGood).toContain("Previous validated snapshot");
     expect(lastGood).toContain("cannot be reached right now");
     expect(lastGood).toContain("not an all-clear");
   });
@@ -327,7 +389,7 @@ describe("semantic global discovery panel", () => {
     expect(markup).toContain("Πλήρης κάλυψη");
     expect(markup).toContain("τοπική ώρα · επαληθευμένη ζώνη");
     expect(markup).not.toMatch(
-      /GLOBAL DISCOVERY|Coverage complete|Checked|Fresh through|Live read|No known incidents|not an all-clear|Events as of|Knowledge as of|Observation window starts|Bounded discovery page/u,
+      /GLOBAL DISCOVERY|Coverage complete|Checked|Fresh through|Fresh persisted API response|No known incidents|not an all-clear|Events as of|Knowledge as of|Observation window starts|Bounded discovery page/u,
     );
   });
 

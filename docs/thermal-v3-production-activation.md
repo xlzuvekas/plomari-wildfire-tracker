@@ -43,8 +43,11 @@ Preview and Production need separate values where the provider supports them:
 - `FIREWATCH_THERMAL_V3_ADMISSION_ENABLED=true`
 - `FIREWATCH_THERMAL_V3_ACCESS_MODE=canary`
 - `FIREWATCH_THERMAL_V3_CANARY_TOKEN_SHA256`
-- `FIREWATCH_THERMAL_ADMISSION_REDIS_URL`
-- `FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN`
+- one write-capable Redis HTTPS REST pair:
+  - canonical `FIREWATCH_THERMAL_ADMISSION_REDIS_URL` and
+    `FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN`; or
+  - Vercel Upstash `FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL` and
+    `FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_TOKEN`
 - `FIREWATCH_THERMAL_ADMISSION_IDENTITY_SECRET`
 - `FIREWATCH_THERMAL_ADMISSION_BURST_LIMIT`
 - `FIREWATCH_THERMAL_ADMISSION_BURST_WINDOW_SECONDS`
@@ -68,6 +71,12 @@ and must not be selected until the issue gate and soak are complete.
 
 Use an Upstash/Redis region close to the Vercel function and Supabase project.
 The REST token must be write-capable because the gate owns counters and leases.
+The generated `...KV_REST_API_READ_ONLY_TOKEN`, `...KV_URL`, and
+`...REDIS_URL` values are deliberately not admission fallbacks: the first
+cannot run the mutating Lua transaction and the latter two are TCP connection
+strings rather than the bounded HTTPS transport used by Vercel functions. If
+both supported REST pairs exist, they must resolve to the same HTTPS origin and
+the same write token; a mismatch fails closed before any Redis request.
 Use a dedicated database/ACL identity if available. The free Upstash tier is
 useful for Preview but has no production SLA or multi-zone guarantee; exceeding
 its allowance safely makes this route unavailable. Review current pricing and

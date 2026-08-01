@@ -106,6 +106,89 @@ describe("thermal v3 distributed admission", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts Vercel Upstash REST aliases and uses only the write token", async () => {
+    const upstashEnvironment: ThermalAdmissionEnvironmentInput = {
+      ...ENVIRONMENT,
+      FIREWATCH_THERMAL_ADMISSION_REDIS_URL: undefined,
+      FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN: undefined,
+      FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL:
+        "https://admission-redis.example.com",
+      FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_TOKEN:
+        "upstash-write-token-value",
+      FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_READ_ONLY_TOKEN:
+        "upstash-read-only-token-value",
+      FIREWATCH_THERMAL_ADMISSION_REDIS_KV_URL:
+        "rediss://default:secret@admission-redis.example.com:6379",
+      FIREWATCH_THERMAL_ADMISSION_REDIS_REDIS_URL:
+        "redis://default:secret@admission-redis.example.com:6379",
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("https://admission-redis.example.com");
+      expect(new Headers(init?.headers).get("authorization")).toBe(
+        "Bearer upstash-write-token-value",
+      );
+      return Response.json({ result: [0, "burst", 1_000] });
+    });
+
+    await expect(
+      admitThermalAnomalyRequest(request(), {
+        environment: upstashEnvironment,
+        fetchImpl,
+        createLeaseToken: () => LEASE_TOKEN,
+      }),
+    ).resolves.toMatchObject({ kind: "rejected", reason: "burst" });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed for read-only, TCP-only, or conflicting Redis credentials", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const cases: ThermalAdmissionEnvironmentInput[] = [
+      {
+        ...ENVIRONMENT,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_URL: undefined,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN: undefined,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL:
+          "https://admission-redis.example.com",
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_READ_ONLY_TOKEN:
+          "upstash-read-only-token-value",
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_URL:
+          "rediss://default:secret@admission-redis.example.com:6379",
+      },
+      {
+        ...ENVIRONMENT,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_URL: undefined,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN: undefined,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_REDIS_URL:
+          "redis://default:secret@admission-redis.example.com:6379",
+      },
+      {
+        ...ENVIRONMENT,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL:
+          "https://different-redis.example.com",
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_TOKEN:
+          ENVIRONMENT.FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN,
+      },
+      {
+        ...ENVIRONMENT,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL:
+          ENVIRONMENT.FIREWATCH_THERMAL_ADMISSION_REDIS_URL,
+        FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_TOKEN:
+          "different-write-token-value",
+      },
+    ];
+
+    for (const environment of cases) {
+      await expect(
+        admitThermalAnomalyRequest(request(), {
+          environment,
+          fetchImpl,
+          createLeaseToken: () => LEASE_TOKEN,
+        }),
+      ).rejects.toEqual(new ThermalAdmissionUnavailableError());
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["burst", 1_001, 2],
     ["sustained", 1, 1],

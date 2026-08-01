@@ -6,11 +6,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ExplorePageClient,
   loadExploreGlobeModule,
+  selectedExploreCandidate,
   thermalNearbyTarget,
 } from "../app/explore/ExplorePageClient";
 import { synchronizeCandidateMarkerSelection } from "../app/explore/ExploreGlobe";
 import { resolveExplorePageOptions } from "../app/explore/explore-page-options";
-import { SYNTHETIC_PLOMARI_NEARBY } from "./fixtures/global-discovery-v3";
+import {
+  SYNTHETIC_MARSEILLE_EXPLORE,
+  SYNTHETIC_PLOMARI_NEARBY,
+} from "./fixtures/global-discovery-v3";
 
 const exploreClientSource = readFileSync(
   new URL("../app/explore/ExplorePageClient.tsx", import.meta.url),
@@ -26,6 +30,10 @@ const exploreGlobeStyles = readFileSync(
 );
 const explorePageStyles = readFileSync(
   new URL("../app/explore/ExplorePage.module.css", import.meta.url),
+  "utf8",
+);
+const discoveryPanelStyles = readFileSync(
+  new URL("../components/firewatch/DiscoveryPanel.module.css", import.meta.url),
   "utf8",
 );
 
@@ -82,6 +90,25 @@ describe("Explore route options", () => {
 });
 
 describe("Explore route shell", () => {
+  it("resolves a selected aggregate candidate only from the visible validated page", () => {
+    const candidate = SYNTHETIC_MARSEILLE_EXPLORE.candidates[0];
+    if (!candidate) throw new Error("Synthetic candidate is required.");
+    expect(
+      selectedExploreCandidate(SYNTHETIC_MARSEILLE_EXPLORE, {
+        kind: "candidate",
+        candidateId: candidate.candidateId,
+        cell: candidate.displayArea.cell,
+      }),
+    ).toEqual(candidate);
+    expect(
+      selectedExploreCandidate(SYNTHETIC_MARSEILLE_EXPLORE, {
+        kind: "candidate",
+        candidateId: candidate.candidateId,
+        cell: "wm/10/587/391",
+      }),
+    ).toBeNull();
+  });
+
   it("starts a thermal read only from the exact current validated Nearby snapshot", () => {
     const readyState = {
       status: "ready",
@@ -234,6 +261,21 @@ describe("Explore route shell", () => {
     );
   });
 
+  it("frames the newest candidate once unless the user has already moved the globe", () => {
+    expect(exploreGlobeSource).toContain(
+      "framedInitialCandidateRef.current || userMovedMapRef.current",
+    );
+    expect(exploreGlobeSource).toContain(
+      "const newestCandidate = response?.candidates[0]",
+    );
+    expect(exploreGlobeSource).toContain(
+      'container.addEventListener("pointerdown", markUserInteraction)',
+    );
+    expect(exploreGlobeSource).toContain(
+      'container.removeEventListener("wheel", markUserInteraction)',
+    );
+  });
+
   it("releases a partially initialized renderer before showing the list fallback", () => {
     const catchIndex = exploreGlobeSource.indexOf(
       "initializationFailed = true;\n        teardownMapRuntime();",
@@ -305,5 +347,16 @@ describe("Explore route shell", () => {
       /@media not all and \(max-width: 52rem\)[\s\S]*?\.controlsDisclosure\s*>\s*\.controlsBody\s*\{[^}]*display:\s*block;/u,
     );
     expect(explorePageStyles).not.toMatch(/\border\s*:/u);
+    expect(exploreClientSource).toContain("Review this coarse area");
+    expect(exploreClientSource).toContain("Retry persisted read");
+    expect(exploreClientSource).toContain(
+      "not a confirmed incident or\n                  an exact fire location",
+    );
+    expect(discoveryPanelStyles).toMatch(
+      /\.panel\[data-density="compact"\]\s*\{[^}]*block-size:\s*auto;[^}]*min-block-size:\s*0;/u,
+    );
+    expect(discoveryPanelStyles).toMatch(
+      /\.panel\[data-density="compact"\]\s+\.content\s*\{[^}]*overflow:\s*visible;/u,
+    );
   });
 });

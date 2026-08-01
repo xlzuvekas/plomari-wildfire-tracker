@@ -397,6 +397,80 @@
   letter-spacing: 0.02em;
 }
 
+.pageNavigation {
+  display: grid;
+  gap: 0.55rem;
+  margin-block-start: 0.65rem;
+  padding-block-start: 0.65rem;
+  border-block-start: 1px solid var(--line-soft, rgba(126, 196, 209, 0.12));
+}
+
+.pageNavigation > p {
+  margin: 0;
+  color: var(--muted, var(--discovery-muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.54rem;
+  line-height: 1.4;
+}
+
+.pageNavigation > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pageNavigation button {
+  min-block-size: 2.75rem;
+  padding: 0.55rem 0.65rem;
+  color: var(--cyan, var(--discovery-cyan));
+  border: 1px solid var(--discovery-line-strong);
+  border-radius: 8px;
+  background: rgba(85, 221, 255, 0.06);
+  font: 700 0.62rem/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  cursor: pointer;
+  transition:
+    transform 120ms var(--discovery-ease-out),
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.pageNavigation button:focus-visible {
+  outline: 2px solid var(--cyan, var(--discovery-cyan));
+  outline-offset: 2px;
+}
+
+.pageNavigation button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.pageNavigation button:disabled {
+  color: var(--muted, var(--discovery-muted));
+  border-color: var(--line-soft, rgba(126, 196, 209, 0.12));
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.pageNavigation > div > span {
+  color: var(--ink, var(--discovery-ink));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+
+.pageNavigation .pageError {
+  color: var(--amber, var(--discovery-amber));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pageNavigation button:hover:not(:disabled) {
+    border-color: var(--cyan, var(--discovery-cyan));
+    background: rgba(85, 221, 255, 0.12);
+  }
+}
+
 .panel[data-density="compact"] .header,
 .panel[data-density="compact"] .footer {
   padding-inline: 0.72rem;
@@ -417,6 +491,20 @@
     block-size: min(72dvh, 38rem);
     border-radius: 13px 13px 0 0;
     box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.28);
+  }
+
+  /* Explore already owns the page scroll. Let its compact result panel grow
+     in normal document flow so touch users do not get trapped in a second,
+     nested vertical scroller. */
+  .panel[data-density="compact"] {
+    grid-template-rows: auto auto auto auto auto;
+    block-size: auto;
+    min-block-size: 0;
+  }
+
+  .panel[data-density="compact"] .content {
+    overflow: visible;
+    overscroll-behavior: auto;
   }
 
   .header {
@@ -452,17 +540,33 @@
     grid-template-columns: minmax(4.7rem, 0.34fr) minmax(0, 1fr);
     gap: 0.42rem;
   }
+
+  .panel[data-density="compact"] .timeRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.16rem;
+  }
+
+  .panel[data-density="compact"] .timeRow dt,
+  .panel[data-density="compact"] .timePrimary,
+  .panel[data-density="compact"] .timeContext,
+  .panel[data-density="compact"] .pageNote,
+  .panel[data-density="compact"] .pageNavigation > p,
+  .panel[data-density="compact"] .pageNavigation > div > span {
+    font-size: 0.7rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .itemCard,
-  .itemButton {
+  .itemButton,
+  .pageNavigation button {
     transition:
       border-color 100ms ease,
       background-color 100ms ease;
   }
 
-  .itemButton:active {
+  .itemButton:active,
+  .pageNavigation button:active:not(:disabled) {
     transform: none;
   }
 }

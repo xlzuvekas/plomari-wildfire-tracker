@@ -15,7 +15,9 @@ export type GlobalDiscoveryTransport =
  * The transport result remains distinct from discovery coverage. In
  * particular, an HTTP-success response may still carry partial, stale,
  * not-assessed, or unavailable domain coverage and must not be promoted to
- * valid-empty or retained as a complete last-good snapshot.
+ * valid-empty or promoted to complete coverage. The HTTP client caches only
+ * complete responses; the controller may separately retain a schema-validated
+ * direct response in memory while preserving its original coverage state.
  */
 export type GlobalDiscoveryClientResult<Response> =
   | Readonly<{

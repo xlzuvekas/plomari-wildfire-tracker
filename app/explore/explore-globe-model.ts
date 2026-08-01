@@ -40,6 +40,31 @@ export type ExploreMapNotice = Readonly<{
   detail: string;
 }>;
 
+const UTC_CUTOFF_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZoneName: "short",
+});
+
+/**
+ * Keeps the map's evidence clocks explicit and cache-stable. Relative age is
+ * never substituted for the full UTC calendar date and semantic cutoff.
+ */
+export function describeExploreSnapshotCutoffs(
+  response: ExploreDiscoveryResponse | null,
+): string | null {
+  if (response === null) return null;
+  return (
+    `Events observed through ${UTC_CUTOFF_FORMATTER.format(Date.parse(response.time.asOf))}` +
+    ` · Knowledge snapshot ${UTC_CUTOFF_FORMATTER.format(Date.parse(response.time.knownAt))}`
+  );
+}
+
 function longitudeMidpoint(west: number, east: number): number {
   if (east >= west) return (west + east) / 2;
   const midpoint = (west + east + 360) / 2;
@@ -149,9 +174,9 @@ export function describeExploreMapSnapshot(
 
   const retainedSnapshot =
     requestStatus === "loading"
-      ? " Refreshing now; the map is showing the last complete snapshot."
+      ? " Refreshing now; the map is showing the previous validated snapshot with its original coverage status."
       : requestStatus === "error"
-        ? " The current read failed; the map is showing the last complete snapshot."
+        ? " The current read failed; the map is showing the previous validated snapshot with its original coverage status."
         : "";
 
   switch (response.coverage.state) {

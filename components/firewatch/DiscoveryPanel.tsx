@@ -28,9 +28,9 @@ export const defaultDiscoveryPanelMessages = {
   nearbyTitle: "Nearby incidents",
   nearbySubtitle: "Adjudicated incident records · coarse area",
   loading: "Loading discovery snapshot",
-  refreshing: "Refreshing · showing last-good snapshot",
-  lastGood: "Last-good snapshot",
-  live: "Live read",
+  refreshing: "Refreshing · showing previous validated snapshot",
+  lastGood: "Previous validated snapshot",
+  live: "Fresh persisted API response",
   revalidated: "Revalidated cache",
   fixture: "Synthetic fixture",
   coverageComplete: "Coverage complete",
@@ -75,7 +75,15 @@ export const defaultDiscoveryPanelMessages = {
   select: "Select",
   selected: "Selected",
   pageBounded: "Bounded discovery page",
-  moreAvailable: "More results available through the opaque cursor.",
+  moreAvailable: "More results are available.",
+  page: "Page",
+  previousPage: "Previous page",
+  nextPage: "Next page",
+  loadingNextPage: "Loading next page…",
+  continuationLoading: "Loading the next page · showing the current page",
+  continuationFailed:
+    "The next page could not be loaded. The current validated page remains visible.",
+  frozenCutoffs: "Event and knowledge cutoffs stay fixed across pages.",
   results: "results",
 } as const;
 
@@ -113,6 +121,16 @@ export type DiscoveryPanelState =
   | DiscoveryPanelStateFor<"explore-candidates", ExploreDiscoveryResponse>
   | DiscoveryPanelStateFor<"nearby-incidents", NearbyDiscoveryResponse>;
 
+export type DiscoveryPanelPagination = Readonly<{
+  pageNumber: number;
+  canGoPrevious: boolean;
+  canGoNext: boolean;
+  loading: boolean;
+  issue?: ClientIssue | null;
+  onPrevious: () => void;
+  onNext: () => void;
+}>;
+
 export type DiscoveryPanelProps = Readonly<{
   state: DiscoveryPanelState;
   selected?: DiscoverySelection | null;
@@ -123,6 +141,7 @@ export type DiscoveryPanelProps = Readonly<{
   presentTime?: typeof presentDiscoveryTime;
   density?: "comfortable" | "compact";
   className?: string;
+  pagination?: DiscoveryPanelPagination;
 }>;
 
 function coveragePresentation(
@@ -297,6 +316,7 @@ export function DiscoveryPanel({
   presentTime = presentDiscoveryTime,
   density = "comfortable",
   className,
+  pagination,
 }: DiscoveryPanelProps) {
   const headingId = useId();
   const messages: DiscoveryPanelMessages = {
@@ -324,10 +344,14 @@ export function DiscoveryPanel({
 
   let boundaryNotice: string | null = null;
   if (state.status === "loading" && response) {
-    boundaryNotice = messages.refreshing;
+    boundaryNotice = pagination?.loading
+      ? messages.continuationLoading
+      : messages.refreshing;
   }
   if (state.status === "error" && response) {
-    boundaryNotice = `${messages.lastGood} · ${issueMessage(state.issue, messages)}`;
+    boundaryNotice = pagination?.issue
+      ? messages.continuationFailed
+      : `${messages.lastGood} · ${issueMessage(state.issue, messages)}`;
   }
   if (
     state.status === "ready" &&
@@ -617,9 +641,44 @@ export function DiscoveryPanel({
             />
           </dl>
           <p className={styles.pageNote}>
+            {pagination ? `${messages.page} ${pagination.pageNumber} · ` : ""}
             {messages.pageBounded} · {itemCount}/{response.page.limit}
             {response.page.hasMore ? ` · ${messages.moreAvailable}` : ""}
           </p>
+          {isExplore && pagination ? (
+            <nav
+              className={styles.pageNavigation}
+              aria-label="Explore result pages"
+            >
+              <p>{messages.frozenCutoffs}</p>
+              <div>
+                <button
+                  type="button"
+                  onClick={pagination.onPrevious}
+                  disabled={!pagination.canGoPrevious || pagination.loading}
+                >
+                  {messages.previousPage}
+                </button>
+                <span aria-current="page">
+                  {messages.page} {pagination.pageNumber}
+                </span>
+                <button
+                  type="button"
+                  onClick={pagination.onNext}
+                  disabled={!pagination.canGoNext || pagination.loading}
+                >
+                  {pagination.loading
+                    ? messages.loadingNextPage
+                    : messages.nextPage}
+                </button>
+              </div>
+              {pagination.issue ? (
+                <p className={styles.pageError} role="alert">
+                  {messages.continuationFailed}
+                </p>
+              ) : null}
+            </nav>
+          ) : null}
         </footer>
       ) : null}
     </section>

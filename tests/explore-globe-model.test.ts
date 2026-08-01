@@ -4,6 +4,7 @@ import {
   candidateAreaFeatureCollection,
   candidateMapMarker,
   describeExploreMapSnapshot,
+  describeExploreSnapshotCutoffs,
 } from "../app/explore/explore-globe-model";
 import {
   globalDiscoveryCursorSchema,
@@ -16,6 +17,13 @@ function copy<Value>(value: Value): Value {
 }
 
 describe("Explore aggregate globe model", () => {
+  it("labels both snapshot cutoffs with a full UTC calendar date", () => {
+    const label = describeExploreSnapshotCutoffs(SYNTHETIC_MARSEILLE_EXPLORE);
+    expect(label).toContain("Events observed through 31 Jul 2026");
+    expect(label).toContain("Knowledge snapshot 31 Jul 2026");
+    expect(label).toContain("UTC");
+  });
+
   it("derives marker centers and outlines only from public aggregate cells", () => {
     const candidate = SYNTHETIC_MARSEILLE_EXPLORE.candidates[0];
     if (!candidate) throw new Error("Synthetic candidate is required.");
@@ -138,7 +146,8 @@ describe("Explore aggregate globe model", () => {
 
     expect(notice.title).toBe("1 aggregate candidate cell");
     expect(notice.detail).toContain("current read failed");
-    expect(notice.detail).toContain("last complete snapshot");
+    expect(notice.detail).toContain("previous validated snapshot");
+    expect(notice.detail).toContain("original coverage status");
   });
 
   it("labels a bounded continuation page as an incomplete globe view", () => {

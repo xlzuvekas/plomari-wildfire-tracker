@@ -20,6 +20,7 @@ describe("Supabase pgTAP discovery", () => {
       "discovery_reader_timeout.test.sql",
       "firms_persistence_foundation.test.sql",
       "firms_shadow_collector_runtime.test.sql",
+      "global_candidate_projection.test.sql",
       "http_exchanges.test.sql",
       "initial_truth_foundation.test.sql",
       "thermal_anomaly_v3_projection.test.sql",
