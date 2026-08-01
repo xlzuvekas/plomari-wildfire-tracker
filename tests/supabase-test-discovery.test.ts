@@ -24,6 +24,7 @@ describe("Supabase pgTAP discovery", () => {
       "initial_truth_foundation.test.sql",
       "thermal_anomaly_v3_projection.test.sql",
       "v3_nearby_incident_projection.test.sql",
+      "viirs_firemask_assessability_foundation.test.sql",
     ]);
     expect(legacyUndiscoverable).toEqual([]);
   });
