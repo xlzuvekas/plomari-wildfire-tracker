@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   GlobalDiscoveryController,
+  buildExploreContinuationRequest,
   buildExploreDiscoveryRequest,
   buildNearbyDiscoveryRequest,
   canonicalDiscoveryCutoff,
   millisecondsUntilNextDiscoveryBucket,
   shouldRefreshDiscoveryOnVisible,
+  exploreDiscoveryResponseSchema,
   type ExploreDiscoveryResponse,
   type GlobalDiscoveryClient,
   type GlobalDiscoveryClientResult,
@@ -29,10 +31,48 @@ function unavailable() {
   return { kind: "unavailable", retryable: true } as const;
 }
 
+const PAGINATION_CURSOR = "a".repeat(32);
+
+function paginatedExplorePages() {
+  const sourceCandidate = SYNTHETIC_MARSEILLE_EXPLORE.candidates[0];
+  if (!sourceCandidate) throw new Error("Synthetic candidate is required.");
+  const first = exploreDiscoveryResponseSchema.parse({
+    ...structuredClone(SYNTHETIC_MARSEILLE_EXPLORE),
+    candidates: Array.from({ length: 50 }, (_, index) => ({
+      ...structuredClone(sourceCandidate),
+      candidateId:
+        `01900000-0000-7000-8000-${(0x300 - index).toString(16).padStart(12, "0")}`,
+    })),
+    page: {
+      limit: 50,
+      isFirstPage: true,
+      hasMore: true,
+      nextCursor: PAGINATION_CURSOR,
+    },
+  });
+  const second = exploreDiscoveryResponseSchema.parse({
+    ...structuredClone(SYNTHETIC_MARSEILLE_EXPLORE),
+    candidates: [
+      {
+        ...structuredClone(sourceCandidate),
+        candidateId: "01900000-0000-7000-8000-000000000001",
+      },
+    ],
+    page: {
+      limit: 50,
+      isFirstPage: false,
+      hasMore: false,
+      nextCursor: null,
+    },
+  });
+  return { first, second };
+}
+
 describe("global discovery current-time policy", () => {
-  it("uses UTC-aligned five-minute knowledge and completed event buckets", () => {
+  it("uses UTC-aligned buckets only after a one-minute publication grace", () => {
     const beforeBoundary = Date.parse("2026-07-31T12:04:59.999Z");
     const onBoundary = Date.parse("2026-07-31T12:05:00.000Z");
+    const afterGrace = Date.parse("2026-07-31T12:06:00.000Z");
 
     expect(canonicalDiscoveryCutoff(beforeBoundary)).toBe(
       "2026-07-31T12:00:00.000Z",
@@ -42,11 +82,16 @@ describe("global discovery current-time policy", () => {
       knownAt: "2026-07-31T12:00:00.000Z",
     });
     expect(buildExploreDiscoveryRequest(onBoundary).time).toEqual({
+      asOf: "2026-07-31T11:55:00.000Z",
+      knownAt: "2026-07-31T12:00:00.000Z",
+    });
+    expect(buildExploreDiscoveryRequest(afterGrace).time).toEqual({
       asOf: "2026-07-31T12:00:00.000Z",
       knownAt: "2026-07-31T12:05:00.000Z",
     });
-    expect(millisecondsUntilNextDiscoveryBucket(beforeBoundary)).toBe(1);
-    expect(millisecondsUntilNextDiscoveryBucket(onBoundary)).toBe(300_000);
+    expect(millisecondsUntilNextDiscoveryBucket(beforeBoundary)).toBe(60_001);
+    expect(millisecondsUntilNextDiscoveryBucket(onBoundary)).toBe(60_000);
+    expect(millisecondsUntilNextDiscoveryBucket(afterGrace)).toBe(300_000);
     expect(
       shouldRefreshDiscoveryOnVisible(
         beforeBoundary,
@@ -56,6 +101,12 @@ describe("global discovery current-time policy", () => {
     expect(
       shouldRefreshDiscoveryOnVisible(
         onBoundary,
+        "2026-07-31T12:00:00.000Z",
+      ),
+    ).toBe(false);
+    expect(
+      shouldRefreshDiscoveryOnVisible(
+        afterGrace,
         "2026-07-31T12:00:00.000Z",
       ),
     ).toBe(true);
@@ -86,9 +137,170 @@ describe("global discovery current-time policy", () => {
       ),
     ).toThrow(/canonical coarse cell/u);
   });
+
+  it("freezes the original cutoffs and limit in an Explore continuation", () => {
+    const { first } = paginatedExplorePages();
+    expect(buildExploreContinuationRequest(first)).toEqual({
+      schemaVersion: 3,
+      kind: "explore-candidates",
+      time: {
+        asOf: first.time.asOf,
+        knownAt: first.time.knownAt,
+      },
+      page: { limit: 50, after: PAGINATION_CURSOR },
+    });
+    expect(() =>
+      buildExploreContinuationRequest(SYNTHETIC_MARSEILLE_EXPLORE),
+    ).toThrow(/no continuation cursor/u);
+  });
 });
 
 describe("global discovery controller", () => {
+  it("advances with the exact opaque cursor and returns through validated page history", async () => {
+    const { first, second } = paginatedExplorePages();
+    const pending = deferred<
+      GlobalDiscoveryClientResult<ExploreDiscoveryResponse>
+    >();
+    const requests: Parameters<GlobalDiscoveryClient["exploreCandidates"]>[0][] = [];
+    const client: GlobalDiscoveryClient = {
+      exploreCandidates(request) {
+        requests.push(request);
+        if (requests.length === 1) {
+          return Promise.resolve({
+            kind: "snapshot",
+            transport: "live",
+            data: first,
+          });
+        }
+        return pending.promise;
+      },
+      async nearbyIncidents() {
+        return unavailable();
+      },
+    };
+    const controller = new GlobalDiscoveryController({
+      client,
+      now: () => Date.parse("2026-07-31T17:07:00.000Z"),
+    });
+
+    await controller.activate({ mode: "explore-candidates" });
+    const advancing = controller.nextExplorePage();
+    await Promise.resolve();
+
+    expect(requests[1]).toEqual({
+      schemaVersion: 3,
+      kind: "explore-candidates",
+      time: { asOf: first.time.asOf, knownAt: first.time.knownAt },
+      page: { limit: first.page.limit, after: PAGINATION_CURSOR },
+    });
+    let snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("loading");
+    if (snapshot.status === "loading" && "navigation" in snapshot) {
+      expect(snapshot.navigation).toEqual({
+        pageNumber: 1,
+        canGoPrevious: false,
+        requestKind: "continuation",
+      });
+      expect(snapshot.lastGood).toEqual(first);
+    }
+
+    pending.resolve({ kind: "snapshot", transport: "live", data: second });
+    await advancing;
+    snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status === "ready" && "navigation" in snapshot) {
+      expect(snapshot.response).toEqual(second);
+      expect(snapshot.navigation).toEqual({
+        pageNumber: 2,
+        canGoPrevious: true,
+        requestKind: null,
+      });
+    }
+
+    controller.previousExplorePage();
+    snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("ready");
+    if (snapshot.status === "ready" && "navigation" in snapshot) {
+      expect(snapshot.response).toEqual(first);
+      expect(snapshot.navigation.pageNumber).toBe(1);
+    }
+
+    await controller.nextExplorePage();
+    expect(requests).toHaveLength(2);
+    snapshot = controller.getSnapshot();
+    if (snapshot.status === "ready" && "navigation" in snapshot) {
+      expect(snapshot.response).toEqual(second);
+      expect(snapshot.navigation.pageNumber).toBe(2);
+    }
+  });
+
+  it("keeps the current page visible when a continuation fails", async () => {
+    const { first } = paginatedExplorePages();
+    let calls = 0;
+    const client: GlobalDiscoveryClient = {
+      async exploreCandidates() {
+        calls += 1;
+        return calls === 1
+          ? { kind: "snapshot", transport: "live", data: first }
+          : unavailable();
+      },
+      async nearbyIncidents() {
+        return unavailable();
+      },
+    };
+    const controller = new GlobalDiscoveryController({ client });
+
+    await controller.activate({ mode: "explore-candidates" });
+    await controller.nextExplorePage();
+
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("error");
+    if (snapshot.status === "error" && "navigation" in snapshot) {
+      expect(snapshot.issue).toBe("unavailable");
+      expect(snapshot.lastGood).toEqual(first);
+      expect(snapshot.navigation).toEqual({
+        pageNumber: 1,
+        canGoPrevious: false,
+        requestKind: "continuation",
+      });
+    }
+  });
+
+  it("never promotes a continuation page into the first-page refresh fallback", async () => {
+    const { first, second } = paginatedExplorePages();
+    let calls = 0;
+    let now = Date.parse("2026-07-31T17:07:00.000Z");
+    const client: GlobalDiscoveryClient = {
+      async exploreCandidates() {
+        calls += 1;
+        if (calls === 1) {
+          return { kind: "snapshot", transport: "live", data: first };
+        }
+        if (calls === 2) {
+          return { kind: "snapshot", transport: "live", data: second };
+        }
+        return unavailable();
+      },
+      async nearbyIncidents() {
+        return unavailable();
+      },
+    };
+    const controller = new GlobalDiscoveryController({ client, now: () => now });
+
+    await controller.activate({ mode: "explore-candidates" });
+    await controller.nextExplorePage();
+    now += 300_000;
+    await controller.refresh();
+
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.status).toBe("error");
+    if (snapshot.status === "error" && "navigation" in snapshot) {
+      expect(snapshot.lastGood).toEqual(first);
+      expect(snapshot.lastGood).not.toEqual(second);
+      expect(snapshot.navigation.requestKind).toBe("refresh");
+    }
+  });
+
   it("aborts and ignores a stale Explore result after Nearby wins", async () => {
     const pendingExplore = deferred<
       GlobalDiscoveryClientResult<ExploreDiscoveryResponse>
@@ -193,7 +405,7 @@ describe("global discovery controller", () => {
     expect(calls).toBe(2);
   });
 
-  it("retains only complete last-good data for the exact scope", async () => {
+  it("retains the latest direct validated snapshot for the exact scope without promoting coverage", async () => {
     const partial = structuredClone(SYNTHETIC_MARSEILLE_EXPLORE);
     partial.coverage = {
       state: "partial",
@@ -264,7 +476,8 @@ describe("global discovery controller", () => {
     snapshot = controller.getSnapshot();
     expect(snapshot.status).toBe("error");
     if (snapshot.status === "error") {
-      expect(snapshot.lastGood).toEqual(SYNTHETIC_MARSEILLE_EXPLORE);
+      expect(snapshot.lastGood).toEqual(notAssessed);
+      expect(snapshot.lastGood?.coverage.state).toBe("not_assessed");
     }
 
     await controller.activate({

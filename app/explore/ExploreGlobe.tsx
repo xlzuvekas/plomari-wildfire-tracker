@@ -16,6 +16,7 @@ import {
   candidateAreaFeatureCollection,
   candidateMapMarker,
   describeExploreMapSnapshot,
+  describeExploreSnapshotCutoffs,
 } from "./explore-globe-model";
 import styles from "./ExploreGlobe.module.css";
 
@@ -158,6 +159,8 @@ export function ExploreGlobe({
   const mapRef = useRef<MapLibreMap | null>(null);
   const maplibreRef = useRef<typeof import("maplibre-gl") | null>(null);
   const markersRef = useRef<MapLibreMarker[]>([]);
+  const userMovedMapRef = useRef(false);
+  const framedInitialCandidateRef = useRef(false);
   const [mapRevision, setMapRevision] = useState(0);
   const [runtime, setRuntime] = useState<RuntimeState>({
     kind: "checking",
@@ -166,6 +169,10 @@ export function ExploreGlobe({
   const notice = useMemo(
     () => describeExploreMapSnapshot({ requestStatus, response }),
     [requestStatus, response],
+  );
+  const snapshotCutoffs = useMemo(
+    () => describeExploreSnapshotCutoffs(response),
+    [response],
   );
   const selectionId = selectedCandidateId(selected);
   const featureCollection = useMemo(
@@ -181,6 +188,11 @@ export function ExploreGlobe({
     let mountedMap: MapLibreMap | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let loadTimer: number | null = null;
+    const markUserInteraction = () => {
+      userMovedMapRef.current = true;
+    };
+    container.addEventListener("pointerdown", markUserInteraction);
+    container.addEventListener("wheel", markUserInteraction, { passive: true });
 
     const teardownMapRuntime = () => {
       const timer = loadTimer;
@@ -224,7 +236,7 @@ export function ExploreGlobe({
         setRuntime({
           kind: "unsupported",
           label:
-            "This browser cannot start the WebGL 2 globe. Use the complete candidate list below.",
+            "This browser cannot start the WebGL 2 globe. Use the current bounded candidate page below.",
         });
         return;
       }
@@ -267,7 +279,7 @@ export function ExploreGlobe({
           if (disposed || initializationFailed) return;
           if (loadTimer !== null) window.clearTimeout(loadTimer);
           loadTimer = null;
-          setRuntime({ kind: "ready", label: "Globe ready" });
+          setRuntime({ kind: "ready", label: "Map renderer ready" });
           setMapRevision((revision) => revision + 1);
         });
         map.on("error", () => {
@@ -295,7 +307,7 @@ export function ExploreGlobe({
         setRuntime({
           kind: "unsupported",
           label:
-            "The globe renderer could not start. Use the complete candidate list below.",
+            "The globe renderer could not start. Use the current bounded candidate page below.",
         });
       }
     };
@@ -303,6 +315,8 @@ export function ExploreGlobe({
     void mountMap();
     return () => {
       disposed = true;
+      container.removeEventListener("pointerdown", markUserInteraction);
+      container.removeEventListener("wheel", markUserInteraction);
       teardownMapRuntime();
     };
   }, []);
@@ -315,6 +329,20 @@ export function ExploreGlobe({
       | undefined;
     source?.setData(featureCollection);
   }, [featureCollection, mapRevision]);
+
+  useEffect(() => {
+    if (framedInitialCandidateRef.current || userMovedMapRef.current) return;
+    const newestCandidate = response?.candidates[0];
+    const map = mapRef.current;
+    if (newestCandidate === undefined || map === null || !map.isStyleLoaded()) {
+      return;
+    }
+    framedInitialCandidateRef.current = true;
+    map.jumpTo({
+      center: candidateMapMarker(newestCandidate).center,
+      zoom: Math.max(map.getZoom(), 2.75),
+    });
+  }, [mapRevision, response]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -389,6 +417,7 @@ export function ExploreGlobe({
       <div className={styles.dataStatus} data-tone={notice.tone} role="status">
         <strong>{notice.title}</strong>
         <span>{notice.detail}</span>
+        {snapshotCutoffs ? <span>{snapshotCutoffs}</span> : null}
       </div>
 
       <div className={styles.viewport} data-runtime={runtime.kind}>

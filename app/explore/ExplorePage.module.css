@@ -47,7 +47,10 @@
 .nearbyPrompt h2,
 .nearbyPrompt p,
 .dataBoundary,
-.suggestion span {
+.suggestion span,
+.selectedCandidate h2,
+.selectedCandidate p,
+.resultRecovery p {
   margin: 0;
 }
 
@@ -74,6 +77,75 @@
 .confirmedCell,
 .dataBoundary {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.selectedCandidate,
+.resultRecovery {
+  width: min(100%, 48rem);
+  border: 1px solid var(--explore-border);
+  border-radius: 12px;
+  background: var(--explore-surface);
+}
+
+.selectedCandidate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+}
+
+.selectedCandidate > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.selectedCandidate h2 {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+}
+
+.selectedCandidate p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.selectedCandidate p > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.selectedCandidate .candidateWarning {
+  color: #ffd292;
+}
+
+.selectedCandidate button,
+.resultRecovery button {
+  min-height: 2.75rem;
+  padding: 0.65rem 0.85rem;
+  color: var(--cyan);
+  border: 1px solid var(--explore-border);
+  border-radius: 8px;
+  background: rgba(12, 39, 48, 0.7);
+  cursor: pointer;
+}
+
+.resultRecovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.8rem 0.9rem;
+  color: #ffb5aa;
+  border-color: rgba(255, 106, 82, 0.42);
+  background: rgba(63, 18, 13, 0.58);
+}
+
+.resultRecovery p {
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .eyebrow {
@@ -319,7 +391,7 @@
 }
 
 .locationPreview button {
-  min-height: 2.5rem;
+  min-height: 44px;
   color: var(--green);
   border: 1px solid rgba(57, 242, 197, 0.38);
   border-radius: 7px;
@@ -353,7 +425,7 @@
 .cellForm input {
   width: 100%;
   min-width: 0;
-  min-height: 2.65rem;
+  min-height: 44px;
   padding: 0.62rem 0.7rem;
   color: var(--ink);
   border: 1px solid var(--explore-border);
@@ -368,7 +440,7 @@
 
 .cellForm button,
 .suggestion button {
-  min-height: 2.65rem;
+  min-height: 44px;
   padding: 0.6rem 0.75rem;
   color: var(--cyan);
   font-size: 0.65rem;
@@ -479,7 +551,9 @@
   .refreshButton:hover,
   .cellForm button:hover,
   .suggestion button:hover,
-  .locationPreview button:hover {
+  .locationPreview button:hover,
+  .selectedCandidate button:hover,
+  .resultRecovery button:hover {
     border-color: rgba(85, 221, 255, 0.68);
     background-color: rgba(20, 68, 80, 0.78);
   }
@@ -598,6 +672,21 @@
   .globeLoader {
     min-height: 27rem;
   }
+
+  .selectedCandidate,
+  .resultRecovery {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .resultRecovery {
+    display: grid;
+  }
+
+  .selectedCandidate button,
+  .resultRecovery button {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -607,6 +696,11 @@
   .refreshButton,
   .cellForm button,
   .suggestion button {
+    transition: none;
+  }
+
+  .selectedCandidate button,
+  .resultRecovery button {
     transition: none;
   }
 

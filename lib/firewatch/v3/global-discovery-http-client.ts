@@ -145,10 +145,11 @@ function fallbackOrUnavailable<ResponseData>(
 
 /**
  * Browser-facing persisted-read adapter. It calls only Firewatch same-origin
- * routes, never upstream providers, and caches solely by the exact bounded
- * request path (including scope, event/knowledge cutoffs, page, and cursor).
- * The caller must inject the browser transport so this boundary cannot grow a
- * second unrecorded upstream-fetch path.
+ * routes, never upstream providers, and caches solely first-page reads by the
+ * exact bounded request path (including scope and event/knowledge cutoffs).
+ * Continuation pages remain uncached presentation history. The caller must
+ * inject the browser transport so this boundary cannot grow a second
+ * unrecorded upstream-fetch path.
  */
 export function createHttpGlobalDiscoveryClient(
   options: GlobalDiscoveryHttpClientOptions,
@@ -170,12 +171,17 @@ export function createHttpGlobalDiscoveryClient(
   >(
     path: string,
     parser: ResponseParser<ResponseData>,
+    allowSnapshotCache: boolean,
     requestOptions?: GlobalDiscoveryRequestOptions,
   ): Promise<GlobalDiscoveryClientResult<ResponseData>> {
     if (requestOptions?.signal?.aborted) {
       return { kind: "cancelled", retryable: false };
     }
-    const cached = cache.get(path);
+    // Continuation pages are short-lived presentation history. Even though
+    // their exact path includes the cursor, keeping them out of this cache
+    // prevents a later page from being mistaken for a complete global
+    // fallback snapshot by future controller code.
+    const cached = allowSnapshotCache ? cache.get(path) : undefined;
     const headers: Record<string, string> = { Accept: "application/json" };
     const conditionalEtag = cached?.etag ?? null;
     if (conditionalEtag !== null) headers["If-None-Match"] = conditionalEtag;
@@ -253,6 +259,7 @@ export function createHttpGlobalDiscoveryClient(
       }
       const etag = safeStrongEtag(response.headers.get("etag"));
       if (
+        allowSnapshotCache &&
         parsed.data.coverage.state === "complete" &&
         etag !== null &&
         explicitlyCacheable(response)
@@ -280,6 +287,7 @@ export function createHttpGlobalDiscoveryClient(
       return load<ExploreDiscoveryResponse>(
         path,
         exploreDiscoveryResponseForRequestSchema(parsedRequest.data),
+        parsedRequest.data.page.after === null,
         requestOptions,
       );
     },
@@ -293,6 +301,7 @@ export function createHttpGlobalDiscoveryClient(
       return load<NearbyDiscoveryResponse>(
         path,
         nearbyDiscoveryResponseForRequestSchema(parsedRequest.data),
+        parsedRequest.data.page.after === null,
         requestOptions,
       );
     },

@@ -129,6 +129,40 @@ describe("same-origin HTTP global discovery client", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("sends opaque continuation cursors but never caches continuation pages", async () => {
+    const request = exploreDiscoveryRequestSchema.parse({
+      ...exploreRequest(),
+      page: { limit: 50, after: "continuation_cursor_v1" },
+    });
+    const response: ExploreDiscoveryResponse = copy(
+      SYNTHETIC_MARSEILLE_EXPLORE,
+    );
+    response.page.isFirstPage = false;
+    const calls: Array<Readonly<{ path: string; init: RequestInit }>> = [];
+    const client = createHttpGlobalDiscoveryClient({
+      fetch: async (path, init) => {
+        calls.push({ path, init });
+        if (calls.length === 1) {
+          return jsonResponse(response, {
+            status: 200,
+            headers: {
+              ETag: '"continuation-v1"',
+              "Cache-Control": "private, no-cache",
+            },
+          });
+        }
+        throw new TypeError("offline");
+      },
+    });
+
+    expect((await client.exploreCandidates(request)).kind).toBe("snapshot");
+    expect((await client.exploreCandidates(request)).kind).toBe("unavailable");
+    expect(new URL(calls[0]!.path, "https://firewatch.invalid").searchParams.get("after")).toBe(
+      "continuation_cursor_v1",
+    );
+    expect(new Headers(calls[1]?.init.headers).has("if-none-match")).toBe(false);
+  });
+
   it("performs exact-key ETag revalidation without exposing custom headers", async () => {
     const calls: Array<Readonly<{ path: string; init: RequestInit }>> = [];
     const fetch: GlobalDiscoveryFetch = async (path, init) => {

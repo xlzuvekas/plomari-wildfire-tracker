@@ -16,7 +16,11 @@ import {
   type DiscoveryPanelState,
 } from "../../components/firewatch/DiscoveryPanel";
 import { ThermalEvidencePanel } from "../../components/firewatch/ThermalEvidencePanel";
-import type { DiscoverySelection } from "../../components/firewatch/discovery-presentation";
+import {
+  humanizeDiscoveryToken,
+  presentDiscoveryTime,
+  type DiscoverySelection,
+} from "../../components/firewatch/discovery-presentation";
 import { useThermalAnomalyArea } from "../../hooks/use-thermal-anomaly-area";
 import {
   coarseAreaCellForLocation,
@@ -29,6 +33,8 @@ import {
   shouldRefreshDiscoveryOnVisible,
   type GlobalDiscoveryClient,
   type GlobalDiscoveryControllerSnapshot,
+  type ExploreDiscoveryResponse,
+  type WildfireCandidate,
 } from "../../lib/firewatch/v3";
 import type { ExploreGlobeProps } from "./ExploreGlobe";
 
@@ -108,6 +114,20 @@ export type ThermalNearbyTarget = Readonly<{
   knownAt: string;
   timeZone: string;
 }>;
+
+export function selectedExploreCandidate(
+  response: ExploreDiscoveryResponse | null,
+  selection: DiscoverySelection | null,
+): WildfireCandidate | null {
+  if (response === null || selection?.kind !== "candidate") return null;
+  return (
+    response.candidates.find(
+      (candidate) =>
+        candidate.candidateId === selection.candidateId &&
+        candidate.displayArea.cell === selection.cell,
+    ) ?? null
+  );
+}
 
 export function thermalNearbyTarget(
   enabled: boolean,
@@ -307,6 +327,11 @@ export function ExplorePageClient({
   const [compactControlsOpen, setCompactControlsOpen] = useState(false);
   const controlsOpen = !compactControls || compactControlsOpen;
   const locationIntent = useRef(0);
+  const previousExplorePageNumber = useRef(1);
+  const exploreNavigation =
+    snapshot.status !== "idle" && "navigation" in snapshot
+      ? snapshot.navigation
+      : null;
   const visibleExploreResponse =
     snapshot.status === "ready" &&
     snapshot.response.kind === "explore-candidates"
@@ -315,15 +340,31 @@ export function ExplorePageClient({
           snapshot.lastGood?.kind === "explore-candidates"
         ? snapshot.lastGood
         : null;
-  const candidateCell =
-    selected?.kind === "candidate" &&
-    visibleExploreResponse?.candidates.some(
-      (candidate) =>
-        candidate.candidateId === selected.candidateId &&
-        candidate.displayArea.cell === selected.cell,
-    )
-      ? selected.cell
-      : null;
+  const selectedCandidate = selectedExploreCandidate(
+    visibleExploreResponse,
+    selected,
+  );
+  const candidateCell = selectedCandidate?.displayArea.cell ?? null;
+  const selectedCandidateTime = selectedCandidate
+    ? presentDiscoveryTime(
+        selectedCandidate.times.latestObservedAt,
+        selectedCandidate.displayArea.timeZone,
+        "en-GB",
+      )
+    : null;
+
+  useEffect(() => {
+    if (mode !== "explore" || exploreNavigation === null) {
+      previousExplorePageNumber.current = 1;
+      return;
+    }
+    if (
+      previousExplorePageNumber.current !== exploreNavigation.pageNumber
+    ) {
+      previousExplorePageNumber.current = exploreNavigation.pageNumber;
+      setSelected(null);
+    }
+  }, [exploreNavigation, mode]);
 
   useEffect(() => {
     if (mode === "explore") {
@@ -488,6 +529,34 @@ export function ExplorePageClient({
       : confirmedCell
         ? nearbyPanelState(snapshot, confirmedCell)
         : null;
+  const explorePagination =
+    mode === "explore" &&
+    panelState?.mode === "explore-candidates" &&
+    visibleExploreResponse !== null &&
+    exploreNavigation !== null
+      ? {
+          pageNumber: exploreNavigation.pageNumber,
+          canGoPrevious:
+            exploreNavigation.canGoPrevious && snapshot.status !== "loading",
+          canGoNext:
+            visibleExploreResponse.page.hasMore &&
+            snapshot.status !== "loading" &&
+            !(
+              snapshot.status === "error" &&
+              exploreNavigation.requestKind === "refresh"
+            ),
+          loading:
+            snapshot.status === "loading" &&
+            exploreNavigation.requestKind === "continuation",
+          issue:
+            snapshot.status === "error" &&
+            exploreNavigation.requestKind === "continuation"
+              ? snapshot.issue
+              : null,
+          onPrevious: () => controller.previousExplorePage(),
+          onNext: () => void controller.nextExplorePage(),
+        }
+      : undefined;
   const thermalUiActive = thermalV3Enabled && !fixtureMode;
   const thermalTarget = thermalNearbyTarget(
     thermalUiActive,
@@ -727,7 +796,9 @@ export function ExplorePageClient({
                   <span>03</span>
                   <div>
                     <h2>Refresh policy</h2>
-                    <p>Canonical five-minute UTC snapshots.</p>
+                    <p>
+                      Five-minute UTC snapshots · one-minute publication grace.
+                    </p>
                   </div>
                 </div>
                 <button
@@ -740,7 +811,7 @@ export function ExplorePageClient({
                 </button>
                 <p className={styles.privacyNote}>
                   Automatic refresh pauses while this tab is hidden and resumes
-                  on the next five-minute snapshot when visible.
+                  when the next completed snapshot is eligible while visible.
                 </p>
               </section>
             </div>
@@ -760,6 +831,46 @@ export function ExplorePageClient({
               onSelectionChange={setSelected}
             />
           ) : null}
+          {selectedCandidate && selectedCandidateTime ? (
+            <section
+              className={styles.selectedCandidate}
+              aria-label="Selected global candidate"
+              aria-live="polite"
+            >
+              <div>
+                <p className={styles.eyebrow}>SELECTED // UNCONFIRMED SIGNAL</p>
+                <h2>{selectedCandidate.displayArea.cell}</h2>
+                <p>
+                  Latest observation: {selectedCandidateTime.primary}
+                  <span>{selectedCandidateTime.context}</span>
+                </p>
+                <p>
+                  {selectedCandidate.basis.signalKinds
+                    .map(humanizeDiscoveryToken)
+                    .join(" · ")}
+                  {` · ${selectedCandidate.basis.observationCount} observations · ${selectedCandidate.basis.sourceCount} sources`}
+                </p>
+                <p className={styles.candidateWarning}>
+                  This is an aggregate signal cell, not a confirmed incident or
+                  an exact fire location. Coverage remains {visibleExploreResponse?.coverage.state.replaceAll("_", " ")}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => confirmCell(selectedCandidate.displayArea.cell)}
+              >
+                Review this coarse area
+              </button>
+            </section>
+          ) : null}
+          {panelState?.status === "error" && !panelState.lastGood ? (
+            <div className={styles.resultRecovery} role="alert">
+              <p>The persisted discovery read failed. This is not an all-clear.</p>
+              <button type="button" onClick={refreshCurrentTarget}>
+                Retry persisted read
+              </button>
+            </div>
+          ) : null}
           {panelState ? (
             <DiscoveryPanel
               className={styles.discoveryPanel}
@@ -768,6 +879,7 @@ export function ExplorePageClient({
               onSelectionChange={setSelected}
               locale="en-GB"
               density="compact"
+              pagination={explorePagination}
             />
           ) : (
             <div className={styles.nearbyPrompt}>

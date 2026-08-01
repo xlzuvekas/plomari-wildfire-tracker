@@ -186,6 +186,11 @@ export type ThermalAdmissionEnvironmentInput = Readonly<{
   FIREWATCH_THERMAL_V3_CANARY_TOKEN_SHA256?: string;
   FIREWATCH_THERMAL_ADMISSION_REDIS_URL?: string;
   FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN?: string;
+  FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL?: string;
+  FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_TOKEN?: string;
+  FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_READ_ONLY_TOKEN?: string;
+  FIREWATCH_THERMAL_ADMISSION_REDIS_KV_URL?: string;
+  FIREWATCH_THERMAL_ADMISSION_REDIS_REDIS_URL?: string;
   FIREWATCH_THERMAL_ADMISSION_IDENTITY_SECRET?: string;
   FIREWATCH_THERMAL_ADMISSION_BURST_LIMIT?: string;
   FIREWATCH_THERMAL_ADMISSION_BURST_WINDOW_SECONDS?: string;
@@ -232,6 +237,50 @@ function unavailable(): never {
   throw new ThermalAdmissionUnavailableError();
 }
 
+function configuredValue(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized === undefined || normalized.length === 0
+    ? undefined
+    : normalized;
+}
+
+function resolveRedisRestUrl(environment: ThermalAdmissionEnvironmentInput) {
+  const canonical = configuredValue(
+    environment.FIREWATCH_THERMAL_ADMISSION_REDIS_URL,
+  );
+  const upstash = configuredValue(
+    environment.FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_URL,
+  );
+  if (canonical !== undefined && upstash !== undefined) {
+    if (!isRedisRestUrl(canonical) || !isRedisRestUrl(upstash)) {
+      return unavailable();
+    }
+    if (new URL(canonical).origin !== new URL(upstash).origin) {
+      return unavailable();
+    }
+  }
+  return canonical ?? upstash;
+}
+
+function resolveRedisWriteToken(
+  environment: ThermalAdmissionEnvironmentInput,
+) {
+  const canonical = configuredValue(
+    environment.FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN,
+  );
+  const upstash = configuredValue(
+    environment.FIREWATCH_THERMAL_ADMISSION_REDIS_KV_REST_API_TOKEN,
+  );
+  if (
+    canonical !== undefined &&
+    upstash !== undefined &&
+    canonical !== upstash
+  ) {
+    return unavailable();
+  }
+  return canonical ?? upstash;
+}
+
 function readConfiguration(
   environment: ThermalAdmissionEnvironmentInput = processEnvironment,
 ) {
@@ -247,9 +296,9 @@ function readConfiguration(
     FIREWATCH_THERMAL_V3_CANARY_TOKEN_SHA256:
       environment.FIREWATCH_THERMAL_V3_CANARY_TOKEN_SHA256,
     FIREWATCH_THERMAL_ADMISSION_REDIS_URL:
-      environment.FIREWATCH_THERMAL_ADMISSION_REDIS_URL,
+      resolveRedisRestUrl(environment),
     FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN:
-      environment.FIREWATCH_THERMAL_ADMISSION_REDIS_TOKEN,
+      resolveRedisWriteToken(environment),
     FIREWATCH_THERMAL_ADMISSION_IDENTITY_SECRET:
       environment.FIREWATCH_THERMAL_ADMISSION_IDENTITY_SECRET,
     FIREWATCH_THERMAL_ADMISSION_BURST_LIMIT:

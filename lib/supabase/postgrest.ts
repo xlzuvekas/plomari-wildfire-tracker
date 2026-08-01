@@ -12,6 +12,7 @@ const apiResourceSchema = z.enum([
   "source_health",
 ]);
 const apiRpcSchema = z.enum([
+  "explore_candidate_cells_v3",
   "nearby_incidents_v3",
   "satellite_passes_for_cell",
   "satellite_scan_status_for_window",

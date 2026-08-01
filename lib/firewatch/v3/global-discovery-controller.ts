@@ -15,10 +15,17 @@ import type {
 } from "./global-discovery-client";
 
 export const GLOBAL_DISCOVERY_REFRESH_MS = 5 * 60_000;
+export const GLOBAL_DISCOVERY_PUBLICATION_GRACE_MS = 60_000;
 
 export type GlobalDiscoveryTarget =
   | Readonly<{ mode: "explore-candidates" }>
   | Readonly<{ mode: "nearby-incidents"; cell: string }>;
+
+export type ExploreDiscoveryNavigation = Readonly<{
+  pageNumber: number;
+  canGoPrevious: boolean;
+  requestKind: "refresh" | "continuation" | null;
+}>;
 
 type DiscoveryClientIssue = Exclude<
   GlobalDiscoveryClientResult<never>,
@@ -49,10 +56,11 @@ type ModeControllerSnapshot<
 
 export type GlobalDiscoveryControllerSnapshot =
   | Readonly<{ status: "idle"; target: null }>
-  | ModeControllerSnapshot<
+  | (ModeControllerSnapshot<
       Readonly<{ mode: "explore-candidates" }>,
       ExploreDiscoveryResponse
-    >
+    > &
+      Readonly<{ navigation: ExploreDiscoveryNavigation }>)
   | ModeControllerSnapshot<
       Readonly<{ mode: "nearby-incidents"; cell: string }>,
       NearbyDiscoveryResponse
@@ -63,12 +71,24 @@ type ControllerOptions = Readonly<{
   now?: () => number;
 }>;
 
+type ExplorePageEntry = Readonly<{
+  response: ExploreDiscoveryResponse;
+  transport: GlobalDiscoveryTransport;
+  after: ExploreDiscoveryRequest["page"]["after"];
+}>;
+
 function timeCutoff(nowMs: number) {
   if (!Number.isFinite(nowMs)) {
     throw new TypeError("Discovery clock must return a finite timestamp.");
   }
+  // A projection for a just-closed knowledge bucket cannot already exist at
+  // the exact boundary. Shift bucket eligibility by one minute so scheduled
+  // readers do not repeatedly arrive before the atomic publisher and then
+  // skip that snapshot at the following five-minute boundary.
+  const publicationEligibleMs =
+    nowMs - GLOBAL_DISCOVERY_PUBLICATION_GRACE_MS;
   const bucketMs =
-    Math.floor(nowMs / GLOBAL_DISCOVERY_REFRESH_MS) *
+    Math.floor(publicationEligibleMs / GLOBAL_DISCOVERY_REFRESH_MS) *
     GLOBAL_DISCOVERY_REFRESH_MS;
   return new Date(bucketMs).toISOString();
 }
@@ -81,8 +101,11 @@ export function millisecondsUntilNextDiscoveryBucket(nowMs: number): number {
   if (!Number.isFinite(nowMs)) {
     throw new TypeError("Discovery clock must return a finite timestamp.");
   }
+  const publicationEligibleMs =
+    nowMs - GLOBAL_DISCOVERY_PUBLICATION_GRACE_MS;
   const elapsed =
-    ((nowMs % GLOBAL_DISCOVERY_REFRESH_MS) + GLOBAL_DISCOVERY_REFRESH_MS) %
+    ((publicationEligibleMs % GLOBAL_DISCOVERY_REFRESH_MS) +
+      GLOBAL_DISCOVERY_REFRESH_MS) %
     GLOBAL_DISCOVERY_REFRESH_MS;
   return elapsed === 0
     ? GLOBAL_DISCOVERY_REFRESH_MS
@@ -112,6 +135,31 @@ export function buildExploreDiscoveryRequest(
     kind: "explore-candidates",
     time: { asOf, knownAt },
     page: {},
+  });
+}
+
+/**
+ * Builds a continuation read from the currently visible, validated page.
+ * Cursor pagination deliberately freezes the original event and knowledge
+ * cutoffs; advancing a page never silently becomes a newer global read.
+ */
+export function buildExploreContinuationRequest(
+  response: ExploreDiscoveryResponse,
+): ExploreDiscoveryRequest {
+  if (!response.page.hasMore || response.page.nextCursor === null) {
+    throw new TypeError("Explore discovery page has no continuation cursor.");
+  }
+  return exploreDiscoveryRequestSchema.parse({
+    schemaVersion: GLOBAL_DISCOVERY_SCHEMA_VERSION,
+    kind: "explore-candidates",
+    time: {
+      asOf: response.time.asOf,
+      knownAt: response.time.knownAt,
+    },
+    page: {
+      limit: response.page.limit,
+      after: response.page.nextCursor,
+    },
   });
 }
 
@@ -157,6 +205,12 @@ export class GlobalDiscoveryController {
   readonly #client: GlobalDiscoveryClient;
   readonly #now: () => number;
   readonly #listeners = new Set<() => void>();
+  /**
+   * Last schema-validated direct response for an exact target. This is only an
+   * in-memory presentation fallback while a newer request is pending or has
+   * failed. The response keeps its original coverage state; retaining it never
+   * promotes partial/not-assessed data to complete or into the HTTP cache.
+   */
   readonly #lastGood = new Map<
     string,
     ExploreDiscoveryResponse | NearbyDiscoveryResponse
@@ -170,6 +224,8 @@ export class GlobalDiscoveryController {
   #activeRequestKey: string | null = null;
   #sequence = 0;
   #lastRequestedCutoff: string | null = null;
+  #explorePages: ExplorePageEntry[] = [];
+  #explorePageIndex = 0;
 
   constructor(options: ControllerOptions) {
     this.#client = options.client;
@@ -199,6 +255,7 @@ export class GlobalDiscoveryController {
     this.#activeController = null;
     this.#activeRequestKey = null;
     this.#target = null;
+    this.#resetExplorePages();
     this.#setSnapshot(Object.freeze({ status: "idle", target: null }));
   }
 
@@ -238,10 +295,12 @@ export class GlobalDiscoveryController {
     const lastGood = this.#lastGood.get(key);
 
     if (target.mode === "explore-candidates") {
+      this.#resetExplorePages();
       this.#setSnapshot(
         Object.freeze({
           status: "loading",
           target,
+          navigation: this.#exploreNavigation("refresh"),
           ...(lastGood?.kind === "explore-candidates" ? { lastGood } : {}),
         }),
       );
@@ -283,12 +342,145 @@ export class GlobalDiscoveryController {
     this.#finishNearby(target, key, result, lastGood);
   }
 
+  /**
+   * Advances one bounded Explore page. The current page remains the visible
+   * fallback while the continuation is in flight or if it fails.
+   */
+  async nextExplorePage(): Promise<void> {
+    const target = this.#target;
+    if (
+      target?.mode !== "explore-candidates" ||
+      this.#activeController !== null
+    ) {
+      return;
+    }
+    const current = this.#explorePages[this.#explorePageIndex];
+    if (
+      current === undefined ||
+      !current.response.page.hasMore ||
+      current.response.page.nextCursor === null
+    ) {
+      return;
+    }
+
+    const nextIndex = this.#explorePageIndex + 1;
+    const retained = this.#explorePages[nextIndex];
+    if (retained?.after === current.response.page.nextCursor) {
+      this.#explorePageIndex = nextIndex;
+      this.#showExplorePage(target, retained);
+      return;
+    }
+
+    const request = buildExploreContinuationRequest(current.response);
+    const sequence = this.#sequence + 1;
+    this.#sequence = sequence;
+    const activeController = new AbortController();
+    this.#activeController = activeController;
+    this.#activeRequestKey =
+      `${targetKey(target)}:${request.time.asOf}:${request.time.knownAt}:` +
+      request.page.after;
+    this.#setSnapshot(
+      Object.freeze({
+        status: "loading",
+        target,
+        navigation: this.#exploreNavigation("continuation"),
+        lastGood: current.response,
+      }),
+    );
+
+    let result: GlobalDiscoveryClientResult<ExploreDiscoveryResponse>;
+    try {
+      result = await this.#client.exploreCandidates(request, {
+        signal: activeController.signal,
+      });
+    } catch {
+      result = { kind: "unavailable", retryable: true };
+    }
+    if (!this.#isCurrent(sequence, activeController)) return;
+    this.#activeController = null;
+    this.#activeRequestKey = null;
+
+    if (result.kind === "snapshot") {
+      const entry: ExplorePageEntry = Object.freeze({
+        response: result.data,
+        transport: result.transport,
+        after: request.page.after,
+      });
+      this.#explorePages.splice(nextIndex);
+      this.#explorePages.push(entry);
+      this.#explorePageIndex = nextIndex;
+      // Continuation pages are presentation history only. They never replace
+      // the target's first-page last-good snapshot.
+      this.#showExplorePage(target, entry);
+      return;
+    }
+
+    this.#setSnapshot(
+      Object.freeze({
+        status: "error",
+        target,
+        issue: result.kind,
+        navigation: this.#exploreNavigation("continuation"),
+        lastGood: current.response,
+      }),
+    );
+  }
+
+  /** Returns to an already validated page without another network read. */
+  previousExplorePage(): void {
+    const target = this.#target;
+    if (
+      target?.mode !== "explore-candidates" ||
+      this.#explorePageIndex === 0
+    ) {
+      return;
+    }
+    this.#sequence += 1;
+    this.#activeController?.abort();
+    this.#activeController = null;
+    this.#activeRequestKey = null;
+    this.#explorePageIndex -= 1;
+    const previous = this.#explorePages[this.#explorePageIndex];
+    if (previous !== undefined) this.#showExplorePage(target, previous);
+  }
+
   dispose(): void {
     this.#sequence += 1;
     this.#activeController?.abort();
     this.#activeController = null;
     this.#activeRequestKey = null;
     this.#target = null;
+    this.#resetExplorePages();
+  }
+
+  #resetExplorePages(): void {
+    this.#explorePages = [];
+    this.#explorePageIndex = 0;
+  }
+
+  #exploreNavigation(
+    requestKind: ExploreDiscoveryNavigation["requestKind"],
+  ): ExploreDiscoveryNavigation {
+    return Object.freeze({
+      pageNumber: this.#explorePageIndex + 1,
+      canGoPrevious: this.#explorePageIndex > 0,
+      requestKind,
+    });
+  }
+
+  #showExplorePage(
+    target: Readonly<{ mode: "explore-candidates" }>,
+    entry: ExplorePageEntry,
+  ): void {
+    this.#setSnapshot(
+      Object.freeze({
+        status: "ready",
+        target,
+        response: entry.response,
+        transport: entry.transport,
+        navigation: this.#exploreNavigation(null),
+      }),
+    );
   }
 
   #isCurrent(sequence: number, controller: AbortController): boolean {
@@ -306,20 +498,17 @@ export class GlobalDiscoveryController {
     previous: ExploreDiscoveryResponse | NearbyDiscoveryResponse | undefined,
   ) {
     if (result.kind === "snapshot") {
-      if (
-        result.data.coverage.state === "complete" &&
-        result.transport !== "cache-fallback"
-      ) {
+      if (result.transport !== "cache-fallback") {
         this.#lastGood.set(key, structuredClone(result.data));
       }
-      this.#setSnapshot(
-        Object.freeze({
-          status: "ready",
-          target,
-          response: result.data,
-          transport: result.transport,
-        }),
-      );
+      const entry: ExplorePageEntry = Object.freeze({
+        response: result.data,
+        transport: result.transport,
+        after: null,
+      });
+      this.#explorePages = [entry];
+      this.#explorePageIndex = 0;
+      this.#showExplorePage(target, entry);
       return;
     }
     this.#setSnapshot(
@@ -327,6 +516,7 @@ export class GlobalDiscoveryController {
         status: "error",
         target,
         issue: result.kind,
+        navigation: this.#exploreNavigation("refresh"),
         ...(previous?.kind === "explore-candidates"
           ? { lastGood: previous }
           : {}),
@@ -341,10 +531,7 @@ export class GlobalDiscoveryController {
     previous: ExploreDiscoveryResponse | NearbyDiscoveryResponse | undefined,
   ) {
     if (result.kind === "snapshot") {
-      if (
-        result.data.coverage.state === "complete" &&
-        result.transport !== "cache-fallback"
-      ) {
+      if (result.transport !== "cache-fallback") {
         this.#lastGood.set(key, structuredClone(result.data));
       }
       this.#setSnapshot(
