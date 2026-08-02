@@ -45,6 +45,10 @@ describe("upstream evidence boundary", () => {
     const openRouter = source("lib/assist/openrouter.ts");
     const cmr = source("lib/satellite/cmr.ts");
     const recordedFetch = source("lib/evidence/recorded-fetch.ts");
+    const airQuality = source("lib/air-quality/open-meteo.ts");
+    const airQualityCollector = source(
+      "lib/air-quality/open-meteo-collector.server.ts",
+    );
 
     expect(openRouter).toContain("fetchImpl: typeof fetch");
     expect(openRouter).not.toContain("fetchImpl?: typeof fetch");
@@ -52,5 +56,9 @@ describe("upstream evidence boundary", () => {
     expect(cmr).not.toMatch(/\bfetch\s*\(/u);
     expect(recordedFetch).toContain("fetchImpl: typeof fetch");
     expect(recordedFetch).not.toMatch(/\?\?\s*fetch\b/u);
+    expect(airQuality).not.toMatch(/\bfetch\s*\(/u);
+    expect(airQualityCollector).toContain("fetchImpl: typeof fetch");
+    expect(airQualityCollector).not.toContain("fetchImpl?: typeof fetch");
+    expect(airQualityCollector).not.toMatch(/\?\?\s*fetch\b/u);
   });
 });
