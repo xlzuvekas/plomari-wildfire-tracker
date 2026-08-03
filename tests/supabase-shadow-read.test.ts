@@ -1,9 +1,12 @@
+import { Buffer } from "node:buffer";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { GET } from "../app/api/v3/shadow/sources/route";
 import {
   readPostgrestRows,
+  readPostgrestRpcRows,
   SupabasePostgrestReadError,
 } from "../lib/supabase/postgrest";
 import { sourceCatalogRowSchema } from "../lib/supabase/source-read-model";
@@ -14,10 +17,32 @@ import {
   type SupabaseServerEnvironment,
 } from "../lib/supabase/server-env";
 
+const TEST_PROJECT_REF = "abcdefghijklmnopqrst";
 const TEST_ENVIRONMENT: SupabaseServerEnvironment = Object.freeze({
-  url: "https://project.supabase.co",
+  url: `https://${TEST_PROJECT_REF}.supabase.co`,
   publishableKey: "test-publishable-key-1234",
 });
+
+function legacyDiscoveryReaderJwt(
+  payload: Readonly<Record<string, unknown>> = {},
+  header: Readonly<Record<string, unknown>> = {},
+) {
+  const now = Math.floor(Date.now() / 1_000);
+  const encode = (value: unknown) =>
+    Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+  return [
+    encode({ alg: "HS256", typ: "JWT", ...header }),
+    encode({
+      iss: "supabase",
+      ref: TEST_PROJECT_REF,
+      role: "firewatch_discovery_reader",
+      iat: now - 60,
+      exp: now + 3_600,
+      ...payload,
+    }),
+    Buffer.alloc(32, 1).toString("base64url"),
+  ].join(".");
+}
 
 const CATALOG_ROW = {
   source_id: "018f0000-0000-7000-8000-000000000101",
@@ -80,7 +105,7 @@ describe("server-only Supabase environment", () => {
   it("accepts HTTPS and local HTTP origins and normalizes trailing slashes", () => {
     expect(
       readSupabaseServerEnvironment({
-        SUPABASE_URL: "https://project.supabase.co/",
+        SUPABASE_URL: `${TEST_ENVIRONMENT.url}/`,
         SUPABASE_PUBLISHABLE_KEY: TEST_ENVIRONMENT.publishableKey,
       }),
     ).toEqual(TEST_ENVIRONMENT);
@@ -93,7 +118,7 @@ describe("server-only Supabase environment", () => {
     ).toBe("http://127.0.0.1:54321");
   });
 
-  it("accepts only the dedicated secret API-key format", () => {
+  it("accepts the preferred dedicated secret API-key format", () => {
     const key = `sb_secret_${"a".repeat(48)}`;
     expect(
       readSupabaseDiscoveryReaderApiKey({
@@ -104,7 +129,6 @@ describe("server-only Supabase environment", () => {
     for (const invalid of [
       `sb_publishable_${"a".repeat(48)}`,
       "sb_secret_too-short",
-      `eyJhbGciOiJIUzI1NiJ9.${"a".repeat(48)}.${"b".repeat(43)}`,
     ]) {
       expect(() =>
         readSupabaseDiscoveryReaderApiKey({
@@ -112,6 +136,56 @@ describe("server-only Supabase environment", () => {
         }),
       ).toThrow(SupabaseServerConfigurationError);
     }
+  });
+
+  it("accepts only a currently valid legacy HS256 JWT for the reader role", () => {
+    const valid = legacyDiscoveryReaderJwt();
+    expect(
+      readSupabaseDiscoveryReaderApiKey({
+        SUPABASE_URL: TEST_ENVIRONMENT.url,
+        SUPABASE_DISCOVERY_READER_KEY: valid,
+      }),
+    ).toBe(valid);
+    expect(
+      readSupabaseDiscoveryReaderApiKey({
+        SUPABASE_DISCOVERY_READER_KEY: valid,
+      }),
+    ).toBe(valid);
+
+    const now = Math.floor(Date.now() / 1_000);
+    for (const invalid of [
+      legacyDiscoveryReaderJwt({ role: "anon" }),
+      legacyDiscoveryReaderJwt({ role: "authenticated" }),
+      legacyDiscoveryReaderJwt({ role: "service_role" }),
+      legacyDiscoveryReaderJwt({ role: "firewatch_publisher" }),
+      legacyDiscoveryReaderJwt({ iss: "not-supabase" }),
+      legacyDiscoveryReaderJwt({ ref: "abcdefghijklmnopqrs1" }),
+      legacyDiscoveryReaderJwt({ exp: now }),
+      legacyDiscoveryReaderJwt({ nbf: now + 60 }),
+      legacyDiscoveryReaderJwt({ iat: now + 31 }),
+      legacyDiscoveryReaderJwt({ iat: undefined }),
+      legacyDiscoveryReaderJwt({ exp: undefined }),
+      legacyDiscoveryReaderJwt({ exp: "not-a-timestamp" }),
+      legacyDiscoveryReaderJwt({ iat: now, exp: now + 31 * 86_400 + 1 }),
+      legacyDiscoveryReaderJwt({ exp: now + 3_600, nbf: now + 3_600 }),
+      legacyDiscoveryReaderJwt({}, { alg: "none" }),
+      `${valid.split(".").slice(0, 2).join(".")}.abc`,
+      `${valid}.extra`,
+      "not-a-jwt",
+    ]) {
+      expect(() =>
+        readSupabaseDiscoveryReaderApiKey({
+          SUPABASE_DISCOVERY_READER_KEY: invalid,
+        }),
+      ).toThrow(SupabaseServerConfigurationError);
+    }
+
+    expect(() =>
+      readSupabaseDiscoveryReaderApiKey({
+        SUPABASE_URL: "https://bcdefghijklmnopqrstu.supabase.co",
+        SUPABASE_DISCOVERY_READER_KEY: valid,
+      }),
+    ).toThrow(SupabaseServerConfigurationError);
   });
 
   it("fails closed without disclosing invalid environment values", () => {
@@ -168,6 +242,31 @@ describe("typed api-schema PostgREST reads", () => {
     expect(headers.get("apikey")).toBe(TEST_ENVIRONMENT.publishableKey);
     expect(headers.has("authorization")).toBe(false);
     expect(init?.cache).toBe("no-store");
+  });
+
+  it("adds a bearer header only for the validated legacy reader JWT", async () => {
+    const jwt = legacyDiscoveryReaderJwt();
+    const secret = `sb_secret_${"a".repeat(48)}`;
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json([]));
+
+    for (const apiKey of [jwt, secret]) {
+      await readPostgrestRpcRows({
+        environment: TEST_ENVIRONMENT,
+        fetchImpl: fetchMock,
+        rpc: "explore_candidate_cells_v3",
+        query: {},
+        rowSchema: z.object({}),
+        apiKey,
+      });
+    }
+
+    const jwtHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(jwtHeaders.get("apikey")).toBe(TEST_ENVIRONMENT.publishableKey);
+    expect(jwtHeaders.get("authorization")).toBe(`Bearer ${jwt}`);
+
+    const secretHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers);
+    expect(secretHeaders.get("apikey")).toBe(secret);
+    expect(secretHeaders.has("authorization")).toBe(false);
   });
 
   it("cancels a chunked response as soon as its streaming byte bound is exceeded", async () => {

@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer";
 import { z } from "zod";
 
 import {
+  isSupabaseDiscoveryReaderLegacyJwt,
   readSupabaseServerEnvironment,
   type SupabaseServerEnvironment,
 } from "./server-env";
@@ -157,6 +158,19 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
   const apiKey = apiKeySchema.parse(
     input.apiKey ?? environment.publishableKey,
   );
+  const legacyDiscoveryReaderJwt =
+    input.apiKey !== undefined &&
+    isSupabaseDiscoveryReaderLegacyJwt(apiKey, environment.url);
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Accept-Profile": "api",
+    apikey: legacyDiscoveryReaderJwt
+      ? environment.publishableKey
+      : apiKey,
+  };
+  if (legacyDiscoveryReaderJwt) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
 
   Object.entries(input.query).forEach(([name, value]) => {
     endpoint.searchParams.set(name, value);
@@ -166,11 +180,7 @@ async function readPostgrestJsonRows<Schema extends z.ZodType>(
     const response = await fetchImpl(endpoint, {
       method: "GET",
       cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "Accept-Profile": "api",
-        apikey: apiKey,
-      },
+      headers,
       signal: controller.signal,
     });
 

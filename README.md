@@ -189,7 +189,7 @@ FIRMS_MAP_KEY=your_server_side_nasa_firms_key
 X_BEARER_TOKEN=your_optional_server_side_x_bearer_token
 SUPABASE_URL=your_optional_supabase_project_url
 SUPABASE_PUBLISHABLE_KEY=your_optional_supabase_publishable_key
-SUPABASE_DISCOVERY_READER_KEY=your_scoped_server_only_supabase_secret_key
+SUPABASE_DISCOVERY_READER_KEY=your_scoped_secret_key_or_transitional_reader_jwt
 FIREWATCH_THERMAL_V3_UI_ENABLED=false
 ```
 
@@ -212,9 +212,16 @@ persisted polling is the failure fallback.
 server-side v3 shadow read routes (`/api/v3/shadow/sources` and
 `/api/v3/satellite-passes`). `SUPABASE_DISCOVERY_READER_KEY` is additionally
 required for the privilege-scoped Nearby and thermal-anomaly projections;
-without it those routes fail closed with 503. The disabled-by-default OpenRouter
-OODA variables are documented in `.env.example` and
-[docs/ai-ooda-architecture.md](docs/ai-ooda-architecture.md).
+without it those routes fail closed with 503. Prefer an individually revocable
+`sb_secret_...` key scoped to `firewatch_discovery_reader`. On Supabase Free,
+a time-bounded legacy HS256 JWT with that exact role is a transitional fallback;
+the app rejects malformed, expired, not-yet-valid, `anon`, `service_role`, and
+other-role tokens before Supabase independently verifies the signature. Its
+issuer must be `supabase`, `ref` must match the hosted project, and its lifetime
+from numeric `iat` to `exp` cannot exceed 31 days. Store only the minted JWT in
+Vercel—never the JWT signing secret. Rotate it at least monthly. The
+disabled-by-default OpenRouter OODA variables are documented in `.env.example`
+and [docs/ai-ooda-architecture.md](docs/ai-ooda-architecture.md).
 
 All of these variables are server-only. Never prefix any of them with
 `NEXT_PUBLIC_`, expose their values in browser code, or commit `.env.local`.
@@ -351,8 +358,9 @@ read-model boundary:
 - `GET /api/v3/areas/nearby?cell=wm/z/x/y` reads only the bounded
   `api.nearby_incidents_v3` PostGIS projection. Vercel sends a named Supabase
   secret API key whose fixed JWT template contains only
-  `role: firewatch_discovery_reader`; the public key alone, `anon`, `authenticated`,
-  collectors, and `service_role` cannot execute this RPC. The definer function
+  `role: firewatch_discovery_reader`, or the transitional Free-plan legacy JWT
+  described below; the public key alone, `anon`, `authenticated`, collectors,
+  and `service_role` cannot execute this RPC. The definer function
   independently enforces public visibility, both cutoff-time and current
   publication eligibility, mutable-gate clocks, a spatial-first latest-snapshot
   proof, a five-second statement timeout, and all input/result bounds. It can
@@ -405,11 +413,11 @@ anomalies use the authenticated cursor described above. A successful empty
 read remains `not_assessed` / `indeterminate` and does not claim local-time
 resolution or an all-clear.
 
-Nearby has a mandatory deployment credential. After applying the migration,
-create a named, individually revocable Supabase secret API key whose fixed JWT
-template is the new database role. This Management API request must be run by
-an operator with API-gateway-key write access; do not paste the management
-token into the repository or shell history:
+Nearby has a mandatory deployment credential. The preferred path after applying
+the migration is a named, individually revocable Supabase secret API key whose
+fixed JWT template is the new database role. This Management API request must
+be run by an operator with API-gateway-key write access; do not paste the
+management token into the repository or shell history:
 
 ```bash
 curl 'https://api.supabase.com/v1/projects/cggrrimijkmmzpwhodqt/api-keys?reveal=true' \
@@ -418,7 +426,7 @@ curl 'https://api.supabase.com/v1/projects/cggrrimijkmmzpwhodqt/api-keys?reveal=
   --header 'Content-Type: application/json' \
   --data '{
     "type":"secret",
-    "name":"firewatch-discovery-reader",
+    "name":"firewatch_discovery_reader",
     "description":"Vercel v3 Nearby read proxy only",
     "secret_jwt_template":{"role":"firewatch_discovery_reader"}
   }'
@@ -433,6 +441,19 @@ key by its Management API key id. See Supabase's
 [API-key guide](https://supabase.com/docs/guides/getting-started/api-keys) and
 [platform API-key example](https://supabase.com/docs/guides/integrations/supabase-for-platforms)
 for secret-key handling and per-key rotation.
+
+If the Free plan cannot create that scoped key, an operator may transitionally
+mint a time-bounded legacy HS256 JWT outside the application with `role` exactly
+`firewatch_discovery_reader`, `iss: "supabase"`, the canonical 20-letter project
+`ref`, numeric `iat` and future `exp` no more than 31 days apart, and an optional
+numeric `nbf`. Put only that JWT in `SUPABASE_DISCOVERY_READER_KEY`. The server
+decodes the payload without trusting it, rejects the wrong role or validity
+window, and sends it as a bearer token alongside the configured publishable API
+key so Supabase can verify its signature and assume the restricted role. Never
+put `SUPABASE_JWT_SECRET` in Vercel, an app environment, source, or routine
+deployment tooling. Rotate the JWT at least monthly. This fallback is less
+revocable than a named key and should be replaced by the preferred `sb_secret_`
+credential when available.
 
 ## Supabase development
 
