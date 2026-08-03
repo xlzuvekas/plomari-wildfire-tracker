@@ -114,15 +114,25 @@ References:
    creates a temporary local-only RPC, calls it through real PostgREST as
    `firewatch_discovery_reader`, expects SQLSTATE `57014` near four seconds,
    checks `pg_stat_activity`, and drops the probe in `finally`.
-3. Provision a named Preview Supabase secret key whose current template is
-   exactly `{"role":"firewatch_discovery_reader"}`. The template is mutable in
-   the Supabase control plane: read it back before activation and after every
+3. Prefer a named Preview Supabase secret key whose current template is exactly
+   `{"role":"firewatch_discovery_reader"}`. The template is mutable in the
+   Supabase control plane: read it back before activation and after every
    rotation or metadata change, recording the key ID, non-secret hash/prefix,
    template, and `updated_at`. Keep `api_gateway_keys_write`/`secrets:write`
-   away from runtime and routine CI identities and audit its use. Test the real
-   key through PostgREST: the two reviewed discovery RPCs succeed; private
-   table reads, writes, unrelated functions, and service-role substitution
-   fail. Repeat these negative checks after every template verification.
+   away from runtime and routine CI identities and audit its use. If Free-plan
+   restrictions prevent this, transitionally mint a time-bounded legacy HS256
+   JWT outside the app with that exact role, `iss: "supabase"`, the canonical
+   20-letter project `ref`, numeric `iat` and future `exp` no more than 31 days
+   apart, and an optional numeric `nbf`; store only the JWT as
+   `SUPABASE_DISCOVERY_READER_KEY`. Never store `SUPABASE_JWT_SECRET` in Vercel,
+   the application, source, or routine deployment tooling. Local payload
+   decoding is only a fail-closed preflight; Supabase must still verify the
+   signature. Test the real credential through PostgREST: the two reviewed
+   discovery RPCs succeed; expired/not-yet-valid/wrong-role or tampered JWTs,
+   private table reads, writes, unrelated functions, and service-role
+   substitution fail. Repeat these negative checks after every credential
+   rotation or template verification. Rotate the fallback JWT at least monthly
+   and replace it with a scoped `sb_secret_` key when the plan permits.
 4. Provision dedicated Preview Redis credentials, a new random HMAC secret, and
    a canary bearer-token digest. Start with conservative temporary limits solely
    to exercise failure modes. Keep access mode `canary`.
